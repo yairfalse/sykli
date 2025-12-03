@@ -1,0 +1,60 @@
+# Elixir
+_build/
+deps/
+*.ez
+*.beam
+erl_crash.dump
+*.plt
+*.plt.hash
+
+# Mix
+.fetch
+.mix.lock
+
+# Escript binary (at root)
+/sykli
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
+go.work.sum
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment
+.env
+.env.local
+
+# Logs
+*.log
+logs/
+
+# Test artifacts
+test-results/
+coverage/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.pid
+
+# Documentation (research notes - not for commit)
+docs/
+# But allow ADRs (architectural decision records)
+!docs/adr/
+
+# Build artifacts from example projects
+examples/go-project/app
