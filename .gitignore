@@ -11,8 +11,9 @@ erl_crash.dump
 .fetch
 .mix.lock
 
-# Escript binary (at root)
+# Escript binary
 /sykli
+/core/sykli
 
 # Go
 *.exe

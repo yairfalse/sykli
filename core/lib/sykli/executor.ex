@@ -103,18 +103,27 @@ defmodule Sykli.Executor do
   defp run_single(%Sykli.Graph.Task{name: name, command: command}, workdir) do
     IO.puts("#{IO.ANSI.cyan()}▶ #{name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{command}#{IO.ANSI.reset()}")
 
-    [cmd | args] = String.split(command)
+    # Post pending status to GitHub
+    maybe_github_status(name, "pending")
 
-    # System.cmd is simpler than Port for non-streaming
-    case System.cmd(cmd, args, cd: workdir, stderr_to_stdout: true) do
+    # Run through shell to support env vars, pipes, etc.
+    case System.cmd("sh", ["-c", command], cd: workdir, stderr_to_stdout: true) do
       {_output, 0} ->
         IO.puts("#{IO.ANSI.green()}✓ #{name}#{IO.ANSI.reset()}")
+        maybe_github_status(name, "success")
         :ok
 
       {output, code} ->
         IO.puts("#{IO.ANSI.red()}✗ #{name} (exit #{code})#{IO.ANSI.reset()}")
         IO.puts(output)
+        maybe_github_status(name, "failure")
         {:error, {:exit_code, code}}
+    end
+  end
+
+  defp maybe_github_status(task_name, state) do
+    if Sykli.GitHub.enabled?() do
+      Sykli.GitHub.update_status(task_name, state)
     end
   end
 end

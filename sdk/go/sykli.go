@@ -20,6 +20,37 @@ type graph struct {
 var current graph
 var lastTask string
 
+// TaskBuilder allows fluent task configuration
+type TaskBuilder struct {
+	task *Task
+}
+
+// Task creates a new task with the given name
+func NewTask(name string) *TaskBuilder {
+	t := &Task{Name: name}
+	current.Tasks = append(current.Tasks, *t)
+	lastTask = name
+	return &TaskBuilder{task: &current.Tasks[len(current.Tasks)-1]}
+}
+
+// Run sets the command for this task
+func (b *TaskBuilder) Run(cmd string) *TaskBuilder {
+	b.task.Command = cmd
+	return b
+}
+
+// After sets dependencies for this task
+func (b *TaskBuilder) DependsOn(tasks ...string) *TaskBuilder {
+	b.task.DependsOn = append(b.task.DependsOn, tasks...)
+	return b
+}
+
+// Inputs sets input globs for caching
+func (b *TaskBuilder) Inputs(patterns ...string) *TaskBuilder {
+	b.task.Inputs = append(b.task.Inputs, patterns...)
+	return b
+}
+
 // Run adds an arbitrary command as a task
 func Run(cmd string) {
 	task := Task{

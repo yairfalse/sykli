@@ -14,7 +14,7 @@ defmodule Sykli.MixProject do
 
   def application do
     [
-      extra_applications: [:logger],
+      extra_applications: [:logger, :inets, :ssl, :public_key],
       mod: {Sykli.Application, []}
     ]
   end
