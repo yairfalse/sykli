@@ -5,7 +5,7 @@ defmodule Sykli.MixProject do
     [
       app: :sykli,
       version: "0.1.0",
-      elixir: "~> 1.19",
+      elixir: "~> 1.15",
       start_permanent: Mix.env() == :prod,
       escript: [main_module: Sykli.CLI],
       deps: deps()
