@@ -103,14 +103,15 @@ OTP distribution means local and remote execution are the same system at differe
 
 ## Status
 
-Building. Testing GitHub status integration.
+Working. Used on real projects.
 
-- [x] Go SDK (basic)
+- [x] Go SDK
 - [x] Elixir core (detector, graph, executor)
-- [x] Parallel execution
-- [ ] Full SDK API (ADR-005)
-- [ ] GitHub status integration
-- [ ] Caching
+- [x] Parallel execution by dependency level
+- [x] GitHub per-task commit status
+- [x] Content-addressed caching
+- [ ] Published SDK (`sykli.dev/go`)
+- [ ] Rust/TypeScript SDKs
 - [ ] Remote execution
 
 ---
