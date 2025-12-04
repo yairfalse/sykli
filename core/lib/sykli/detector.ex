@@ -27,8 +27,9 @@ defmodule Sykli.Detector do
 
   def run_go(path) do
     dir = Path.dirname(path)
+    file = Path.basename(path)
 
-    case System.cmd("go", ["run", path, "--emit"], cd: dir, stderr_to_stdout: true) do
+    case System.cmd("go", ["run", file, "--emit"], cd: dir, stderr_to_stdout: true) do
       {output, 0} -> {:ok, output}
       {error, _} -> {:error, {:go_failed, error}}
     end
@@ -52,8 +53,9 @@ defmodule Sykli.Detector do
 
   def run_ts(path) do
     dir = Path.dirname(path)
+    file = Path.basename(path)
 
-    case System.cmd("npx", ["tsx", path, "--emit"], cd: dir, stderr_to_stdout: true) do
+    case System.cmd("npx", ["tsx", file, "--emit"], cd: dir, stderr_to_stdout: true) do
       {output, 0} -> {:ok, output}
       {error, _} -> {:error, {:ts_failed, error}}
     end
