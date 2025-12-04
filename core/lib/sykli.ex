@@ -5,9 +5,11 @@ defmodule Sykli do
   Direct orchestration: detect SDK file, run it, parse JSON, execute tasks.
   """
 
-  alias Sykli.{Detector, Graph, Executor}
+  alias Sykli.{Detector, Graph, Executor, Cache}
 
   def run(path \\ ".") do
+    Cache.init()
+
     with {:ok, sdk_file} <- Detector.find(path),
          {:ok, json} <- Detector.emit(sdk_file),
          {:ok, graph} <- Graph.parse(json),

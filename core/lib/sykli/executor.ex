@@ -100,7 +100,20 @@ defmodule Sykli.Executor do
 
   # ----- RUNNING A SINGLE TASK -----
 
-  defp run_single(%Sykli.Graph.Task{name: name, command: command}, workdir) do
+  defp run_single(%Sykli.Graph.Task{name: name, command: command, inputs: inputs}, workdir) do
+    # Check cache first
+    case Sykli.Cache.check(name, inputs || [], workdir) do
+      {:hit, _key} ->
+        IO.puts("#{IO.ANSI.yellow()}⊙ #{name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(cached)#{IO.ANSI.reset()}")
+        maybe_github_status(name, "success")
+        :ok
+
+      {:miss, cache_key} ->
+        run_and_cache(name, command, workdir, cache_key)
+    end
+  end
+
+  defp run_and_cache(name, command, workdir, cache_key) do
     IO.puts("#{IO.ANSI.cyan()}▶ #{name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{command}#{IO.ANSI.reset()}")
 
     # Post pending status to GitHub
@@ -110,6 +123,7 @@ defmodule Sykli.Executor do
     case System.cmd("sh", ["-c", command], cd: workdir, stderr_to_stdout: true) do
       {_output, 0} ->
         IO.puts("#{IO.ANSI.green()}✓ #{name}#{IO.ANSI.reset()}")
+        Sykli.Cache.store(cache_key)
         maybe_github_status(name, "success")
         :ok
 
