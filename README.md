@@ -103,7 +103,7 @@ OTP distribution means local and remote execution are the same system at differe
 
 ## Status
 
-Building. Not ready yet.
+Building. Testing GitHub status integration.
 
 - [x] Go SDK (basic)
 - [x] Elixir core (detector, graph, executor)
