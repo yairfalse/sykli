@@ -45,9 +45,11 @@ defmodule Sykli.Cache do
 
   # Hash all files matching input globs
   defp hash_inputs(inputs, workdir) do
+    abs_workdir = Path.expand(workdir)
+
     inputs
     |> Enum.flat_map(fn pattern ->
-      Path.wildcard(Path.join(workdir, pattern))
+      Path.wildcard(Path.join(abs_workdir, pattern), match_dot: false)
     end)
     |> Enum.sort()
     |> Enum.map(&hash_file/1)

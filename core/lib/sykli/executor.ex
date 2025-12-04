@@ -79,8 +79,8 @@ defmodule Sykli.Executor do
         end)
       end)
 
-    # Wait for all tasks in this level (30 second timeout per task)
-    results = Task.await_many(async_tasks, 30_000)
+    # Wait for all tasks in this level (5 minute timeout)
+    results = Task.await_many(async_tasks, 300_000)
 
     # Check if any failed
     failed = Enum.find(results, fn {_name, status} -> status != :ok end)
