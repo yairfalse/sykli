@@ -82,7 +82,7 @@ defmodule Sykli.CLI do
     IO.puts("Commands:")
     IO.puts("  stats                 Show cache statistics")
     IO.puts("  clean                 Delete all cached data")
-    IO.puts("  clean --older-than N  Delete cache older than N (e.g., 7d, 24h)")
+    IO.puts("  clean --older-than <duration>  Delete cache older than <duration> (e.g., 7d, 24h, 30m)")
     IO.puts("  path                  Print cache directory path")
   end
 
