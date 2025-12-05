@@ -51,6 +51,7 @@ defmodule Sykli.CLI do
   end
 
   defp handle_cache(["clean"]) do
+    Sykli.Cache.init()
     Sykli.Cache.clean()
     IO.puts("#{IO.ANSI.green()}Cache cleaned#{IO.ANSI.reset()}")
   end
