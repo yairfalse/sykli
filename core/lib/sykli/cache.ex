@@ -319,9 +319,15 @@ defmodule Sykli.Cache do
         blob_hash = :crypto.hash(:sha256, content) |> Base.encode16(case: :lower)
         dest = blob_path(blob_hash)
 
-        # Only write if blob doesn't exist (content-addressed)
+        # Atomically write blob to avoid race conditions
         unless File.exists?(dest) do
-          File.write!(dest, content)
+          tmp_path = dest <> ".tmp." <> :erlang.unique_integer([:positive]) |> Integer.to_string()
+          File.write!(tmp_path, content)
+          case File.rename(tmp_path, dest) do
+            :ok -> :ok
+            {:error, :eexist} -> File.rm(tmp_path) # Another process won the race
+            {:error, _} -> File.rm(tmp_path)      # Clean up temp file on error
+          end
         end
 
         # Get file mode
