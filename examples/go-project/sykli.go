@@ -2,38 +2,14 @@
 
 package main
 
-import (
-	"encoding/json"
-	"os"
-)
-
-type Task struct {
-	Name      string   `json:"name"`
-	Command   string   `json:"command"`
-	Inputs    []string `json:"inputs,omitempty"`
-	DependsOn []string `json:"depends_on,omitempty"`
-}
-
-var tasks []Task
-
-func task(name, cmd string, deps ...string) {
-	tasks = append(tasks, Task{
-		Name:      name,
-		Command:   cmd,
-		DependsOn: deps,
-		Inputs:    []string{"**/*.go", "go.mod"},
-	})
-}
+import sykli "sykli.dev/go"
 
 func main() {
-	task("test", "go test ./...")
-	task("lint", "go vet ./...")
-	task("build", "go build -o ./app", "test", "lint")
+	s := sykli.New()
 
-	for _, arg := range os.Args[1:] {
-		if arg == "--emit" {
-			json.NewEncoder(os.Stdout).Encode(map[string]any{"tasks": tasks})
-			return
-		}
-	}
+	s.Task("test").Run("go test ./...").Inputs("**/*.go", "go.mod")
+	s.Task("lint").Run("go vet ./...").Inputs("**/*.go")
+	s.Task("build").Run("go build -o ./app").After("test", "lint")
+
+	s.Emit()
 }
