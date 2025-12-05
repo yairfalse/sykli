@@ -18,8 +18,8 @@ defmodule Sykli.Cache do
   @blobs_dir Path.join(@cache_dir, "blobs")
   @version "0.1.0"
 
-  # Env vars that affect builds
-  @relevant_env_vars ["GOPATH", "GOROOT", "CARGO_HOME", "NODE_ENV", "PATH"]
+  # Env vars that affect builds (PATH excluded - too volatile)
+  @relevant_env_vars ["GOPATH", "GOROOT", "CARGO_HOME", "NODE_ENV", "GOOS", "GOARCH"]
 
   def init do
     File.mkdir_p!(@meta_dir)
@@ -43,7 +43,11 @@ defmodule Sykli.Cache do
           {:hit, key}
         else
           # Corrupted cache - clean up
-          File.rm(meta_path)
+          case File.rm(meta_path) do
+            :ok -> :ok
+            {:error, reason} ->
+              IO.warn("Failed to remove corrupted cache file #{meta_path}: #{inspect(reason)}")
+          end
           {:miss, key}
         end
 
@@ -102,8 +106,15 @@ defmodule Sykli.Cache do
     }
 
     meta_path = meta_path(key)
-    File.write!(meta_path, Jason.encode!(meta, pretty: true))
-    :ok
+    # Atomic write: write to temp file then rename
+    tmp_path = meta_path <> ".tmp." <> Integer.to_string(:erlang.unique_integer([:positive]))
+    File.write!(tmp_path, Jason.encode!(meta, pretty: true))
+    case File.rename(tmp_path, meta_path) do
+      :ok -> :ok
+      {:error, _} ->
+        File.rm(tmp_path)
+        :ok
+    end
   end
 
   @doc """
@@ -167,8 +178,12 @@ defmodule Sykli.Cache do
             case DateTime.from_iso8601(cached_at) do
               {:ok, dt, _} ->
                 if DateTime.compare(dt, cutoff) == :lt do
-                  File.rm(path)
-                  {count + 1, blobs}
+                  case File.rm(path) do
+                    :ok -> {count + 1, blobs}
+                    {:error, reason} ->
+                      IO.warn("Failed to remove cache file #{path}: #{inspect(reason)}")
+                      {count, blobs}
+                  end
                 else
                   # Keep track of blobs still in use
                   output_blobs =
@@ -182,13 +197,21 @@ defmodule Sykli.Cache do
 
               _ ->
                 # Invalid date, delete
-                File.rm(path)
-                {count + 1, blobs}
+                case File.rm(path) do
+                  :ok -> {count + 1, blobs}
+                  {:error, reason} ->
+                    IO.warn("Failed to remove invalid cache file #{path}: #{inspect(reason)}")
+                    {count, blobs}
+                end
             end
 
           {:error, _} ->
-            File.rm(path)
-            {count + 1, blobs}
+            case File.rm(path) do
+              :ok -> {count + 1, blobs}
+              {:error, reason} ->
+                IO.warn("Failed to remove unreadable cache file #{path}: #{inspect(reason)}")
+                {count, blobs}
+            end
         end
       end)
 
@@ -321,7 +344,7 @@ defmodule Sykli.Cache do
 
         # Atomically write blob to avoid race conditions
         unless File.exists?(dest) do
-          tmp_path = dest <> ".tmp." <> :erlang.unique_integer([:positive]) |> Integer.to_string()
+          tmp_path = dest <> ".tmp." <> Integer.to_string(:erlang.unique_integer([:positive]))
           File.write!(tmp_path, content)
           case File.rename(tmp_path, dest) do
             :ok -> :ok

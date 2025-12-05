@@ -67,7 +67,7 @@ defmodule Sykli.CLI do
 
       {:error, _} ->
         IO.puts("#{IO.ANSI.red()}Invalid duration: #{duration}#{IO.ANSI.reset()}")
-        IO.puts("Examples: 7d, 24h, 30m")
+        IO.puts("Examples: 7d, 24h, 30m, 60s")
         System.halt(1)
     end
   end
@@ -86,12 +86,13 @@ defmodule Sykli.CLI do
     IO.puts("  path                  Print cache directory path")
   end
 
-  # Parse duration like "7d", "24h", "30m" into seconds
+  # Parse duration like "7d", "24h", "30m", "60s" into seconds
   defp parse_duration(str) do
-    case Regex.run(~r/^(\d+)(d|h|m)$/, str) do
+    case Regex.run(~r/^(\d+)(d|h|m|s)$/, str) do
       [_, num, "d"] -> {:ok, String.to_integer(num) * 86400}
       [_, num, "h"] -> {:ok, String.to_integer(num) * 3600}
       [_, num, "m"] -> {:ok, String.to_integer(num) * 60}
+      [_, num, "s"] -> {:ok, String.to_integer(num)}
       _ -> {:error, :invalid}
     end
   end
