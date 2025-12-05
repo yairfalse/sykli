@@ -118,6 +118,9 @@ func (t *Task) Outputs(paths ...string) *Task {
 
 // Timeout sets the task timeout
 func (t *Task) Timeout(d time.Duration) *Task {
+	if d <= 0 {
+		panic("timeout must be positive")
+	}
 	t.timeout = d
 	return t
 }
