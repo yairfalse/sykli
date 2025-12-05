@@ -9,7 +9,7 @@ func main() {
 
 	s.Task("test").Run("go test ./...").Inputs("**/*.go", "go.mod")
 	s.Task("lint").Run("go vet ./...").Inputs("**/*.go")
-	s.Task("build").Run("go build -o ./app").After("test", "lint")
+	s.Task("build").Run("go build -o ./app").After("test", "lint").Outputs("./app")
 
 	s.Emit()
 }
