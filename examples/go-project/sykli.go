@@ -11,6 +11,7 @@ type Task struct {
 	Name      string   `json:"name"`
 	Command   string   `json:"command"`
 	Inputs    []string `json:"inputs,omitempty"`
+	Outputs   []string `json:"outputs,omitempty"`
 	DependsOn []string `json:"depends_on,omitempty"`
 }
 
@@ -25,10 +26,20 @@ func task(name, cmd string, deps ...string) {
 	})
 }
 
+func taskWithOutputs(name, cmd string, outputs []string, deps ...string) {
+	tasks = append(tasks, Task{
+		Name:      name,
+		Command:   cmd,
+		DependsOn: deps,
+		Inputs:    []string{"**/*.go", "go.mod"},
+		Outputs:   outputs,
+	})
+}
+
 func main() {
 	task("test", "go test ./...")
 	task("lint", "go vet ./...")
-	task("build", "go build -o ./app", "test", "lint")
+	taskWithOutputs("build", "go build -o ./app", []string{"./app"}, "test", "lint")
 
 	for _, arg := range os.Args[1:] {
 		if arg == "--emit" {

@@ -100,30 +100,53 @@ defmodule Sykli.Executor do
 
   # ----- RUNNING A SINGLE TASK -----
 
-  defp run_single(%Sykli.Graph.Task{name: name, command: command, inputs: inputs}, workdir) do
+  defp run_single(%Sykli.Graph.Task{} = task, workdir) do
     # Check cache first
-    case Sykli.Cache.check(name, inputs || [], workdir) do
-      {:hit, _key} ->
-        IO.puts("#{IO.ANSI.yellow()}⊙ #{name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(cached)#{IO.ANSI.reset()}")
-        maybe_github_status(name, "success")
-        :ok
+    case Sykli.Cache.check(task, workdir) do
+      {:hit, key} ->
+        # Restore outputs from cache
+        case Sykli.Cache.restore(key, workdir) do
+          :ok ->
+            IO.puts(
+              "#{IO.ANSI.yellow()}⊙ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(cached)#{IO.ANSI.reset()}"
+            )
+
+            maybe_github_status(task.name, "success")
+            :ok
+
+          {:error, reason} ->
+            IO.puts(
+              "#{IO.ANSI.yellow()}⚠ Cache restore failed for #{task.name}: #{inspect(reason)}#{IO.ANSI.reset()}"
+            )
+
+            run_and_cache(task, workdir, nil)
+        end
 
       {:miss, cache_key} ->
-        run_and_cache(name, command, workdir, cache_key)
+        run_and_cache(task, workdir, cache_key)
     end
   end
 
-  defp run_and_cache(name, command, workdir, cache_key) do
+  defp run_and_cache(%Sykli.Graph.Task{name: name, command: command, outputs: outputs} = task, workdir, cache_key) do
     IO.puts("#{IO.ANSI.cyan()}▶ #{name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{command}#{IO.ANSI.reset()}")
 
     # Post pending status to GitHub
     maybe_github_status(name, "pending")
 
+    # Track execution time
+    start_time = System.monotonic_time(:millisecond)
+
     # Run through shell to support env vars, pipes, etc.
     case System.cmd("sh", ["-c", command], cd: workdir, stderr_to_stdout: true) do
       {_output, 0} ->
+        duration_ms = System.monotonic_time(:millisecond) - start_time
         IO.puts("#{IO.ANSI.green()}✓ #{name}#{IO.ANSI.reset()}")
-        Sykli.Cache.store(cache_key)
+
+        # Store in cache with outputs
+        if cache_key do
+          Sykli.Cache.store(cache_key, task, outputs || [], duration_ms, workdir)
+        end
+
         maybe_github_status(name, "success")
         :ok
 

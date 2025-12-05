@@ -10,6 +10,7 @@ type Task struct {
 	Name      string   `json:"name"`
 	Command   string   `json:"command"`
 	Inputs    []string `json:"inputs,omitempty"`
+	Outputs   []string `json:"outputs,omitempty"`
 	DependsOn []string `json:"depends_on,omitempty"`
 }
 
@@ -48,6 +49,12 @@ func (b *TaskBuilder) DependsOn(tasks ...string) *TaskBuilder {
 // Inputs sets input globs for caching
 func (b *TaskBuilder) Inputs(patterns ...string) *TaskBuilder {
 	b.task.Inputs = append(b.task.Inputs, patterns...)
+	return b
+}
+
+// Outputs sets output paths for caching
+func (b *TaskBuilder) Outputs(paths ...string) *TaskBuilder {
+	b.task.Outputs = append(b.task.Outputs, paths...)
 	return b
 }
 
@@ -92,6 +99,7 @@ func Build(output string) {
 		Name:    "build",
 		Command: "go build -o " + output,
 		Inputs:  []string{"**/*.go", "go.mod", "go.sum"},
+		Outputs: []string{output},
 	}
 	if lastTask != "" {
 		task.DependsOn = []string{lastTask}
