@@ -16,8 +16,13 @@ import (
 	"time"
 )
 
-// FailureMode defines how to handle task failures
-type FailureMode string
+type Task struct {
+	Name      string   `json:"name"`
+	Command   string   `json:"command"`
+	Inputs    []string `json:"inputs,omitempty"`
+	Outputs   []string `json:"outputs,omitempty"`
+	DependsOn []string `json:"depends_on,omitempty"`
+}
 
 const (
 	Stop     FailureMode = "stop"
@@ -93,11 +98,17 @@ func (p *Pipeline) GitHub() *GitHubConfig {
 	return p.github
 }
 
-// PerTaskStatus enables per-task commit status
-func (g *GitHubConfig) PerTaskStatus(prefix ...string) *GitHubConfig {
-	g.perTaskStatus = true
-	if len(prefix) > 0 {
-		g.contextPrefix = prefix[0]
+// Outputs sets output paths for caching
+func (b *TaskBuilder) Outputs(paths ...string) *TaskBuilder {
+	b.task.Outputs = append(b.task.Outputs, paths...)
+	return b
+}
+
+// Run adds an arbitrary command as a task
+func Run(cmd string) {
+	task := Task{
+		Name:    cmd,
+		Command: cmd,
 	}
 	return g
 }
@@ -114,10 +125,19 @@ func (t *Task) After(tasks ...string) *Task {
 	return t
 }
 
-// Inputs sets input globs for caching
-func (t *Task) Inputs(patterns ...string) *Task {
-	t.inputs = append(t.inputs, patterns...)
-	return t
+// Build adds a build task
+func Build(output string) {
+	task := Task{
+		Name:    "build",
+		Command: "go build -o " + output,
+		Inputs:  []string{"**/*.go", "go.mod", "go.sum"},
+		Outputs: []string{output},
+	}
+	if lastTask != "" {
+		task.DependsOn = []string{lastTask}
+	}
+	current.Tasks = append(current.Tasks, task)
+	lastTask = "build"
 }
 
 // Outputs sets output paths (artifacts)

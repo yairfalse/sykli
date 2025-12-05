@@ -2,14 +2,44 @@
 
 package main
 
-import sykli "sykli.dev/go"
+import (
+	"encoding/json"
+	"os"
+)
+
+type Task struct {
+	Name      string   `json:"name"`
+	Command   string   `json:"command"`
+	Inputs    []string `json:"inputs,omitempty"`
+	Outputs   []string `json:"outputs,omitempty"`
+	DependsOn []string `json:"depends_on,omitempty"`
+}
+
+var tasks []Task
+
+func task(name, cmd string, deps ...string) {
+	tasks = append(tasks, Task{
+		Name:      name,
+		Command:   cmd,
+		DependsOn: deps,
+		Inputs:    []string{"**/*.go", "go.mod"},
+	})
+}
+
+func taskWithOutputs(name, cmd string, outputs []string, deps ...string) {
+	tasks = append(tasks, Task{
+		Name:      name,
+		Command:   cmd,
+		DependsOn: deps,
+		Inputs:    []string{"**/*.go", "go.mod"},
+		Outputs:   outputs,
+	})
+}
 
 func main() {
-	s := sykli.New()
-
-	s.Task("test").Run("go test ./...").Inputs("**/*.go", "go.mod")
-	s.Task("lint").Run("go vet ./...").Inputs("**/*.go")
-	s.Task("build").Run("go build -o ./app").After("test", "lint").Outputs("./app")
+	task("test", "go test ./...")
+	task("lint", "go vet ./...")
+	taskWithOutputs("build", "go build -o ./app", []string{"./app"}, "test", "lint")
 
 	s.Emit()
 }
