@@ -11,7 +11,6 @@ defmodule Sykli.CacheTest do
     File.mkdir_p!(@test_workdir)
 
     # Override cache directory for tests
-    # We'll use a helper module to test with custom paths
     on_exit(fn ->
       File.rm_rf!(@test_cache_dir)
       File.rm_rf!(@test_workdir)
