@@ -10,7 +10,9 @@ package sykli
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -24,7 +26,7 @@ const (
 
 // Retry returns a failure mode that retries N times
 func Retry(n int) FailureMode {
-	return FailureMode("retry:" + string(rune('0'+n)))
+	return FailureMode("retry:" + strconv.Itoa(n))
 }
 
 // Pipeline represents a CI pipeline
@@ -62,6 +64,14 @@ func New() *Pipeline {
 
 // Task creates a new task with the given name
 func (p *Pipeline) Task(name string) *Task {
+	if name == "" {
+		panic("task name cannot be empty")
+	}
+	for _, existing := range p.tasks {
+		if existing.name == name {
+			panic(fmt.Sprintf("task %q already exists", name))
+		}
+	}
 	t := &Task{
 		name:      name,
 		timeout:   5 * time.Minute,
@@ -147,6 +157,24 @@ func (p *Pipeline) MustEmit() {
 }
 
 func (p *Pipeline) emit() {
+	// Validate all tasks
+	taskNames := make(map[string]bool)
+	for _, t := range p.tasks {
+		taskNames[t.name] = true
+	}
+	for _, t := range p.tasks {
+		if t.command == "" {
+			fmt.Fprintf(os.Stderr, "error: task %q has no command\n", t.name)
+			os.Exit(1)
+		}
+		for _, dep := range t.dependsOn {
+			if !taskNames[dep] {
+				fmt.Fprintf(os.Stderr, "error: task %q depends on unknown task %q\n", t.name, dep)
+				os.Exit(1)
+			}
+		}
+	}
+
 	type jsonTask struct {
 		Name      string   `json:"name"`
 		Command   string   `json:"command"`
@@ -197,5 +225,8 @@ func (p *Pipeline) emit() {
 		}
 	}
 
-	json.NewEncoder(os.Stdout).Encode(out)
+	if err := json.NewEncoder(os.Stdout).Encode(out); err != nil {
+		fmt.Fprintf(os.Stderr, "error encoding pipeline: %v\n", err)
+		os.Exit(1)
+	}
 }
