@@ -202,8 +202,12 @@ defmodule Sykli.Cache do
         if MapSet.member?(kept_blobs, blob_name) do
           count
         else
-          File.rm(path)
-          count + 1
+          case File.rm(path) do
+            :ok -> count + 1
+            {:error, reason} ->
+              IO.warn("Failed to remove blob #{path}: #{inspect(reason)}")
+              count
+          end
         end
       end)
 
