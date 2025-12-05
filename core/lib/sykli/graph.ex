@@ -4,7 +4,7 @@ defmodule Sykli.Graph do
   """
 
   defmodule Task do
-    defstruct [:name, :command, :inputs, :depends_on, :condition]
+    defstruct [:name, :command, :inputs, :outputs, :depends_on, :condition]
   end
 
   def parse(json) do
@@ -30,6 +30,7 @@ defmodule Sykli.Graph do
       name: map["name"],
       command: map["command"],
       inputs: map["inputs"] || [],
+      outputs: map["outputs"] || [],
       depends_on: (map["depends_on"] || []) |> Enum.uniq(),  # dedupe!
       condition: map["condition"]
     }
