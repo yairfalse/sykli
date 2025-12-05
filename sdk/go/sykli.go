@@ -3,7 +3,7 @@
 // Example:
 //
 //	s := sykli.New()
-//	s.Task("test").Run("go test ./...").Inputs("**/*.go")
+//	s.Task("test").Run("go test ./...").Inputs("**/*.go", "go.mod")
 //	s.Task("build").Run("go build -o app").After("test")
 //	s.Emit()
 package sykli
