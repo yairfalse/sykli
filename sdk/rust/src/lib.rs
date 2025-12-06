@@ -157,6 +157,9 @@ impl<'a> Task<'a> {
 
     /// Sets the working directory inside the container.
     pub fn workdir(self, path: &str) -> Self {
+        if !path.starts_with('/') {
+            panic!("container working directory must be absolute (start with /)");
+        }
         if path.is_empty() || !path.starts_with('/') {
             panic!("container working directory must be absolute (start with /)");
         }
