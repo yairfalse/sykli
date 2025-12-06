@@ -262,7 +262,11 @@ defmodule Sykli.Executor do
       ]
     )
 
-    stream_output(port)
+    try do
+      stream_output(port)
+    after
+      Port.close(port)
+    end
   end
 
   defp stream_output(port) do
