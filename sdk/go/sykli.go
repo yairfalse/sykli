@@ -170,9 +170,6 @@ func (p *Pipeline) Task(name string) *Task {
 // Run sets the command for this task.
 func (t *Task) Run(cmd string) *Task {
 	if cmd == "" {
-		panic("task command cannot be empty")
-	}
-	if cmd == "" {
 		panic("command cannot be empty")
 	}
 	t.command = cmd
