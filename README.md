@@ -43,7 +43,9 @@ Run `sykli`. Done.
 
 ## Why
 
-YAML is not a programming language. Stop pretending it is.
+CI configuration files started simple but grew into pseudo-programming languages. YAML with templating, custom DSLs with conditionals, proprietary scripting layers. The result: you're programming, but in a language designed for configuration.
+
+Sykli takes a different approach. Your CI definition is a program in your language—Go, Rust, TypeScript. It runs, emits a task graph as JSON, and an executor runs the tasks in parallel. No interpretation layer. No config-language barriers. Just code that describes what to build and run.
 
 - **No YAML** — your CI config is real code
 - **No DSL** — use your language's full power
