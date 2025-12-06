@@ -282,7 +282,7 @@ defmodule Sykli.Cache do
   defp hash_mounts([]), do: ""
   defp hash_mounts(mounts) do
     mounts
-    |> Enum.map(fn m -> "#{m.resource}:#{m.path}:#{m.type}" end)
+    |> Enum.map(fn m -> "#{m[:resource]}:#{m[:path]}:#{m[:type]}" end)
     |> Enum.sort()
     |> Enum.join("|")
     |> then(fn data -> :crypto.hash(:sha256, data) |> Base.encode16(case: :lower) end)
