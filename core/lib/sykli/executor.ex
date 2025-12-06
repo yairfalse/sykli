@@ -263,7 +263,7 @@ defmodule Sykli.Executor do
     try do
       stream_output(port)
     after
-      Port.close(port)
+      safe_port_close(port)
     end
   end
 
@@ -285,7 +285,16 @@ defmodule Sykli.Executor do
     try do
       stream_output(port)
     after
+      safe_port_close(port)
+    end
+  end
+
+  # Safely close a port - it may already be closed when exit_status is received
+  defp safe_port_close(port) do
+    try do
       Port.close(port)
+    rescue
+      ArgumentError -> :ok
     end
   end
 
@@ -300,7 +309,7 @@ defmodule Sykli.Executor do
         {:ok, status}
     after
       300_000 ->
-        Port.close(port)
+        safe_port_close(port)
         {:error, :timeout}
     end
   end
