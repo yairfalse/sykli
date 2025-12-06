@@ -11,9 +11,27 @@ import "sykli.dev/go"
 func main() {
     s := sykli.New()
 
-    s.Task("test").Run("go test ./...")
-    s.Task("lint").Run("go vet ./...")
-    s.Task("build").Run("go build -o app").After("test", "lint")
+    // Define resources
+    src := s.Dir(".")
+    goModCache := s.Cache("go-mod")
+
+    // Tasks run in containers with caches
+    s.Task("test").
+        Container("golang:1.21").
+        Mount(src, "/src").
+        MountCache(goModCache, "/go/pkg/mod").
+        Workdir("/src").
+        Run("go test ./...")
+
+    s.Task("build").
+        Container("golang:1.21").
+        Mount(src, "/src").
+        MountCache(goModCache, "/go/pkg/mod").
+        Workdir("/src").
+        Env("CGO_ENABLED", "0").
+        Run("go build -o ./app .").
+        Output("binary", "./app").
+        After("test")
 
     s.Emit()
 }
@@ -54,71 +72,115 @@ sykli.go  →  JSON task graph  →  Elixir core  →  parallel execution
 brew install sykli
 ```
 
+For now, clone and run with Mix:
+
+```bash
+cd core && mix run -e 'Sykli.run("/path/to/your/project")'
+```
+
 ---
 
 ## SDK
 
+### Simple Tasks
+
 ```go
 s := sykli.New()
 
-// Environment
-s.RequireEnv("GITHUB_TOKEN", "DEPLOY_KEY")
+s.Task("test").Run("go test ./...")
+s.Task("lint").Run("go vet ./...")
+s.Task("build").Run("go build -o app").After("test", "lint")
 
-// GitHub integration
-s.GitHub().PerTaskStatus()
+s.Emit()
+```
 
-// Tasks
+### Container Tasks
+
+```go
+s := sykli.New()
+
+// Resources
+src := s.Dir(".")
+nodeModules := s.Cache("node-modules")
+
+// Run in container with mounted source and cache
 s.Task("test").
-    Run("go test ./...").
-    Timeout(5 * time.Minute).
-    Inputs("**/*.go", "go.mod")
+    Container("node:20").
+    Mount(src, "/app").
+    MountCache(nodeModules, "/app/node_modules").
+    Workdir("/app").
+    Run("npm test")
 
+s.Emit()
+```
+
+### Inputs & Outputs
+
+```go
 s.Task("build").
     Run("go build -o ./dist/app").
-    After("test", "lint").
-    Outputs("./dist/app")
+    Inputs("**/*.go", "go.mod").   // Cache invalidation
+    Output("binary", "./dist/app") // Named outputs
 
-s.Task("deploy").
-    Run("./deploy.sh").
-    After("build").
-    OnFailure(sykli.Retry(2))
+s.Emit()
+```
+
+### Presets
+
+```go
+s := sykli.New()
+
+s.Go().Test()
+s.Go().Lint()
+s.Go().Build("./app").After("test", "lint")
 
 s.Emit()
 ```
 
 ---
 
-## Architecture
+## Features
 
-Elixir core for a reason:
-
-| Local | Remote |
-|-------|--------|
-| Single node | Multiple nodes |
-| Same code | Same code |
-
-OTP distribution means local and remote execution are the same system at different scales. No gRPC. No separate worker binaries. Just Elixir processes.
+| Feature | Status |
+|---------|--------|
+| Go SDK | Done |
+| Parallel execution | Done |
+| Container tasks | Done |
+| Volume mounts | Done |
+| Cache mounts | Done |
+| Content-addressed caching | Done |
+| GitHub commit status | Done |
+| Rust/TypeScript SDKs | Planned |
+| Remote execution | Planned |
 
 ---
 
-## Status
+## Architecture
 
-Working. Used on real projects.
+```
+┌─────────────┐     ┌──────────────┐     ┌────────────┐
+│  sykli.go   │────▶│  JSON Graph  │────▶│   Engine   │
+│    (SDK)    │     │   (stdout)   │     │  (Elixir)  │
+└─────────────┘     └──────────────┘     └────────────┘
+                                               │
+                    ┌──────────────────────────┼──────────────────────────┐
+                    ▼                          ▼                          ▼
+              ┌──────────┐              ┌──────────┐              ┌──────────┐
+              │  lint    │              │   test   │              │  build   │
+              │ (level 0)│              │ (level 0)│              │ (level 1)│
+              └──────────┘              └──────────┘              └──────────┘
+                    │                          │                          ▲
+                    └──────────────────────────┴──────────────────────────┘
+                                         parallel
+```
 
-- [x] Go SDK
-- [x] Elixir core (detector, graph, executor)
-- [x] Parallel execution by dependency level
-- [x] GitHub per-task commit status
-- [x] Content-addressed caching
-- [ ] Published SDK (`sykli.dev/go`)
-- [ ] Rust/TypeScript SDKs
-- [ ] Remote execution
+Elixir for a reason: OTP distribution means local and remote execution are the same system at different scales.
 
 ---
 
 ## Name
 
-*Sykli* — Finnish for "cycle". Part of a toolchain with [rauta](https://github.com/yourorg/rauta), seppo, and ilmari.
+*Sykli* — Finnish for "cycle".
 
 ---
 
