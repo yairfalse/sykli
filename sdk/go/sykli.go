@@ -1,9 +1,19 @@
+// Package sykli provides a fluent API for defining CI pipelines.
+//
+// Example:
+//
+//	s := sykli.New()
+//	s.Task("test").Run("go test ./...").Inputs("**/*.go", "go.mod")
+//	s.Task("build").Run("go build -o app").After("test")
+//	s.Emit()
 package sykli
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
-	"path/filepath"
+	"strconv"
+	"time"
 )
 
 type Task struct {
@@ -14,42 +24,78 @@ type Task struct {
 	DependsOn []string `json:"depends_on,omitempty"`
 }
 
-type graph struct {
-	Tasks []Task `json:"tasks"`
+const (
+	Stop     FailureMode = "stop"
+	Continue FailureMode = "continue"
+)
+
+// Retry returns a failure mode that retries N times
+func Retry(n int) FailureMode {
+	return FailureMode("retry:" + strconv.Itoa(n))
 }
 
-var current graph
-var lastTask string
+// Pipeline represents a CI pipeline
+type Pipeline struct {
+	tasks      []*Task
+	requiredEnv []string
+	github     *GitHubConfig
+}
 
-// TaskBuilder allows fluent task configuration
-type TaskBuilder struct {
-	task *Task
+// Task represents a single task in the pipeline
+type Task struct {
+	name      string
+	command   string
+	inputs    []string
+	outputs   []string
+	dependsOn []string
+	timeout   time.Duration
+	onFailure FailureMode
+}
+
+// GitHubConfig holds GitHub integration settings
+type GitHubConfig struct {
+	enabled       bool
+	perTaskStatus bool
+	contextPrefix string
+}
+
+// New creates a new pipeline
+func New() *Pipeline {
+	return &Pipeline{
+		tasks:  make([]*Task, 0),
+		github: &GitHubConfig{contextPrefix: "ci/sykli"},
+	}
 }
 
 // Task creates a new task with the given name
-func NewTask(name string) *TaskBuilder {
-	t := &Task{Name: name}
-	current.Tasks = append(current.Tasks, *t)
-	lastTask = name
-	return &TaskBuilder{task: &current.Tasks[len(current.Tasks)-1]}
+func (p *Pipeline) Task(name string) *Task {
+	if name == "" {
+		panic("task name cannot be empty")
+	}
+	for _, existing := range p.tasks {
+		if existing.name == name {
+			panic(fmt.Sprintf("task %q already exists", name))
+		}
+	}
+	t := &Task{
+		name:      name,
+		timeout:   5 * time.Minute,
+		onFailure: Stop,
+	}
+	p.tasks = append(p.tasks, t)
+	return t
 }
 
-// Run sets the command for this task
-func (b *TaskBuilder) Run(cmd string) *TaskBuilder {
-	b.task.Command = cmd
-	return b
+// RequireEnv declares required environment variables
+func (p *Pipeline) RequireEnv(vars ...string) *Pipeline {
+	p.requiredEnv = append(p.requiredEnv, vars...)
+	return p
 }
 
-// After sets dependencies for this task
-func (b *TaskBuilder) DependsOn(tasks ...string) *TaskBuilder {
-	b.task.DependsOn = append(b.task.DependsOn, tasks...)
-	return b
-}
-
-// Inputs sets input globs for caching
-func (b *TaskBuilder) Inputs(patterns ...string) *TaskBuilder {
-	b.task.Inputs = append(b.task.Inputs, patterns...)
-	return b
+// GitHub returns the GitHub configuration
+func (p *Pipeline) GitHub() *GitHubConfig {
+	p.github.enabled = true
+	return p.github
 }
 
 // Outputs sets output paths for caching
@@ -64,33 +110,22 @@ func Run(cmd string) {
 		Name:    cmd,
 		Command: cmd,
 	}
-	if lastTask != "" {
-		task.DependsOn = []string{lastTask}
-	}
-	current.Tasks = append(current.Tasks, task)
-	lastTask = cmd
+	return g
 }
 
-// Test adds a test task (auto-detects Go)
-func Test() {
-	task := Task{
-		Name:    "test",
-		Command: "go test ./...",
-		Inputs:  []string{"**/*.go", "go.mod", "go.sum"},
+// Run sets the command for this task
+func (t *Task) Run(cmd string) *Task {
+	if cmd == "" {
+		panic("command cannot be empty")
 	}
-	current.Tasks = append(current.Tasks, task)
-	lastTask = "test"
+	t.command = cmd
+	return t
 }
 
-// Lint adds a lint task
-func Lint() {
-	task := Task{
-		Name:    "lint",
-		Command: "go vet ./...",
-		Inputs:  []string{"**/*.go"},
-	}
-	current.Tasks = append(current.Tasks, task)
-	lastTask = "lint"
+// After sets dependencies for this task
+func (t *Task) After(tasks ...string) *Task {
+	t.dependsOn = append(t.dependsOn, tasks...)
+	return t
 }
 
 // Build adds a build task
@@ -108,66 +143,113 @@ func Build(output string) {
 	lastTask = "build"
 }
 
-// Check runs all standard checks (test + lint)
-func Check() {
-	Test()
-	Lint()
+// Outputs sets output paths (artifacts)
+func (t *Task) Outputs(paths ...string) *Task {
+	t.outputs = append(t.outputs, paths...)
+	return t
 }
 
-// After sets dependency on a previous task
-func After(taskName string) {
-	if len(current.Tasks) > 0 {
-		last := &current.Tasks[len(current.Tasks)-1]
-		last.DependsOn = append(last.DependsOn, taskName)
+// Timeout sets the task timeout
+func (t *Task) Timeout(d time.Duration) *Task {
+	if d <= 0 {
+		panic("timeout must be positive")
 	}
+	t.timeout = d
+	return t
 }
 
-// Emit outputs the task graph as JSON (called when --emit flag is present)
-func Emit() {
+// OnFailure sets the failure handling mode
+func (t *Task) OnFailure(mode FailureMode) *Task {
+	t.onFailure = mode
+	return t
+}
+
+// Emit outputs the pipeline as JSON if --emit flag is present
+func (p *Pipeline) Emit() {
 	for _, arg := range os.Args[1:] {
 		if arg == "--emit" {
-			json.NewEncoder(os.Stdout).Encode(current)
+			p.emit()
 			os.Exit(0)
 		}
 	}
 }
 
-// MustEmit is like Emit but should be called at the end of main()
-// It checks for --emit and outputs JSON, otherwise does nothing
-func MustEmit() {
-	Emit()
+// MustEmit is an alias for Emit
+func (p *Pipeline) MustEmit() {
+	p.Emit()
 }
 
-// Detect checks if this is a Go project
-func Detect() bool {
-	_, err := os.Stat("go.mod")
-	return err == nil
-}
-
-// FindInputs returns glob patterns for Go files
-func FindInputs() []string {
-	return []string{"**/*.go", "go.mod", "go.sum"}
-}
-
-// Init sets up the working directory
-func Init() {
-	if wd := os.Getenv("SYKLI_WORKDIR"); wd != "" {
-		os.Chdir(wd)
+func (p *Pipeline) emit() {
+	// Validate all tasks
+	taskNames := make(map[string]bool)
+	for _, t := range p.tasks {
+		taskNames[t.name] = true
 	}
-}
-
-// helper to find project root
-func findProjectRoot() string {
-	dir, _ := os.Getwd()
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir
+	for _, t := range p.tasks {
+		if t.command == "" {
+			fmt.Fprintf(os.Stderr, "error: task %q has no command\n", t.name)
+			os.Exit(1)
 		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
+		for _, dep := range t.dependsOn {
+			if !taskNames[dep] {
+				fmt.Fprintf(os.Stderr, "error: task %q depends on unknown task %q\n", t.name, dep)
+				os.Exit(1)
+			}
 		}
-		dir = parent
 	}
-	return ""
+
+	type jsonTask struct {
+		Name      string   `json:"name"`
+		Command   string   `json:"command"`
+		Inputs    []string `json:"inputs,omitempty"`
+		Outputs   []string `json:"outputs,omitempty"`
+		DependsOn []string `json:"depends_on,omitempty"`
+		Timeout   int      `json:"timeout,omitempty"`
+		OnFailure string   `json:"on_failure,omitempty"`
+	}
+
+	type jsonGitHub struct {
+		Enabled       bool   `json:"enabled"`
+		PerTaskStatus bool   `json:"per_task_status"`
+		ContextPrefix string `json:"context_prefix"`
+	}
+
+	type jsonPipeline struct {
+		Version     string      `json:"version"`
+		RequiredEnv []string    `json:"required_env,omitempty"`
+		GitHub      *jsonGitHub `json:"github,omitempty"`
+		Tasks       []jsonTask  `json:"tasks"`
+	}
+
+	tasks := make([]jsonTask, len(p.tasks))
+	for i, t := range p.tasks {
+		tasks[i] = jsonTask{
+			Name:      t.name,
+			Command:   t.command,
+			Inputs:    t.inputs,
+			Outputs:   t.outputs,
+			DependsOn: t.dependsOn,
+			Timeout:   int(t.timeout.Seconds()),
+			OnFailure: string(t.onFailure),
+		}
+	}
+
+	out := jsonPipeline{
+		Version:     "1",
+		RequiredEnv: p.requiredEnv,
+		Tasks:       tasks,
+	}
+
+	if p.github.enabled {
+		out.GitHub = &jsonGitHub{
+			Enabled:       true,
+			PerTaskStatus: p.github.perTaskStatus,
+			ContextPrefix: p.github.contextPrefix,
+		}
+	}
+
+	if err := json.NewEncoder(os.Stdout).Encode(out); err != nil {
+		fmt.Fprintf(os.Stderr, "error encoding pipeline: %v\n", err)
+		os.Exit(1)
+	}
 }

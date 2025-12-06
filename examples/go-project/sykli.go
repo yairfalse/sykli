@@ -41,10 +41,5 @@ func main() {
 	task("lint", "go vet ./...")
 	taskWithOutputs("build", "go build -o ./app", []string{"./app"}, "test", "lint")
 
-	for _, arg := range os.Args[1:] {
-		if arg == "--emit" {
-			json.NewEncoder(os.Stdout).Encode(map[string]any{"tasks": tasks})
-			return
-		}
-	}
+	s.Emit()
 }
