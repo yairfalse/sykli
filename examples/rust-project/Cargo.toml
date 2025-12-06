@@ -1,0 +1,11 @@
+[package]
+name = "rust-project"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+sykli = { path = "../../sdk/rust" }
+
+[[bin]]
+name = "sykli"
+path = "sykli.rs"
