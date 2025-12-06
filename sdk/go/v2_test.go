@@ -280,6 +280,89 @@ func TestInputsStillWork(t *testing.T) {
 	}
 }
 
+// Validation tests
+
+func TestEmptyDirPathPanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for empty directory path")
+		}
+	}()
+	p := New()
+	p.Dir("")
+}
+
+func TestEmptyCacheNamePanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for empty cache name")
+		}
+	}()
+	p := New()
+	p.Cache("")
+}
+
+func TestEmptyCommandPanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for empty command")
+		}
+	}()
+	p := New()
+	p.Task("test").Run("")
+}
+
+func TestEmptyContainerImagePanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for empty container image")
+		}
+	}()
+	p := New()
+	p.Task("test").Container("")
+}
+
+func TestNilDirectoryMountPanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for nil directory")
+		}
+	}()
+	p := New()
+	p.Task("test").Mount(nil, "/src")
+}
+
+func TestNilCacheMountPanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for nil cache")
+		}
+	}()
+	p := New()
+	p.Task("test").MountCache(nil, "/cache")
+}
+
+func TestRelativeMountPathPanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for relative mount path")
+		}
+	}()
+	p := New()
+	dir := p.Dir(".")
+	p.Task("test").Mount(dir, "relative/path")
+}
+
+func TestEmptyEnvKeyPanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for empty env key")
+		}
+	}()
+	p := New()
+	p.Task("test").Env("", "value")
+}
+
 func TestV2JSONStructure(t *testing.T) {
 	p := New()
 	src := p.Dir(".")

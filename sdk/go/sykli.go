@@ -69,6 +69,9 @@ type Directory struct {
 
 // Dir creates a directory resource.
 func (p *Pipeline) Dir(path string) *Directory {
+	if path == "" {
+		panic("directory path cannot be empty")
+	}
 	d := &Directory{
 		pipeline: p,
 		path:     path,
@@ -97,6 +100,9 @@ type CacheVolume struct {
 
 // Cache creates a named cache volume.
 func (p *Pipeline) Cache(name string) *CacheVolume {
+	if name == "" {
+		panic("cache name cannot be empty")
+	}
 	c := &CacheVolume{
 		pipeline: p,
 		name:     name,
@@ -116,10 +122,14 @@ func (c *CacheVolume) ID() string {
 
 // Mount represents a filesystem mount in a container.
 type Mount struct {
-	resource   string
-	path       string
-	mountType  string // "directory" or "cache"
-	sourcePath string // for directories
+	// resource is the ID of the resource being mounted (e.g., "src:." for directories, cache name for caches)
+	resource string
+	// path is the mount path inside the container (must be absolute)
+	path string
+	// mountType specifies the type of mount: "directory" or "cache"
+	mountType string
+	// sourcePath is the host path for directories (not used for caches)
+	sourcePath string
 }
 
 // Task represents a single task in the pipeline.
@@ -159,18 +169,30 @@ func (p *Pipeline) Task(name string) *Task {
 
 // Run sets the command for this task.
 func (t *Task) Run(cmd string) *Task {
+	if cmd == "" {
+		panic("command cannot be empty")
+	}
 	t.command = cmd
 	return t
 }
 
 // Container sets the container image for this task.
 func (t *Task) Container(image string) *Task {
+	if image == "" {
+		panic("container image cannot be empty")
+	}
 	t.container = image
 	return t
 }
 
 // Mount mounts a directory into the container.
 func (t *Task) Mount(dir *Directory, path string) *Task {
+	if dir == nil {
+		panic("directory cannot be nil")
+	}
+	if path == "" || path[0] != '/' {
+		panic("container mount path must be absolute (start with /)")
+	}
 	t.mounts = append(t.mounts, Mount{
 		resource:   dir.ID(),
 		path:       path,
@@ -182,6 +204,12 @@ func (t *Task) Mount(dir *Directory, path string) *Task {
 
 // MountCache mounts a cache volume into the container.
 func (t *Task) MountCache(cache *CacheVolume, path string) *Task {
+	if cache == nil {
+		panic("cache cannot be nil")
+	}
+	if path == "" || path[0] != '/' {
+		panic("container mount path must be absolute (start with /)")
+	}
 	t.mounts = append(t.mounts, Mount{
 		resource:  cache.ID(),
 		path:      path,
@@ -198,6 +226,9 @@ func (t *Task) Workdir(path string) *Task {
 
 // Env sets an environment variable.
 func (t *Task) Env(key, value string) *Task {
+	if key == "" {
+		panic("environment variable key cannot be empty")
+	}
 	t.env[key] = value
 	return t
 }
