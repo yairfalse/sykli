@@ -131,7 +131,7 @@ impl<'a> Task<'a> {
 
     /// Mounts a directory into the container.
     pub fn mount(self, dir: &Directory, path: &str) -> Self {
-        if !path.starts_with('/') {
+        if path.is_empty() || !path.starts_with('/') {
             panic!("container mount path must be absolute (start with /)");
         }
         self.pipeline.tasks[self.index].mounts.push(Mount {
@@ -144,7 +144,7 @@ impl<'a> Task<'a> {
 
     /// Mounts a cache volume into the container.
     pub fn mount_cache(self, cache: &CacheVolume, path: &str) -> Self {
-        if !path.starts_with('/') {
+        if path.is_empty() || !path.starts_with('/') {
             panic!("container mount path must be absolute (start with /)");
         }
         self.pipeline.tasks[self.index].mounts.push(Mount {
@@ -157,6 +157,9 @@ impl<'a> Task<'a> {
 
     /// Sets the working directory inside the container.
     pub fn workdir(self, path: &str) -> Self {
+        if path.is_empty() || !path.starts_with('/') {
+            panic!("container working directory must be absolute (start with /)");
+        }
         self.pipeline.tasks[self.index].workdir = Some(path.to_string());
         self
     }
@@ -182,9 +185,11 @@ impl<'a> Task<'a> {
 
     /// Sets a named output path.
     pub fn output(self, name: &str, path: &str) -> Self {
-        if name.is_empty() || path.is_empty() {
-            eprintln!("Warning: output() called with empty name or path; ignoring");
-            return self;
+        if name.is_empty() {
+            panic!("output name cannot be empty");
+        }
+        if path.is_empty() {
+            panic!("output path cannot be empty");
         }
         self.pipeline.tasks[self.index]
             .outputs
@@ -195,6 +200,9 @@ impl<'a> Task<'a> {
     /// Sets output paths (for backward compatibility).
     pub fn outputs(self, paths: &[&str]) -> Self {
         for (i, path) in paths.iter().enumerate() {
+            if path.is_empty() {
+                panic!("output path cannot be empty");
+            }
             self.pipeline.tasks[self.index]
                 .outputs
                 .insert(format!("output_{}", i), path.to_string());
@@ -616,5 +624,94 @@ mod tests {
         let mut buf = Vec::new();
         let result = p.emit_to(&mut buf);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_env_in_json() {
+        let mut p = Pipeline::new();
+        p.task("build")
+            .run("cargo build")
+            .env("RUST_BACKTRACE", "1")
+            .env("CARGO_TERM_COLOR", "always");
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        assert_eq!(json["tasks"][0]["env"]["RUST_BACKTRACE"], "1");
+        assert_eq!(json["tasks"][0]["env"]["CARGO_TERM_COLOR"], "always");
+    }
+
+    #[test]
+    fn test_inputs_in_json() {
+        let mut p = Pipeline::new();
+        p.task("test")
+            .run("cargo test")
+            .inputs(&["**/*.rs", "Cargo.toml"]);
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        let inputs = json["tasks"][0]["inputs"].as_array().unwrap();
+        assert_eq!(inputs.len(), 2);
+        assert_eq!(inputs[0], "**/*.rs");
+        assert_eq!(inputs[1], "Cargo.toml");
+    }
+
+    #[test]
+    fn test_directory_glob() {
+        // Test that glob() works on Directory (returns updated Directory)
+        let mut p = Pipeline::new();
+        let src = p.dir(".");
+        let src_with_glob = src.glob(&["**/*.rs", "Cargo.toml"]);
+
+        // The glob patterns are stored on the returned Directory
+        assert_eq!(src_with_glob.globs.len(), 2);
+        assert_eq!(src_with_glob.globs[0], "**/*.rs");
+        assert_eq!(src_with_glob.globs[1], "Cargo.toml");
+    }
+
+    #[test]
+    #[should_panic(expected = "container image cannot be empty")]
+    fn test_empty_container_panics() {
+        let mut p = Pipeline::new();
+        p.task("test").container("");
+    }
+
+    #[test]
+    #[should_panic(expected = "container working directory must be absolute")]
+    fn test_relative_workdir_panics() {
+        let mut p = Pipeline::new();
+        p.task("test").workdir("relative/path");
+    }
+
+    #[test]
+    #[should_panic(expected = "output name cannot be empty")]
+    fn test_empty_output_name_panics() {
+        let mut p = Pipeline::new();
+        p.task("build").run("cargo build").output("", "./app");
+    }
+
+    #[test]
+    #[should_panic(expected = "output path cannot be empty")]
+    fn test_empty_output_path_panics() {
+        let mut p = Pipeline::new();
+        p.task("build").run("cargo build").output("binary", "");
+    }
+
+    #[test]
+    #[should_panic(expected = "environment variable key cannot be empty")]
+    fn test_empty_env_key_panics() {
+        let mut p = Pipeline::new();
+        p.task("test").env("", "value");
+    }
+
+    #[test]
+    #[should_panic(expected = "container mount path must be absolute")]
+    fn test_relative_mount_path_panics() {
+        let mut p = Pipeline::new();
+        let src = p.dir(".");
+        p.task("test").mount(&src, "relative");
     }
 }
