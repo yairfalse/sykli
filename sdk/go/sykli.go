@@ -115,6 +115,9 @@ func Run(cmd string) {
 
 // Run sets the command for this task
 func (t *Task) Run(cmd string) *Task {
+	if cmd == "" {
+		panic("command cannot be empty")
+	}
 	t.command = cmd
 	return t
 }
