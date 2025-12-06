@@ -52,9 +52,8 @@ temp/
 *.tmp
 *.pid
 
-# Documentation (research notes - not for commit)
-docs/
-# But allow ADRs (architectural decision records)
+# Documentation (research notes - not for commit, but allow ADRs)
+docs/*
 !docs/adr/
 
 # Build artifacts from example projects

@@ -2,44 +2,46 @@
 
 package main
 
-import (
-	"encoding/json"
-	"os"
-)
-
-type Task struct {
-	Name      string   `json:"name"`
-	Command   string   `json:"command"`
-	Inputs    []string `json:"inputs,omitempty"`
-	Outputs   []string `json:"outputs,omitempty"`
-	DependsOn []string `json:"depends_on,omitempty"`
-}
-
-var tasks []Task
-
-func task(name, cmd string, deps ...string) {
-	tasks = append(tasks, Task{
-		Name:      name,
-		Command:   cmd,
-		DependsOn: deps,
-		Inputs:    []string{"**/*.go", "go.mod"},
-	})
-}
-
-func taskWithOutputs(name, cmd string, outputs []string, deps ...string) {
-	tasks = append(tasks, Task{
-		Name:      name,
-		Command:   cmd,
-		DependsOn: deps,
-		Inputs:    []string{"**/*.go", "go.mod"},
-		Outputs:   outputs,
-	})
-}
+import sykli "sykli.dev/go"
 
 func main() {
-	task("test", "go test ./...")
-	task("lint", "go vet ./...")
-	taskWithOutputs("build", "go build -o ./app", []string{"./app"}, "test", "lint")
+	s := sykli.New()
+
+	// === RESOURCES ===
+	src := s.Dir(".")
+	goModCache := s.Cache("go-mod")
+	goBuildCache := s.Cache("go-build")
+
+	// === TASKS ===
+
+	// Lint - runs in container with caches
+	s.Task("lint").
+		Container("golang:1.21").
+		Mount(src, "/src").
+		MountCache(goModCache, "/go/pkg/mod").
+		Workdir("/src").
+		Run("go vet ./...")
+
+	// Test - runs in container with caches
+	s.Task("test").
+		Container("golang:1.21").
+		Mount(src, "/src").
+		MountCache(goModCache, "/go/pkg/mod").
+		MountCache(goBuildCache, "/root/.cache/go-build").
+		Workdir("/src").
+		Run("go test ./...")
+
+	// Build - depends on lint and test
+	s.Task("build").
+		Container("golang:1.21").
+		Mount(src, "/src").
+		MountCache(goModCache, "/go/pkg/mod").
+		MountCache(goBuildCache, "/root/.cache/go-build").
+		Workdir("/src").
+		Env("CGO_ENABLED", "0").
+		Run("go build -o ./app .").
+		Output("binary", "./app").
+		After("lint", "test")
 
 	s.Emit()
 }

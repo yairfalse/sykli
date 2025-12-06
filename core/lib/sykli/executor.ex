@@ -1,6 +1,7 @@
 defmodule Sykli.Executor do
   @moduledoc """
   Executes tasks with parallelism for independent tasks.
+  Supports both direct execution and container-based execution (v2).
   """
 
   # Note: we DON'T alias Sykli.Graph.Task because it shadows Elixir's Task module
@@ -127,8 +128,12 @@ defmodule Sykli.Executor do
     end
   end
 
-  defp run_and_cache(%Sykli.Graph.Task{name: name, command: command, outputs: outputs} = task, workdir, cache_key) do
-    IO.puts("#{IO.ANSI.cyan()}▶ #{name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{command}#{IO.ANSI.reset()}")
+  defp run_and_cache(%Sykli.Graph.Task{name: name, outputs: outputs} = task, workdir, cache_key) do
+    # Build the actual command (docker run or direct)
+    cmd_tuple = build_command(task, workdir)
+    display_cmd = elem(cmd_tuple, 2)
+
+    IO.puts("#{IO.ANSI.cyan()}▶ #{name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{display_cmd}#{IO.ANSI.reset()}")
 
     # Post pending status to GitHub
     maybe_github_status(name, "pending")
@@ -136,9 +141,9 @@ defmodule Sykli.Executor do
     # Track execution time
     start_time = System.monotonic_time(:millisecond)
 
-    # Run through shell to support env vars, pipes, etc.
-    case System.cmd("sh", ["-c", command], cd: workdir, stderr_to_stdout: true) do
-      {_output, 0} ->
+    # Run with streaming output
+    case run_streaming(cmd_tuple, workdir) do
+      {:ok, 0} ->
         duration_ms = System.monotonic_time(:millisecond) - start_time
         IO.puts("#{IO.ANSI.green()}✓ #{name}#{IO.ANSI.reset()}")
 
@@ -150,11 +155,153 @@ defmodule Sykli.Executor do
         maybe_github_status(name, "success")
         :ok
 
-      {output, code} ->
+      {:ok, code} ->
         IO.puts("#{IO.ANSI.red()}✗ #{name} (exit #{code})#{IO.ANSI.reset()}")
-        IO.puts(output)
         maybe_github_status(name, "failure")
         {:error, {:exit_code, code}}
+
+      {:error, reason} ->
+        IO.puts("#{IO.ANSI.red()}✗ #{name} (error: #{inspect(reason)})#{IO.ANSI.reset()}")
+        maybe_github_status(name, "failure")
+        {:error, reason}
+    end
+  end
+
+  # ----- COMMAND BUILDING -----
+
+  # Build the command to run - returns {:shell, cmd} or {:docker, args}
+  defp build_command(%Sykli.Graph.Task{container: nil, command: command}, _workdir) do
+    # No container - run directly via shell
+    {:shell, command, command}
+  end
+
+  defp build_command(%Sykli.Graph.Task{} = task, workdir) do
+    # Container task - build docker args list (no shell escaping needed)
+    abs_workdir = Path.expand(workdir)
+
+    docker_args = ["run", "--rm"]
+
+    # Add volume mounts
+    mount_args =
+      (task.mounts || [])
+      |> Enum.flat_map(fn mount ->
+        case mount.type do
+          "directory" ->
+            host_path = extract_host_path(mount.resource, abs_workdir)
+            ["-v", "#{host_path}:#{mount.path}"]
+
+          "cache" ->
+            volume_name = "sykli-cache-#{sanitize_volume_name(mount.resource)}"
+            ["-v", "#{volume_name}:#{mount.path}"]
+
+          _ ->
+            []
+        end
+      end)
+
+    # Add workdir
+    workdir_args =
+      if task.workdir do
+        ["-w", task.workdir]
+      else
+        []
+      end
+
+    # Add environment variables (passed directly to docker, no shell escaping needed)
+    env_args =
+      (task.env || %{})
+      |> Enum.flat_map(fn {k, v} -> ["-e", "#{k}=#{v}"] end)
+
+    # Build args list - each arg passed directly to docker (no shell injection possible)
+    all_args = docker_args ++ mount_args ++ workdir_args ++ env_args ++
+               [task.container, "sh", "-c", task.command]
+
+    display = "[#{task.container}] #{task.command}"
+    {:docker, all_args, display}
+  end
+
+  # Sanitize volume name to only allow alphanumeric, dash, underscore
+  defp sanitize_volume_name(name) do
+    name
+    |> String.replace(~r/[^a-zA-Z0-9_-]/, "_")
+  end
+
+  # Extract host path from resource ID
+  # "src:." -> "."
+  # "src:/path/to/dir" -> "/path/to/dir"
+  defp extract_host_path(resource, abs_workdir) do
+    case String.split(resource, ":", parts: 2) do
+      ["src", path] ->
+        # Expand and normalize the path to prevent traversal
+        full_path = if String.starts_with?(path, "/") do
+          path
+        else
+          Path.join(abs_workdir, path)
+        end
+        # Expand to resolve .. and normalize
+        Path.expand(full_path)
+
+      _ ->
+        abs_workdir
+    end
+  end
+
+  # Run command with streaming output to console
+  defp run_streaming({:shell, command, _display}, workdir) do
+    # Shell command - use Port with sh -c
+    port = Port.open(
+      {:spawn_executable, "/bin/sh"},
+      [
+        :binary,
+        :exit_status,
+        :stderr_to_stdout,
+        args: ["-c", command],
+        cd: workdir
+      ]
+    )
+
+    try do
+      stream_output(port)
+    after
+      Port.close(port)
+    end
+  end
+
+  defp run_streaming({:docker, args, _display}, workdir) do
+    # Docker command - use Port with docker directly (no shell, no escaping needed)
+    docker_path = System.find_executable("docker") || "/usr/bin/docker"
+
+    port = Port.open(
+      {:spawn_executable, docker_path},
+      [
+        :binary,
+        :exit_status,
+        :stderr_to_stdout,
+        args: args,
+        cd: workdir
+      ]
+    )
+
+    try do
+      stream_output(port)
+    after
+      Port.close(port)
+    end
+  end
+
+  defp stream_output(port) do
+    receive do
+      {^port, {:data, data}} ->
+        # Stream output with task prefix
+        IO.write("  #{IO.ANSI.faint()}#{data}#{IO.ANSI.reset()}")
+        stream_output(port)
+
+      {^port, {:exit_status, status}} ->
+        {:ok, status}
+    after
+      300_000 ->
+        Port.close(port)
+        {:error, :timeout}
     end
   end
 
