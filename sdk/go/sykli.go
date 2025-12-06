@@ -210,6 +210,10 @@ func (t *Task) Inputs(patterns ...string) *Task {
 
 // Output sets a named output path.
 func (t *Task) Output(name, path string) *Task {
+	if name == "" || path == "" {
+		fmt.Printf("Warning: Output() called with empty name or path; ignoring. name='%s', path='%s'\n", name, path)
+		return t
+	}
 	t.outputs[name] = path
 	return t
 }
