@@ -1,6 +1,7 @@
 //! Sykli CI definition for this Rust project.
 //!
 //! Run with: cargo run --bin sykli -- --emit
+//! The `--emit` flag triggers the pipeline to output its JSON definition to stdout.
 
 use sykli::Pipeline;
 
