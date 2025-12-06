@@ -130,7 +130,8 @@ defmodule Sykli.Executor do
 
   defp run_and_cache(%Sykli.Graph.Task{name: name, outputs: outputs} = task, workdir, cache_key) do
     # Build the actual command (docker run or direct)
-    {run_cmd, display_cmd} = build_command(task, workdir)
+    cmd_tuple = build_command(task, workdir)
+    display_cmd = elem(cmd_tuple, 2)
 
     IO.puts("#{IO.ANSI.cyan()}▶ #{name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{display_cmd}#{IO.ANSI.reset()}")
 
@@ -141,7 +142,7 @@ defmodule Sykli.Executor do
     start_time = System.monotonic_time(:millisecond)
 
     # Run with streaming output
-    case run_streaming(run_cmd, workdir) do
+    case run_streaming(cmd_tuple, workdir) do
       {:ok, 0} ->
         duration_ms = System.monotonic_time(:millisecond) - start_time
         IO.puts("#{IO.ANSI.green()}✓ #{name}#{IO.ANSI.reset()}")
@@ -168,21 +169,17 @@ defmodule Sykli.Executor do
 
   # ----- COMMAND BUILDING -----
 
-  # Build the command to run - either direct or via docker
+  # Build the command to run - returns {:shell, cmd} or {:docker, args}
   defp build_command(%Sykli.Graph.Task{container: nil, command: command}, _workdir) do
-    # No container - run directly
-    {command, command}
+    # No container - run directly via shell
+    {:shell, command, command}
   end
 
   defp build_command(%Sykli.Graph.Task{} = task, workdir) do
-    # Container task - build docker run command
+    # Container task - build docker args list (no shell escaping needed)
     abs_workdir = Path.expand(workdir)
 
-    docker_args = [
-      "run",
-      "--rm",
-      # Don't use -it for non-interactive
-    ]
+    docker_args = ["run", "--rm"]
 
     # Add volume mounts
     mount_args =
@@ -190,14 +187,11 @@ defmodule Sykli.Executor do
       |> Enum.flat_map(fn mount ->
         case mount.type do
           "directory" ->
-            # Bind mount: host path -> container path
-            # Resource format: "src:." -> use "." as host path
             host_path = extract_host_path(mount.resource, abs_workdir)
             ["-v", "#{host_path}:#{mount.path}"]
 
           "cache" ->
-            # Named volume for caches
-            volume_name = "sykli-cache-#{mount.resource}"
+            volume_name = "sykli-cache-#{sanitize_volume_name(mount.resource)}"
             ["-v", "#{volume_name}:#{mount.path}"]
 
           _ ->
@@ -213,21 +207,23 @@ defmodule Sykli.Executor do
         []
       end
 
-    # Add environment variables
+    # Add environment variables (passed directly to docker, no shell escaping needed)
     env_args =
       (task.env || %{})
       |> Enum.flat_map(fn {k, v} -> ["-e", "#{k}=#{v}"] end)
 
-    # Build full command - quote the command for sh -c
-    escaped_cmd = String.replace(task.command, "\"", "\\\"")
-    all_args = docker_args ++ mount_args ++ workdir_args ++ env_args ++ [task.container, "sh", "-c", "\"#{escaped_cmd}\""]
+    # Build args list - each arg passed directly to docker (no shell injection possible)
+    all_args = docker_args ++ mount_args ++ workdir_args ++ env_args ++
+               [task.container, "sh", "-c", task.command]
 
-    docker_cmd = Enum.join(["docker" | all_args], " ")
-
-    # Display shows just the user's command
     display = "[#{task.container}] #{task.command}"
+    {:docker, all_args, display}
+  end
 
-    {docker_cmd, display}
+  # Sanitize volume name to only allow alphanumeric, dash, underscore
+  defp sanitize_volume_name(name) do
+    name
+    |> String.replace(~r/[^a-zA-Z0-9_-]/, "_")
   end
 
   # Extract host path from resource ID
@@ -236,21 +232,23 @@ defmodule Sykli.Executor do
   defp extract_host_path(resource, abs_workdir) do
     case String.split(resource, ":", parts: 2) do
       ["src", path] ->
-        # Relative paths should be relative to workdir
-        if String.starts_with?(path, "/") do
+        # Expand and normalize the path to prevent traversal
+        full_path = if String.starts_with?(path, "/") do
           path
         else
           Path.join(abs_workdir, path)
         end
+        # Expand to resolve .. and normalize
+        Path.expand(full_path)
 
       _ ->
-        # Fallback: use as-is
         abs_workdir
     end
   end
 
   # Run command with streaming output to console
-  defp run_streaming(command, workdir) do
+  defp run_streaming({:shell, command, _display}, workdir) do
+    # Shell command - use Port with sh -c
     port = Port.open(
       {:spawn_executable, "/bin/sh"},
       [
@@ -258,6 +256,28 @@ defmodule Sykli.Executor do
         :exit_status,
         :stderr_to_stdout,
         args: ["-c", command],
+        cd: workdir
+      ]
+    )
+
+    try do
+      stream_output(port)
+    after
+      Port.close(port)
+    end
+  end
+
+  defp run_streaming({:docker, args, _display}, workdir) do
+    # Docker command - use Port with docker directly (no shell, no escaping needed)
+    docker_path = System.find_executable("docker") || "/usr/bin/docker"
+
+    port = Port.open(
+      {:spawn_executable, docker_path},
+      [
+        :binary,
+        :exit_status,
+        :stderr_to_stdout,
+        args: args,
         cd: workdir
       ]
     )

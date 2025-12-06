@@ -57,11 +57,22 @@ defmodule Sykli.Graph do
   defp parse_mounts(nil), do: []
   defp parse_mounts(mounts) when is_list(mounts) do
     Enum.map(mounts, fn m ->
-      %{
-        resource: m["resource"],
-        path: m["path"],
-        type: m["type"]
-      }
+      resource = m["resource"]
+      path = m["path"]
+      type = m["type"]
+
+      # Validate required fields
+      if is_nil(resource) or resource == "" do
+        raise "mount resource cannot be empty"
+      end
+      if is_nil(path) or path == "" do
+        raise "mount path cannot be empty"
+      end
+      if is_nil(type) or type not in ["directory", "cache"] do
+        raise "mount type must be 'directory' or 'cache'"
+      end
+
+      %{resource: resource, path: path, type: type}
     end)
   end
 
