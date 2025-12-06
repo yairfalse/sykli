@@ -32,8 +32,8 @@ defmodule Sykli.Cache do
   Check if task can be skipped (cache hit).
   Returns {:hit, key} or {:miss, key}
   """
-  def check(%{name: name, command: command, inputs: inputs}, workdir) do
-    key = cache_key(name, command, inputs || [], workdir)
+  def check(task, workdir) do
+    key = cache_key(task, workdir)
     meta_path = meta_path(key)
 
     case read_meta(meta_path) do
@@ -241,16 +241,51 @@ defmodule Sykli.Cache do
 
   @doc """
   Generate cache key from all factors that affect output.
+  Includes v2 fields: container, task env, mounts.
   """
-  def cache_key(task_name, command, inputs, workdir) do
+  def cache_key(task, workdir) do
     abs_workdir = Path.expand(workdir)
-    inputs_hash = hash_inputs(inputs, abs_workdir)
+    inputs_hash = hash_inputs(task.inputs || [], abs_workdir)
     env_hash = hash_env()
 
-    data = "#{task_name}|#{command}|#{inputs_hash}|#{env_hash}|#{@version}"
+    # v2 fields that affect build output
+    container = task.container || ""
+    task_env_hash = hash_task_env(task.env || %{})
+    mounts_hash = hash_mounts(task.mounts || [])
+
+    data = Enum.join([
+      task.name,
+      task.command,
+      inputs_hash,
+      env_hash,
+      container,
+      task_env_hash,
+      mounts_hash,
+      @version
+    ], "|")
 
     :crypto.hash(:sha256, data)
     |> Base.encode16(case: :lower)
+  end
+
+  # Hash task-specific environment variables
+  defp hash_task_env(env) when map_size(env) == 0, do: ""
+  defp hash_task_env(env) do
+    env
+    |> Enum.sort()
+    |> Enum.map(fn {k, v} -> "#{k}=#{v}" end)
+    |> Enum.join("|")
+    |> then(fn data -> :crypto.hash(:sha256, data) |> Base.encode16(case: :lower) end)
+  end
+
+  # Hash mount configuration (resource + path + type)
+  defp hash_mounts([]), do: ""
+  defp hash_mounts(mounts) do
+    mounts
+    |> Enum.map(fn m -> "#{m.resource}:#{m.path}:#{m.type}" end)
+    |> Enum.sort()
+    |> Enum.join("|")
+    |> then(fn data -> :crypto.hash(:sha256, data) |> Base.encode16(case: :lower) end)
   end
 
   # ----- PRIVATE HELPERS -----

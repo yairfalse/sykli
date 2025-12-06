@@ -4,6 +4,21 @@ defmodule Sykli.CacheTest do
   @test_cache_dir Path.expand("~/.sykli/cache_test")
   @test_workdir Path.expand("/tmp/sykli_cache_test_workdir")
 
+  # Helper to create task struct
+  defp make_task(name, command, opts \\ []) do
+    %Sykli.Graph.Task{
+      name: name,
+      command: command,
+      inputs: Keyword.get(opts, :inputs, []),
+      outputs: Keyword.get(opts, :outputs, []),
+      depends_on: [],
+      container: Keyword.get(opts, :container),
+      workdir: Keyword.get(opts, :workdir),
+      env: Keyword.get(opts, :env, %{}),
+      mounts: Keyword.get(opts, :mounts, [])
+    }
+  end
+
   setup do
     # Clean up test directories
     File.rm_rf!(@test_cache_dir)
@@ -19,17 +34,23 @@ defmodule Sykli.CacheTest do
     :ok
   end
 
-  describe "cache_key/4" do
+  describe "cache_key/2" do
     test "changes when command changes" do
-      key1 = Sykli.Cache.cache_key("build", "go build -o app", [], @test_workdir)
-      key2 = Sykli.Cache.cache_key("build", "go build -o app2", [], @test_workdir)
+      task1 = make_task("build", "go build -o app")
+      task2 = make_task("build", "go build -o app2")
+
+      key1 = Sykli.Cache.cache_key(task1, @test_workdir)
+      key2 = Sykli.Cache.cache_key(task2, @test_workdir)
 
       assert key1 != key2
     end
 
     test "changes when task name changes" do
-      key1 = Sykli.Cache.cache_key("build", "go build", [], @test_workdir)
-      key2 = Sykli.Cache.cache_key("compile", "go build", [], @test_workdir)
+      task1 = make_task("build", "go build")
+      task2 = make_task("compile", "go build")
+
+      key1 = Sykli.Cache.cache_key(task1, @test_workdir)
+      key2 = Sykli.Cache.cache_key(task2, @test_workdir)
 
       assert key1 != key2
     end
@@ -38,12 +59,13 @@ defmodule Sykli.CacheTest do
       # Create test files
       File.write!(Path.join(@test_workdir, "main.go"), "package main")
 
-      key1 = Sykli.Cache.cache_key("build", "go build", ["*.go"], @test_workdir)
+      task = make_task("build", "go build", inputs: ["*.go"])
+      key1 = Sykli.Cache.cache_key(task, @test_workdir)
 
       # Modify file
       File.write!(Path.join(@test_workdir, "main.go"), "package main // modified")
 
-      key2 = Sykli.Cache.cache_key("build", "go build", ["*.go"], @test_workdir)
+      key2 = Sykli.Cache.cache_key(task, @test_workdir)
 
       assert key1 != key2
     end
@@ -51,22 +73,69 @@ defmodule Sykli.CacheTest do
     test "same inputs produce same key" do
       File.write!(Path.join(@test_workdir, "main.go"), "package main")
 
-      key1 = Sykli.Cache.cache_key("build", "go build", ["*.go"], @test_workdir)
-      key2 = Sykli.Cache.cache_key("build", "go build", ["*.go"], @test_workdir)
+      task = make_task("build", "go build", inputs: ["*.go"])
+      key1 = Sykli.Cache.cache_key(task, @test_workdir)
+      key2 = Sykli.Cache.cache_key(task, @test_workdir)
 
       assert key1 == key2
     end
 
     test "empty inputs produce consistent key" do
-      key1 = Sykli.Cache.cache_key("test", "go test", [], @test_workdir)
-      key2 = Sykli.Cache.cache_key("test", "go test", [], @test_workdir)
+      task = make_task("test", "go test")
+      key1 = Sykli.Cache.cache_key(task, @test_workdir)
+      key2 = Sykli.Cache.cache_key(task, @test_workdir)
 
       assert key1 == key2
     end
 
     test "glob with no matches produces consistent key" do
-      key1 = Sykli.Cache.cache_key("build", "go build", ["*.nonexistent"], @test_workdir)
-      key2 = Sykli.Cache.cache_key("build", "go build", ["*.nonexistent"], @test_workdir)
+      task = make_task("build", "go build", inputs: ["*.nonexistent"])
+      key1 = Sykli.Cache.cache_key(task, @test_workdir)
+      key2 = Sykli.Cache.cache_key(task, @test_workdir)
+
+      assert key1 == key2
+    end
+
+    # v2 cache key tests
+    test "changes when container changes" do
+      task1 = make_task("build", "go build", container: "golang:1.21")
+      task2 = make_task("build", "go build", container: "golang:1.22")
+
+      key1 = Sykli.Cache.cache_key(task1, @test_workdir)
+      key2 = Sykli.Cache.cache_key(task2, @test_workdir)
+
+      assert key1 != key2
+    end
+
+    test "changes when task env changes" do
+      task1 = make_task("build", "go build", env: %{"CGO_ENABLED" => "0"})
+      task2 = make_task("build", "go build", env: %{"CGO_ENABLED" => "1"})
+
+      key1 = Sykli.Cache.cache_key(task1, @test_workdir)
+      key2 = Sykli.Cache.cache_key(task2, @test_workdir)
+
+      assert key1 != key2
+    end
+
+    test "changes when mounts change" do
+      task1 = make_task("build", "go build", mounts: [%{resource: "src:.", path: "/src", type: "directory"}])
+      task2 = make_task("build", "go build", mounts: [%{resource: "src:.", path: "/app", type: "directory"}])
+
+      key1 = Sykli.Cache.cache_key(task1, @test_workdir)
+      key2 = Sykli.Cache.cache_key(task2, @test_workdir)
+
+      assert key1 != key2
+    end
+
+    test "same v2 config produces same key" do
+      task = make_task("build", "go build",
+        container: "golang:1.21",
+        env: %{"CGO_ENABLED" => "0"},
+        mounts: [%{resource: "src:.", path: "/src", type: "directory"}]
+      )
+
+      key1 = Sykli.Cache.cache_key(task, @test_workdir)
+      key2 = Sykli.Cache.cache_key(task, @test_workdir)
 
       assert key1 == key2
     end
@@ -76,7 +145,7 @@ defmodule Sykli.CacheTest do
     test "returns miss when cache is empty" do
       Sykli.Cache.init()
 
-      task = %{name: "test", command: "go test", inputs: []}
+      task = make_task("test", "go test")
       assert {:miss, _key} = Sykli.Cache.check(task, @test_workdir)
     end
   end
@@ -90,14 +159,8 @@ defmodule Sykli.CacheTest do
       content = "#!/bin/sh\necho hello"
       File.write!(output_path, content)
 
-      task = %Sykli.Graph.Task{
-        name: "build",
-        command: "echo build",
-        inputs: [],
-        outputs: ["app"]
-      }
-
-      key = Sykli.Cache.cache_key("build", "echo build", [], @test_workdir)
+      task = make_task("build", "echo build", outputs: ["app"])
+      key = Sykli.Cache.cache_key(task, @test_workdir)
       assert :ok = Sykli.Cache.store(key, task, ["app"], 100, @test_workdir)
 
       # Delete the output
@@ -118,14 +181,8 @@ defmodule Sykli.CacheTest do
       File.write!(output_path, "#!/bin/sh\necho hello")
       File.chmod!(output_path, 0o755)
 
-      task = %Sykli.Graph.Task{
-        name: "build",
-        command: "echo build",
-        inputs: [],
-        outputs: ["app"]
-      }
-
-      key = Sykli.Cache.cache_key("build", "echo build", [], @test_workdir)
+      task = make_task("build", "echo build", outputs: ["app"])
+      key = Sykli.Cache.cache_key(task, @test_workdir)
       assert :ok = Sykli.Cache.store(key, task, ["app"], 100, @test_workdir)
 
       # Delete and restore
@@ -146,22 +203,11 @@ defmodule Sykli.CacheTest do
       File.write!(Path.join(@test_workdir, "file1.txt"), "same content")
       File.write!(Path.join(@test_workdir, "file2.txt"), "same content")
 
-      task1 = %Sykli.Graph.Task{
-        name: "task1",
-        command: "echo task1",
-        inputs: [],
-        outputs: ["file1.txt"]
-      }
+      task1 = make_task("task1", "echo task1", outputs: ["file1.txt"])
+      task2 = make_task("task2", "echo task2", outputs: ["file2.txt"])
 
-      task2 = %Sykli.Graph.Task{
-        name: "task2",
-        command: "echo task2",
-        inputs: [],
-        outputs: ["file2.txt"]
-      }
-
-      key1 = Sykli.Cache.cache_key("task1", "echo task1", [], @test_workdir)
-      key2 = Sykli.Cache.cache_key("task2", "echo task2", [], @test_workdir)
+      key1 = Sykli.Cache.cache_key(task1, @test_workdir)
+      key2 = Sykli.Cache.cache_key(task2, @test_workdir)
 
       assert :ok = Sykli.Cache.store(key1, task1, ["file1.txt"], 100, @test_workdir)
       assert :ok = Sykli.Cache.store(key2, task2, ["file2.txt"], 100, @test_workdir)
@@ -177,14 +223,8 @@ defmodule Sykli.CacheTest do
     test "handles missing output files gracefully" do
       Sykli.Cache.init()
 
-      task = %Sykli.Graph.Task{
-        name: "build",
-        command: "echo build",
-        inputs: [],
-        outputs: ["nonexistent.txt"]
-      }
-
-      key = Sykli.Cache.cache_key("build", "echo build", [], @test_workdir)
+      task = make_task("build", "echo build", outputs: ["nonexistent.txt"])
+      key = Sykli.Cache.cache_key(task, @test_workdir)
 
       # Should not crash, but won't store any outputs
       assert :ok = Sykli.Cache.store(key, task, ["nonexistent.txt"], 100, @test_workdir)
@@ -199,14 +239,8 @@ defmodule Sykli.CacheTest do
       File.write!(Path.join(dir_path, "index.js"), "console.log('hello')")
       File.write!(Path.join(dir_path, "style.css"), "body { color: red }")
 
-      task = %Sykli.Graph.Task{
-        name: "build",
-        command: "echo build",
-        inputs: [],
-        outputs: ["dist"]
-      }
-
-      key = Sykli.Cache.cache_key("build", "echo build", [], @test_workdir)
+      task = make_task("build", "echo build", outputs: ["dist"])
+      key = Sykli.Cache.cache_key(task, @test_workdir)
       assert :ok = Sykli.Cache.store(key, task, ["dist"], 100, @test_workdir)
 
       # Delete and restore
@@ -231,7 +265,7 @@ defmodule Sykli.CacheTest do
       File.write!(Path.join(meta_dir, "corrupted.json"), "not valid json")
 
       # Should treat as miss
-      task = %{name: "test", command: "echo test", inputs: []}
+      task = make_task("test", "echo test")
       assert {:miss, _} = Sykli.Cache.check(task, @test_workdir)
     end
 
@@ -242,14 +276,8 @@ defmodule Sykli.CacheTest do
       output_path = Path.join(@test_workdir, "app")
       File.write!(output_path, "content")
 
-      task = %Sykli.Graph.Task{
-        name: "build",
-        command: "echo build",
-        inputs: [],
-        outputs: ["app"]
-      }
-
-      key = Sykli.Cache.cache_key("build", "echo build", [], @test_workdir)
+      task = make_task("build", "echo build", outputs: ["app"])
+      key = Sykli.Cache.cache_key(task, @test_workdir)
       assert :ok = Sykli.Cache.store(key, task, ["app"], 100, @test_workdir)
 
       # Delete the blob
@@ -257,8 +285,7 @@ defmodule Sykli.CacheTest do
       Path.wildcard(Path.join(blobs_dir, "*")) |> Enum.each(&File.rm!/1)
 
       # Should treat as miss and clean up meta
-      task_map = %{name: "build", command: "echo build", inputs: []}
-      assert {:miss, _} = Sykli.Cache.check(task_map, @test_workdir)
+      assert {:miss, _} = Sykli.Cache.check(task, @test_workdir)
     end
   end
 
@@ -271,11 +298,11 @@ defmodule Sykli.CacheTest do
       File.write!(Path.join(@test_workdir, "file1.txt"), "content 1")
       File.write!(Path.join(@test_workdir, "file2.txt"), "different content 2")
 
-      task1 = %Sykli.Graph.Task{name: "task1", command: "echo 1", inputs: [], outputs: ["file1.txt"]}
-      task2 = %Sykli.Graph.Task{name: "task2", command: "echo 2", inputs: [], outputs: ["file2.txt"]}
+      task1 = make_task("task1", "echo 1", outputs: ["file1.txt"])
+      task2 = make_task("task2", "echo 2", outputs: ["file2.txt"])
 
-      key1 = Sykli.Cache.cache_key("task1", "echo 1", [], @test_workdir)
-      key2 = Sykli.Cache.cache_key("task2", "echo 2", [], @test_workdir)
+      key1 = Sykli.Cache.cache_key(task1, @test_workdir)
+      key2 = Sykli.Cache.cache_key(task2, @test_workdir)
 
       Sykli.Cache.store(key1, task1, ["file1.txt"], 100, @test_workdir)
       Sykli.Cache.store(key2, task2, ["file2.txt"], 200, @test_workdir)
@@ -295,8 +322,8 @@ defmodule Sykli.CacheTest do
       # Create some cache entries
       File.write!(Path.join(@test_workdir, "app"), "content")
 
-      task = %Sykli.Graph.Task{name: "build", command: "echo", inputs: [], outputs: ["app"]}
-      key = Sykli.Cache.cache_key("build", "echo", [], @test_workdir)
+      task = make_task("build", "echo", outputs: ["app"])
+      key = Sykli.Cache.cache_key(task, @test_workdir)
       Sykli.Cache.store(key, task, ["app"], 100, @test_workdir)
 
       # Verify cache exists
@@ -322,11 +349,11 @@ defmodule Sykli.CacheTest do
       File.write!(Path.join(@test_workdir, "old.txt"), "old")
       File.write!(Path.join(@test_workdir, "new.txt"), "new")
 
-      task_old = %Sykli.Graph.Task{name: "old", command: "echo old", inputs: [], outputs: ["old.txt"]}
-      task_new = %Sykli.Graph.Task{name: "new", command: "echo new", inputs: [], outputs: ["new.txt"]}
+      task_old = make_task("old", "echo old", outputs: ["old.txt"])
+      task_new = make_task("new", "echo new", outputs: ["new.txt"])
 
-      key_old = Sykli.Cache.cache_key("old", "echo old", [], @test_workdir)
-      key_new = Sykli.Cache.cache_key("new", "echo new", [], @test_workdir)
+      key_old = Sykli.Cache.cache_key(task_old, @test_workdir)
+      key_new = Sykli.Cache.cache_key(task_new, @test_workdir)
 
       Sykli.Cache.store(key_old, task_old, ["old.txt"], 100, @test_workdir)
       Sykli.Cache.store(key_new, task_new, ["new.txt"], 100, @test_workdir)
