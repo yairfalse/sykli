@@ -4,7 +4,20 @@ defmodule Sykli.Graph do
   """
 
   defmodule Task do
-    defstruct [:name, :command, :inputs, :outputs, :depends_on, :condition]
+    @moduledoc "Represents a single task in the pipeline"
+    defstruct [
+      :name,
+      :command,
+      :inputs,
+      :outputs,
+      :depends_on,
+      :condition,
+      # v2 fields
+      :container,  # Docker image to run in
+      :workdir,    # Working directory inside container
+      :env,        # Environment variables (map)
+      :mounts      # List of mounts (directories and caches)
+    ]
   end
 
   def parse(json) do
@@ -30,11 +43,32 @@ defmodule Sykli.Graph do
       name: map["name"],
       command: map["command"],
       inputs: map["inputs"] || [],
-      outputs: map["outputs"] || [],
-      depends_on: (map["depends_on"] || []) |> Enum.uniq(),  # dedupe!
-      condition: map["condition"]
+      outputs: normalize_outputs(map["outputs"]),
+      depends_on: (map["depends_on"] || []) |> Enum.uniq(),
+      condition: map["condition"],
+      # v2 fields
+      container: map["container"],
+      workdir: map["workdir"],
+      env: map["env"] || %{},
+      mounts: parse_mounts(map["mounts"])
     }
   end
+
+  defp parse_mounts(nil), do: []
+  defp parse_mounts(mounts) when is_list(mounts) do
+    Enum.map(mounts, fn m ->
+      %{
+        resource: m["resource"],
+        path: m["path"],
+        type: m["type"]
+      }
+    end)
+  end
+
+  # Handle both v1 (list) and v2 (map) output formats
+  defp normalize_outputs(nil), do: []
+  defp normalize_outputs(outputs) when is_list(outputs), do: outputs
+  defp normalize_outputs(outputs) when is_map(outputs), do: Map.values(outputs)
 
   @doc """
   Topological sort using Kahn's algorithm.
