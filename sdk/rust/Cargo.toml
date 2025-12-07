@@ -1,0 +1,13 @@
+[package]
+name = "sykli"
+version = "0.1.0"
+edition = "2021"
+description = "CI pipelines defined in Rust instead of YAML"
+license = "MIT"
+repository = "https://github.com/yairfalse/sykli"
+keywords = ["ci", "pipeline", "build", "automation"]
+categories = ["development-tools"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
