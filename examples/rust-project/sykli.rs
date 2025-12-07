@@ -6,18 +6,18 @@
 use sykli::Pipeline;
 
 fn main() {
-    let mut s = Pipeline::new();
+    let mut p = Pipeline::new();
 
     // === RESOURCES ===
-    let src = s.dir(".");
-    let cargo_registry = s.cache("cargo-registry");
-    let cargo_git = s.cache("cargo-git");
-    let target_cache = s.cache("target");
+    let src = p.dir(".");
+    let cargo_registry = p.cache("cargo-registry");
+    let cargo_git = p.cache("cargo-git");
+    let target_cache = p.cache("target");
 
     // === TASKS ===
 
     // Lint - runs in container with caches
-    s.task("lint")
+    p.task("lint")
         .container("rust:1.75")
         .mount(&src, "/src")
         .mount_cache(&cargo_registry, "/usr/local/cargo/registry")
@@ -26,7 +26,7 @@ fn main() {
         .run("cargo clippy -- -D warnings");
 
     // Test - runs in container with caches
-    s.task("test")
+    p.task("test")
         .container("rust:1.75")
         .mount(&src, "/src")
         .mount_cache(&cargo_registry, "/usr/local/cargo/registry")
@@ -36,7 +36,7 @@ fn main() {
         .run("cargo test");
 
     // Build - depends on lint and test
-    s.task("build")
+    p.task("build")
         .container("rust:1.75")
         .mount(&src, "/src")
         .mount_cache(&cargo_registry, "/usr/local/cargo/registry")
@@ -47,5 +47,5 @@ fn main() {
         .output("binary", "target/release/rust-project")
         .after(&["lint", "test"]);
 
-    s.emit();
+    p.emit();
 }

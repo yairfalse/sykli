@@ -131,7 +131,10 @@ impl<'a> Task<'a> {
 
     /// Mounts a directory into the container.
     pub fn mount(self, dir: &Directory, path: &str) -> Self {
-        if path.is_empty() || !path.starts_with('/') {
+        if path.is_empty() {
+            panic!("container mount path cannot be empty");
+        }
+        if !path.starts_with('/') {
             panic!("container mount path must be absolute (start with /)");
         }
         self.pipeline.tasks[self.index].mounts.push(Mount {
@@ -144,7 +147,10 @@ impl<'a> Task<'a> {
 
     /// Mounts a cache volume into the container.
     pub fn mount_cache(self, cache: &CacheVolume, path: &str) -> Self {
-        if path.is_empty() || !path.starts_with('/') {
+        if path.is_empty() {
+            panic!("container mount path cannot be empty");
+        }
+        if !path.starts_with('/') {
             panic!("container mount path must be absolute (start with /)");
         }
         self.pipeline.tasks[self.index].mounts.push(Mount {
@@ -157,7 +163,10 @@ impl<'a> Task<'a> {
 
     /// Sets the working directory inside the container.
     pub fn workdir(self, path: &str) -> Self {
-        if path.is_empty() || !path.starts_with('/') {
+        if path.is_empty() {
+            panic!("container working directory cannot be empty");
+        }
+        if !path.starts_with('/') {
             panic!("container working directory must be absolute (start with /)");
         }
         self.pipeline.tasks[self.index].workdir = Some(path.to_string());
@@ -289,7 +298,14 @@ impl Pipeline {
         RustPreset { pipeline: self }
     }
 
-    /// Emits the pipeline as JSON if --emit flag is present.
+    /// Emits the pipeline as JSON to stdout if `--emit` flag is present.
+    ///
+    /// This method checks for `--emit` in command line arguments and if found,
+    /// writes the pipeline JSON to stdout and exits the process with code 0.
+    /// If emission fails, exits with code 1.
+    ///
+    /// **Note:** This method exits the process and does not return. For non-exiting
+    /// behavior, use [`emit_to`] directly.
     pub fn emit(&self) {
         if env::args().any(|arg| arg == "--emit") {
             if let Err(e) = self.emit_to(&mut io::stdout()) {
@@ -713,5 +729,111 @@ mod tests {
         let mut p = Pipeline::new();
         let src = p.dir(".");
         p.task("test").mount(&src, "relative");
+    }
+
+    #[test]
+    #[should_panic(expected = "container mount path cannot be empty")]
+    fn test_empty_mount_path_panics() {
+        let mut p = Pipeline::new();
+        let src = p.dir(".");
+        p.task("test").mount(&src, "");
+    }
+
+    #[test]
+    #[should_panic(expected = "container working directory cannot be empty")]
+    fn test_empty_workdir_panics() {
+        let mut p = Pipeline::new();
+        p.task("test").workdir("");
+    }
+
+    #[test]
+    fn test_rust_preset_inputs() {
+        let mut p = Pipeline::new();
+        p.rust().test();
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        let inputs = json["tasks"][0]["inputs"].as_array().unwrap();
+        assert!(inputs.contains(&serde_json::json!("**/*.rs")));
+        assert!(inputs.contains(&serde_json::json!("Cargo.toml")));
+        assert!(inputs.contains(&serde_json::json!("Cargo.lock")));
+    }
+
+    #[test]
+    fn test_rust_preset_lint_command() {
+        let mut p = Pipeline::new();
+        p.rust().lint();
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        assert_eq!(json["tasks"][0]["command"], "cargo clippy -- -D warnings");
+    }
+
+    #[test]
+    fn test_rust_preset_build_output() {
+        let mut p = Pipeline::new();
+        p.rust().build("target/release/myapp");
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        assert_eq!(json["tasks"][0]["outputs"]["output_0"], "target/release/myapp");
+    }
+
+    #[test]
+    fn test_version_v1_simple_tasks() {
+        let mut p = Pipeline::new();
+        p.task("test").run("cargo test");
+        p.task("build").run("cargo build");
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        assert_eq!(json["version"], "1");
+        assert!(json["resources"].is_null());
+    }
+
+    #[test]
+    fn test_version_v2_with_dir() {
+        let mut p = Pipeline::new();
+        let _src = p.dir(".");
+        p.task("test").run("cargo test");
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        assert_eq!(json["version"], "2");
+    }
+
+    #[test]
+    fn test_version_v2_with_cache() {
+        let mut p = Pipeline::new();
+        let _cache = p.cache("test-cache");
+        p.task("test").run("cargo test");
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        assert_eq!(json["version"], "2");
+    }
+
+    #[test]
+    fn test_version_v2_with_container() {
+        let mut p = Pipeline::new();
+        p.task("test").container("rust:1.75").run("cargo test");
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        assert_eq!(json["version"], "2");
     }
 }
