@@ -7,10 +7,8 @@ defmodule Sykli.CLI do
 
   def main(args \\ []) do
     case args do
-      ["--help"] -> print_help()
-      ["-h"] -> print_help()
-      ["--version"] -> IO.puts("sykli #{@version}")
-      ["-v"] -> IO.puts("sykli #{@version}")
+      [flag] when flag in ["--help", "-h"] -> print_help()
+      [flag] when flag in ["--version", "-v"] -> IO.puts("sykli #{@version}")
       ["cache" | cache_args] -> handle_cache(cache_args)
       _ -> run_sykli(args)
     end
