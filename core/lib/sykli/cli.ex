@@ -3,14 +3,39 @@ defmodule Sykli.CLI do
   CLI entry point for escript.
   """
 
+  @version Mix.Project.config()[:version]
+
   def main(args \\ []) do
     case args do
-      ["cache" | cache_args] ->
-        handle_cache(cache_args)
-
-      _ ->
-        run_sykli(args)
+      ["--help"] -> print_help()
+      ["-h"] -> print_help()
+      ["--version"] -> IO.puts("sykli #{@version}")
+      ["-v"] -> IO.puts("sykli #{@version}")
+      ["cache" | cache_args] -> handle_cache(cache_args)
+      _ -> run_sykli(args)
     end
+  end
+
+  defp print_help do
+    IO.puts("""
+    sykli - CI pipelines in your language
+
+    Usage: sykli [path]
+           sykli cache <command>
+
+    Options:
+      -h, --help       Show this help
+      -v, --version    Show version
+
+    Commands:
+      sykli [path]     Run pipeline (default: current directory)
+      sykli cache      Manage cache (see: sykli cache --help)
+
+    Examples:
+      sykli                    Run pipeline in current directory
+      sykli ./my-project       Run pipeline in ./my-project
+      sykli cache stats        Show cache statistics
+    """)
   end
 
   defp run_sykli(args) do
