@@ -20,7 +20,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Go
-RUN curl -fsSL https://go.dev/dl/go1.21.5.linux-amd64.tar.gz | tar -C /usr/local -xzf -
+RUN set -eux; \
+    GO_VERSION=1.21.5; \
+    GO_TARBALL="go${GO_VERSION}.linux-amd64.tar.gz"; \
+    curl -fsSLO "https://go.dev/dl/${GO_TARBALL}"; \
+    curl -fsSLO "https://go.dev/dl/${GO_TARBALL}.sha256"; \
+    sha256sum -c "${GO_TARBALL}.sha256"; \
+    tar -C /usr/local -xzf "${GO_TARBALL}"; \
+    rm "${GO_TARBALL}" "${GO_TARBALL}.sha256"
 ENV PATH="/usr/local/go/bin:${PATH}"
 
 # Install Rust to a portable location with minimal profile
