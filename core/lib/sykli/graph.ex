@@ -121,7 +121,7 @@ defmodule Sykli.Graph do
             new_tasks =
               combinations
               |> Enum.map(fn combo ->
-                suffix = combo |> Map.values() |> Enum.join("-")
+                suffix = combo |> Enum.sort() |> Enum.map(fn {_k, v} -> v end) |> Enum.join("-")
                 new_name = "#{name}-#{suffix}"
 
                 # Merge matrix values into env
