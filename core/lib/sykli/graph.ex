@@ -65,7 +65,17 @@ defmodule Sykli.Graph do
   defp parse_services(nil), do: []
   defp parse_services(services) when is_list(services) do
     Enum.map(services, fn s ->
-      %{image: s["image"], name: s["name"]}
+      image = s["image"]
+      name = s["name"]
+
+      if is_nil(image) or image == "" do
+        raise "service image cannot be empty"
+      end
+      if is_nil(name) or name == "" do
+        raise "service name cannot be empty"
+      end
+
+      %{image: image, name: name}
     end)
   end
 
