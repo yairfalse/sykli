@@ -12,6 +12,10 @@ defmodule Sykli.Graph do
       :outputs,
       :depends_on,
       :condition,
+      :secrets,    # List of required secret environment variables
+      :matrix,     # Map of matrix dimensions (key -> [values])
+      :matrix_values, # Specific values for expanded tasks (key -> value)
+      :services,   # List of service containers (image, name)
       # v2 fields
       :container,  # Docker image to run in
       :workdir,    # Working directory inside container
@@ -45,13 +49,24 @@ defmodule Sykli.Graph do
       inputs: map["inputs"] || [],
       outputs: normalize_outputs(map["outputs"]),
       depends_on: (map["depends_on"] || []) |> Enum.uniq(),
-      condition: map["condition"],
+      condition: map["when"],
+      secrets: map["secrets"] || [],
+      matrix: map["matrix"],
+      matrix_values: nil,
+      services: parse_services(map["services"]),
       # v2 fields
       container: map["container"],
       workdir: map["workdir"],
       env: map["env"] || %{},
       mounts: parse_mounts(map["mounts"])
     }
+  end
+
+  defp parse_services(nil), do: []
+  defp parse_services(services) when is_list(services) do
+    Enum.map(services, fn s ->
+      %{image: s["image"], name: s["name"]}
+    end)
   end
 
   defp parse_mounts(nil), do: []
@@ -80,6 +95,87 @@ defmodule Sykli.Graph do
   defp normalize_outputs(nil), do: []
   defp normalize_outputs(outputs) when is_list(outputs), do: outputs
   defp normalize_outputs(outputs) when is_map(outputs), do: Map.values(outputs)
+
+  @doc """
+  Expands matrix tasks into individual tasks.
+  A task with matrix: {"os": ["linux", "macos"], "version": ["1.0", "2.0"]}
+  becomes 4 tasks: task-linux-1.0, task-linux-2.0, task-macos-1.0, task-macos-2.0
+  """
+  def expand_matrix(graph) do
+    # Collect all expanded tasks and original task names that were expanded
+    {expanded_tasks, expanded_names} =
+      graph
+      |> Enum.reduce({%{}, MapSet.new()}, fn {name, task}, {acc_tasks, acc_names} ->
+        case task.matrix do
+          nil ->
+            {Map.put(acc_tasks, name, task), acc_names}
+
+          matrix when map_size(matrix) == 0 ->
+            {Map.put(acc_tasks, name, task), acc_names}
+
+          matrix ->
+            # Generate all combinations
+            combinations = matrix_combinations(matrix)
+
+            # Create expanded tasks
+            new_tasks =
+              combinations
+              |> Enum.map(fn combo ->
+                suffix = combo |> Map.values() |> Enum.join("-")
+                new_name = "#{name}-#{suffix}"
+
+                # Merge matrix values into env
+                new_env = Map.merge(task.env || %{}, combo)
+
+                %{task |
+                  name: new_name,
+                  matrix: nil,
+                  matrix_values: combo,
+                  env: new_env
+                }
+              end)
+              |> Map.new(fn t -> {t.name, t} end)
+
+            {Map.merge(acc_tasks, new_tasks), MapSet.put(acc_names, name)}
+        end
+      end)
+
+    # Update dependencies: if a task depends on an expanded task,
+    # it should depend on ALL expanded variants
+    updated_graph =
+      expanded_tasks
+      |> Enum.map(fn {name, task} ->
+        new_deps =
+          task.depends_on
+          |> Enum.flat_map(fn dep ->
+            if MapSet.member?(expanded_names, dep) do
+              # Find all expanded variants of this dependency
+              expanded_tasks
+              |> Map.keys()
+              |> Enum.filter(&String.starts_with?(&1, "#{dep}-"))
+            else
+              [dep]
+            end
+          end)
+
+        {name, %{task | depends_on: new_deps}}
+      end)
+      |> Map.new()
+
+    updated_graph
+  end
+
+  # Generate all combinations of matrix dimensions
+  defp matrix_combinations(matrix) when map_size(matrix) == 0, do: [%{}]
+
+  defp matrix_combinations(matrix) do
+    [{key, values} | rest] = Map.to_list(matrix)
+    rest_combinations = matrix_combinations(Map.new(rest))
+
+    for value <- values, combo <- rest_combinations do
+      Map.put(combo, key, value)
+    end
+  end
 
   @doc """
   Topological sort using Kahn's algorithm.

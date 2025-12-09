@@ -288,3 +288,294 @@ func TestJSONStructure(t *testing.T) {
 		t.Errorf("expected 1 task, got %d", len(tasks))
 	}
 }
+
+// ----- WHEN CONDITION TESTS -----
+
+func TestWhenBranchCondition(t *testing.T) {
+	p := New()
+	p.Task("deploy").Run("./deploy.sh").When("branch == 'main'")
+
+	result, err := emitJSON(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	task := getTask(result, "deploy")
+	taskMap := result["tasks"].([]interface{})[0].(map[string]interface{})
+	if taskMap["when"] != "branch == 'main'" {
+		t.Errorf("expected when='branch == 'main'', got %v", taskMap["when"])
+	}
+	_ = task // silence unused warning
+}
+
+func TestWhenTagCondition(t *testing.T) {
+	p := New()
+	p.Task("release").Run("./release.sh").When("tag != ''")
+
+	result, err := emitJSON(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	taskMap := result["tasks"].([]interface{})[0].(map[string]interface{})
+	if taskMap["when"] != "tag != ''" {
+		t.Errorf("expected when=\"tag != ''\", got %v", taskMap["when"])
+	}
+}
+
+func TestWhenNotSet(t *testing.T) {
+	p := New()
+	p.Task("test").Run("go test")
+
+	result, err := emitJSON(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	taskMap := result["tasks"].([]interface{})[0].(map[string]interface{})
+	if _, ok := taskMap["when"]; ok {
+		t.Error("expected when to be omitted when not set")
+	}
+}
+
+func TestWhenEmptyPanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for empty condition")
+		}
+	}()
+
+	p := New()
+	p.Task("test").Run("go test").When("")
+}
+
+// ----- SECRET TESTS -----
+
+func TestSecretSingle(t *testing.T) {
+	p := New()
+	p.Task("deploy").Run("./deploy.sh").Secret("GITHUB_TOKEN")
+
+	result, err := emitJSON(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	taskMap := result["tasks"].([]interface{})[0].(map[string]interface{})
+	secrets := taskMap["secrets"].([]interface{})
+	if len(secrets) != 1 {
+		t.Errorf("expected 1 secret, got %d", len(secrets))
+	}
+	if secrets[0] != "GITHUB_TOKEN" {
+		t.Errorf("expected GITHUB_TOKEN, got %v", secrets[0])
+	}
+}
+
+func TestSecretMultiple(t *testing.T) {
+	p := New()
+	p.Task("deploy").Run("./deploy.sh").Secret("GITHUB_TOKEN").Secret("NPM_TOKEN")
+
+	result, err := emitJSON(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	taskMap := result["tasks"].([]interface{})[0].(map[string]interface{})
+	secrets := taskMap["secrets"].([]interface{})
+	if len(secrets) != 2 {
+		t.Errorf("expected 2 secrets, got %d", len(secrets))
+	}
+}
+
+func TestSecretsMethod(t *testing.T) {
+	p := New()
+	p.Task("deploy").Run("./deploy.sh").Secrets("GITHUB_TOKEN", "NPM_TOKEN", "AWS_KEY")
+
+	result, err := emitJSON(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	taskMap := result["tasks"].([]interface{})[0].(map[string]interface{})
+	secrets := taskMap["secrets"].([]interface{})
+	if len(secrets) != 3 {
+		t.Errorf("expected 3 secrets, got %d", len(secrets))
+	}
+}
+
+func TestSecretNotSet(t *testing.T) {
+	p := New()
+	p.Task("test").Run("go test")
+
+	result, err := emitJSON(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	taskMap := result["tasks"].([]interface{})[0].(map[string]interface{})
+	if _, ok := taskMap["secrets"]; ok {
+		t.Error("expected secrets to be omitted when not set")
+	}
+}
+
+func TestSecretEmptyPanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for empty secret name")
+		}
+	}()
+
+	p := New()
+	p.Task("deploy").Run("./deploy.sh").Secret("")
+}
+
+// ----- MATRIX TESTS -----
+
+func TestMatrixSingleDimension(t *testing.T) {
+	p := New()
+	p.Task("test").Run("cargo test").Matrix("rust_version", "1.70", "1.75", "1.80")
+
+	result, err := emitJSON(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	taskMap := result["tasks"].([]interface{})[0].(map[string]interface{})
+	matrix := taskMap["matrix"].(map[string]interface{})
+	versions := matrix["rust_version"].([]interface{})
+	if len(versions) != 3 {
+		t.Errorf("expected 3 versions, got %d", len(versions))
+	}
+}
+
+func TestMatrixMultipleDimensions(t *testing.T) {
+	p := New()
+	p.Task("test").Run("cargo test").
+		Matrix("rust_version", "1.70", "1.75").
+		Matrix("os", "ubuntu", "macos")
+
+	result, err := emitJSON(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	taskMap := result["tasks"].([]interface{})[0].(map[string]interface{})
+	matrix := taskMap["matrix"].(map[string]interface{})
+	if len(matrix) != 2 {
+		t.Errorf("expected 2 dimensions, got %d", len(matrix))
+	}
+}
+
+func TestMatrixNotSet(t *testing.T) {
+	p := New()
+	p.Task("test").Run("go test")
+
+	result, err := emitJSON(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	taskMap := result["tasks"].([]interface{})[0].(map[string]interface{})
+	if _, ok := taskMap["matrix"]; ok {
+		t.Error("expected matrix to be omitted when not set")
+	}
+}
+
+func TestMatrixEmptyKeyPanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for empty matrix key")
+		}
+	}()
+
+	p := New()
+	p.Task("test").Run("go test").Matrix("", "value")
+}
+
+func TestMatrixEmptyValuesPanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for empty matrix values")
+		}
+	}()
+
+	p := New()
+	p.Task("test").Run("go test").Matrix("key")
+}
+
+// ----- SERVICE TESTS -----
+
+func TestServiceSingle(t *testing.T) {
+	p := New()
+	p.Task("test").Run("cargo test").Service("postgres:15", "db")
+
+	result, err := emitJSON(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	taskMap := result["tasks"].([]interface{})[0].(map[string]interface{})
+	services := taskMap["services"].([]interface{})
+	if len(services) != 1 {
+		t.Errorf("expected 1 service, got %d", len(services))
+	}
+	svc := services[0].(map[string]interface{})
+	if svc["image"] != "postgres:15" {
+		t.Errorf("expected postgres:15, got %v", svc["image"])
+	}
+	if svc["name"] != "db" {
+		t.Errorf("expected db, got %v", svc["name"])
+	}
+}
+
+func TestServiceMultiple(t *testing.T) {
+	p := New()
+	p.Task("test").Run("cargo test").Service("postgres:15", "db").Service("redis:7", "cache")
+
+	result, err := emitJSON(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	taskMap := result["tasks"].([]interface{})[0].(map[string]interface{})
+	services := taskMap["services"].([]interface{})
+	if len(services) != 2 {
+		t.Errorf("expected 2 services, got %d", len(services))
+	}
+}
+
+func TestServiceNotSet(t *testing.T) {
+	p := New()
+	p.Task("test").Run("go test")
+
+	result, err := emitJSON(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	taskMap := result["tasks"].([]interface{})[0].(map[string]interface{})
+	if _, ok := taskMap["services"]; ok {
+		t.Error("expected services to be omitted when not set")
+	}
+}
+
+func TestServiceEmptyImagePanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for empty service image")
+		}
+	}()
+
+	p := New()
+	p.Task("test").Run("go test").Service("", "db")
+}
+
+func TestServiceEmptyNamePanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for empty service name")
+		}
+	}()
+
+	p := New()
+	p.Task("test").Run("go test").Service("postgres:15", "")
+}

@@ -87,6 +87,12 @@ struct Mount {
     mount_type: String,
 }
 
+#[derive(Clone)]
+struct Service {
+    image: String,
+    name: String,
+}
+
 // =============================================================================
 // TASK
 // =============================================================================
@@ -108,6 +114,10 @@ struct TaskData {
     inputs: Vec<String>,
     outputs: HashMap<String, String>,
     depends_on: Vec<String>,
+    condition: Option<String>,
+    secrets: Vec<String>,
+    matrix: HashMap<String, Vec<String>>,
+    services: Vec<Service>,
 }
 
 impl<'a> Task<'a> {
@@ -224,6 +234,139 @@ impl<'a> Task<'a> {
         self.pipeline.tasks[self.index]
             .depends_on
             .extend(tasks.iter().map(|s| s.to_string()));
+        self
+    }
+
+    /// Sets a condition for when this task should run.
+    ///
+    /// The condition is evaluated at runtime based on CI context variables:
+    /// - `branch == 'main'` - run only on main branch
+    /// - `branch != 'main'` - run on all branches except main
+    /// - `tag != ''` - run only when a tag is present
+    /// - `event == 'push'` - run only on push events
+    /// - `ci == true` - run only in CI environment
+    ///
+    /// # Example
+    /// ```rust
+    /// use sykli::Pipeline;
+    ///
+    /// let mut p = Pipeline::new();
+    /// p.task("deploy")
+    ///     .run("./deploy.sh")
+    ///     .when("branch == 'main'");
+    /// ```
+    pub fn when(self, condition: &str) -> Self {
+        if condition.is_empty() {
+            panic!("condition cannot be empty");
+        }
+        self.pipeline.tasks[self.index].condition = Some(condition.to_string());
+        self
+    }
+
+    /// Declares that this task requires a secret environment variable.
+    ///
+    /// The secret should be provided by the CI environment (e.g., GitHub Actions secrets).
+    /// The executor will validate that the secret is present before running the task.
+    ///
+    /// # Example
+    /// ```rust
+    /// use sykli::Pipeline;
+    ///
+    /// let mut p = Pipeline::new();
+    /// p.task("deploy")
+    ///     .run("./deploy.sh")
+    ///     .secret("GITHUB_TOKEN")
+    ///     .secret("NPM_TOKEN");
+    /// ```
+    pub fn secret(self, name: &str) -> Self {
+        if name.is_empty() {
+            panic!("secret name cannot be empty");
+        }
+        self.pipeline.tasks[self.index]
+            .secrets
+            .push(name.to_string());
+        self
+    }
+
+    /// Declares multiple secrets that this task requires.
+    ///
+    /// # Example
+    /// ```rust
+    /// use sykli::Pipeline;
+    ///
+    /// let mut p = Pipeline::new();
+    /// p.task("deploy")
+    ///     .run("./deploy.sh")
+    ///     .secrets(&["GITHUB_TOKEN", "NPM_TOKEN", "AWS_KEY"]);
+    /// ```
+    pub fn secrets(self, names: &[&str]) -> Self {
+        for name in names {
+            if name.is_empty() {
+                panic!("secret name cannot be empty");
+            }
+        }
+        self.pipeline.tasks[self.index]
+            .secrets
+            .extend(names.iter().map(|s| s.to_string()));
+        self
+    }
+
+    /// Adds a matrix dimension for this task.
+    ///
+    /// Matrix builds run the task multiple times with different parameter combinations.
+    /// Each dimension's values are exposed as environment variables.
+    ///
+    /// # Example
+    /// ```rust
+    /// use sykli::Pipeline;
+    ///
+    /// let mut p = Pipeline::new();
+    /// p.task("test")
+    ///     .run("cargo test")
+    ///     .matrix("rust_version", &["1.70", "1.75", "1.80"])
+    ///     .matrix("os", &["ubuntu", "macos"]);
+    /// // This creates 6 task variants (3 versions × 2 OS)
+    /// ```
+    pub fn matrix(self, key: &str, values: &[&str]) -> Self {
+        if key.is_empty() {
+            panic!("matrix key cannot be empty");
+        }
+        if values.is_empty() {
+            panic!("matrix values cannot be empty");
+        }
+        self.pipeline.tasks[self.index]
+            .matrix
+            .insert(key.to_string(), values.iter().map(|s| s.to_string()).collect());
+        self
+    }
+
+    /// Adds a service container that runs alongside this task.
+    ///
+    /// Services are background containers (like databases) that run during task execution.
+    /// The service is accessible via its name as hostname.
+    ///
+    /// # Example
+    /// ```rust
+    /// use sykli::Pipeline;
+    ///
+    /// let mut p = Pipeline::new();
+    /// p.task("test")
+    ///     .run("cargo test")
+    ///     .service("postgres:15", "db")
+    ///     .service("redis:7", "cache");
+    /// // postgres available at hostname "db", redis at "cache"
+    /// ```
+    pub fn service(self, image: &str, name: &str) -> Self {
+        if image.is_empty() {
+            panic!("service image cannot be empty");
+        }
+        if name.is_empty() {
+            panic!("service name cannot be empty");
+        }
+        self.pipeline.tasks[self.index].services.push(Service {
+            image: image.to_string(),
+            name: name.to_string(),
+        });
         self
     }
 }
@@ -424,6 +567,30 @@ impl Pipeline {
                     } else {
                         Some(t.depends_on.clone())
                     },
+                    condition: t.condition.clone(),
+                    secrets: if t.secrets.is_empty() {
+                        None
+                    } else {
+                        Some(t.secrets.clone())
+                    },
+                    matrix: if t.matrix.is_empty() {
+                        None
+                    } else {
+                        Some(t.matrix.clone())
+                    },
+                    services: if t.services.is_empty() {
+                        None
+                    } else {
+                        Some(
+                            t.services
+                                .iter()
+                                .map(|s| JsonService {
+                                    image: s.image.clone(),
+                                    name: s.name.clone(),
+                                })
+                                .collect(),
+                        )
+                    },
                 })
                 .collect(),
         };
@@ -523,6 +690,14 @@ struct JsonTask {
     outputs: Option<HashMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     depends_on: Option<Vec<String>>,
+    #[serde(rename = "when", skip_serializing_if = "Option::is_none")]
+    condition: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    secrets: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    matrix: Option<HashMap<String, Vec<String>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    services: Option<Vec<JsonService>>,
 }
 
 #[derive(Serialize)]
@@ -531,6 +706,12 @@ struct JsonMount {
     path: String,
     #[serde(rename = "type")]
     type_: String,
+}
+
+#[derive(Serialize)]
+struct JsonService {
+    image: String,
+    name: String,
 }
 
 #[cfg(test)]
@@ -835,5 +1016,268 @@ mod tests {
         let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
 
         assert_eq!(json["version"], "2");
+    }
+
+    #[test]
+    fn test_when_branch_condition() {
+        let mut p = Pipeline::new();
+        p.task("deploy")
+            .run("./deploy.sh")
+            .when("branch == 'main'");
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        assert_eq!(json["tasks"][0]["when"], "branch == 'main'");
+    }
+
+    #[test]
+    fn test_when_tag_condition() {
+        let mut p = Pipeline::new();
+        p.task("release")
+            .run("./release.sh")
+            .when("tag != ''");
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        assert_eq!(json["tasks"][0]["when"], "tag != ''");
+    }
+
+    #[test]
+    fn test_when_not_set() {
+        let mut p = Pipeline::new();
+        p.task("test").run("cargo test");
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        assert!(json["tasks"][0]["when"].is_null());
+    }
+
+    #[test]
+    #[should_panic(expected = "condition cannot be empty")]
+    fn test_when_empty_panics() {
+        let mut p = Pipeline::new();
+        p.task("test").run("cargo test").when("");
+    }
+
+    #[test]
+    fn test_when_with_other_options() {
+        let mut p = Pipeline::new();
+        p.task("test").run("cargo test");
+        p.task("build").run("cargo build");
+        p.task("deploy")
+            .run("./deploy.sh")
+            .after(&["test", "build"])
+            .when("branch == 'main'");
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        assert_eq!(json["tasks"][2]["when"], "branch == 'main'");
+        assert_eq!(json["tasks"][2]["depends_on"][0], "test");
+        assert_eq!(json["tasks"][2]["depends_on"][1], "build");
+    }
+
+    // ----- SECRET TESTS -----
+
+    #[test]
+    fn test_secret_single() {
+        let mut p = Pipeline::new();
+        p.task("deploy")
+            .run("./deploy.sh")
+            .secret("GITHUB_TOKEN");
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        let secrets = json["tasks"][0]["secrets"].as_array().unwrap();
+        assert_eq!(secrets.len(), 1);
+        assert_eq!(secrets[0], "GITHUB_TOKEN");
+    }
+
+    #[test]
+    fn test_secret_multiple() {
+        let mut p = Pipeline::new();
+        p.task("deploy")
+            .run("./deploy.sh")
+            .secret("GITHUB_TOKEN")
+            .secret("NPM_TOKEN")
+            .secret("AWS_ACCESS_KEY");
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        let secrets = json["tasks"][0]["secrets"].as_array().unwrap();
+        assert_eq!(secrets.len(), 3);
+        assert!(secrets.contains(&serde_json::json!("GITHUB_TOKEN")));
+        assert!(secrets.contains(&serde_json::json!("NPM_TOKEN")));
+        assert!(secrets.contains(&serde_json::json!("AWS_ACCESS_KEY")));
+    }
+
+    #[test]
+    fn test_secret_not_set() {
+        let mut p = Pipeline::new();
+        p.task("test").run("cargo test");
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        assert!(json["tasks"][0]["secrets"].is_null());
+    }
+
+    #[test]
+    #[should_panic(expected = "secret name cannot be empty")]
+    fn test_secret_empty_panics() {
+        let mut p = Pipeline::new();
+        p.task("deploy").run("./deploy.sh").secret("");
+    }
+
+    #[test]
+    fn test_secrets_method() {
+        let mut p = Pipeline::new();
+        p.task("deploy")
+            .run("./deploy.sh")
+            .secrets(&["GITHUB_TOKEN", "NPM_TOKEN"]);
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        let secrets = json["tasks"][0]["secrets"].as_array().unwrap();
+        assert_eq!(secrets.len(), 2);
+    }
+
+    // ----- MATRIX TESTS -----
+
+    #[test]
+    fn test_matrix_single_dimension() {
+        let mut p = Pipeline::new();
+        p.task("test")
+            .run("cargo test")
+            .matrix("rust_version", &["1.70", "1.75", "1.80"]);
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        let matrix = json["tasks"][0]["matrix"].as_object().unwrap();
+        assert_eq!(matrix.len(), 1);
+        let versions = matrix["rust_version"].as_array().unwrap();
+        assert_eq!(versions.len(), 3);
+        assert_eq!(versions[0], "1.70");
+    }
+
+    #[test]
+    fn test_matrix_multiple_dimensions() {
+        let mut p = Pipeline::new();
+        p.task("test")
+            .run("cargo test")
+            .matrix("rust_version", &["1.70", "1.75"])
+            .matrix("os", &["ubuntu", "macos"]);
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        let matrix = json["tasks"][0]["matrix"].as_object().unwrap();
+        assert_eq!(matrix.len(), 2);
+        assert!(matrix.contains_key("rust_version"));
+        assert!(matrix.contains_key("os"));
+    }
+
+    #[test]
+    fn test_matrix_not_set() {
+        let mut p = Pipeline::new();
+        p.task("test").run("cargo test");
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        assert!(json["tasks"][0]["matrix"].is_null());
+    }
+
+    #[test]
+    #[should_panic(expected = "matrix key cannot be empty")]
+    fn test_matrix_empty_key_panics() {
+        let mut p = Pipeline::new();
+        p.task("test").run("cargo test").matrix("", &["value"]);
+    }
+
+    #[test]
+    #[should_panic(expected = "matrix values cannot be empty")]
+    fn test_matrix_empty_values_panics() {
+        let mut p = Pipeline::new();
+        p.task("test").run("cargo test").matrix("key", &[]);
+    }
+
+    // ----- SERVICE TESTS -----
+
+    #[test]
+    fn test_service_single() {
+        let mut p = Pipeline::new();
+        p.task("test")
+            .run("cargo test")
+            .service("postgres:15", "db");
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        let services = json["tasks"][0]["services"].as_array().unwrap();
+        assert_eq!(services.len(), 1);
+        assert_eq!(services[0]["image"], "postgres:15");
+        assert_eq!(services[0]["name"], "db");
+    }
+
+    #[test]
+    fn test_service_multiple() {
+        let mut p = Pipeline::new();
+        p.task("test")
+            .run("cargo test")
+            .service("postgres:15", "db")
+            .service("redis:7", "cache");
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        let services = json["tasks"][0]["services"].as_array().unwrap();
+        assert_eq!(services.len(), 2);
+    }
+
+    #[test]
+    fn test_service_not_set() {
+        let mut p = Pipeline::new();
+        p.task("test").run("cargo test");
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        assert!(json["tasks"][0]["services"].is_null());
+    }
+
+    #[test]
+    #[should_panic(expected = "service image cannot be empty")]
+    fn test_service_empty_image_panics() {
+        let mut p = Pipeline::new();
+        p.task("test").run("cargo test").service("", "db");
+    }
+
+    #[test]
+    #[should_panic(expected = "service name cannot be empty")]
+    fn test_service_empty_name_panics() {
+        let mut p = Pipeline::new();
+        p.task("test").run("cargo test").service("postgres:15", "");
     }
 }
