@@ -16,7 +16,11 @@ defmodule Sykli.Graph do
       :container,  # Docker image to run in
       :workdir,    # Working directory inside container
       :env,        # Environment variables (map)
-      :mounts      # List of mounts (directories and caches)
+      :mounts,     # List of mounts (directories and caches)
+      # CI features
+      :matrix,     # Matrix build dimensions (map of lists)
+      :secrets,    # Required secrets (list of strings)
+      :services    # Service containers (list of {image, name})
     ]
   end
 
@@ -45,12 +49,16 @@ defmodule Sykli.Graph do
       inputs: map["inputs"] || [],
       outputs: normalize_outputs(map["outputs"]),
       depends_on: (map["depends_on"] || []) |> Enum.uniq(),
-      condition: map["condition"],
+      condition: map["when"] || map["condition"],
       # v2 fields
       container: map["container"],
       workdir: map["workdir"],
       env: map["env"] || %{},
-      mounts: parse_mounts(map["mounts"])
+      mounts: parse_mounts(map["mounts"]),
+      # CI features
+      matrix: map["matrix"] || %{},
+      secrets: map["secrets"] || [],
+      services: parse_services(map["services"])
     }
   end
 
@@ -76,10 +84,78 @@ defmodule Sykli.Graph do
     end)
   end
 
+  defp parse_services(nil), do: []
+  defp parse_services(services) when is_list(services) do
+    Enum.map(services, fn s ->
+      %{image: s["image"], name: s["name"]}
+    end)
+  end
+
   # Handle both v1 (list) and v2 (map) output formats
   defp normalize_outputs(nil), do: []
   defp normalize_outputs(outputs) when is_list(outputs), do: outputs
   defp normalize_outputs(outputs) when is_map(outputs), do: Map.values(outputs)
+
+  @doc """
+  Expands matrix tasks into individual tasks for each combination.
+  """
+  def expand_matrix(graph) do
+    # Collect which original task names get expanded
+    expanded_names = %{}
+
+    {expanded_graph, expanded_names} =
+      Enum.reduce(graph, {%{}, expanded_names}, fn {name, task}, {acc, names} ->
+        if task.matrix == nil or task.matrix == %{} do
+          {Map.put(acc, name, task), names}
+        else
+          # Generate all combinations
+          combinations = matrix_combinations(task.matrix)
+
+          if combinations == [] do
+            {Map.put(acc, name, task), names}
+          else
+            # Create a task for each combination
+            new_tasks =
+              Enum.map(combinations, fn combo ->
+                suffix = combo |> Map.values() |> Enum.join("-")
+                new_name = "#{name}-#{suffix}"
+                new_env = Map.merge(task.env || %{}, combo)
+                {new_name, %{task | name: new_name, env: new_env, matrix: nil}}
+              end)
+
+            expanded_task_names = Enum.map(new_tasks, fn {n, _} -> n end)
+            new_names = Map.put(names, name, expanded_task_names)
+
+            {Map.merge(acc, Map.new(new_tasks)), new_names}
+          end
+        end
+      end)
+
+    # Update dependencies to point to expanded tasks
+    Enum.reduce(expanded_graph, %{}, fn {name, task}, acc ->
+      new_deps =
+        Enum.flat_map(task.depends_on || [], fn dep ->
+          case Map.get(expanded_names, dep) do
+            nil -> [dep]
+            expanded -> expanded
+          end
+        end)
+
+      Map.put(acc, name, %{task | depends_on: new_deps})
+    end)
+  end
+
+  defp matrix_combinations(matrix) when matrix == %{}, do: []
+  defp matrix_combinations(matrix) do
+    matrix
+    |> Map.to_list()
+    |> Enum.reduce([[]], fn {key, values}, acc ->
+      for combo <- acc, value <- values do
+        [{key, value} | combo]
+      end
+    end)
+    |> Enum.map(&Map.new/1)
+  end
 
   @doc """
   Topological sort using Kahn's algorithm.
