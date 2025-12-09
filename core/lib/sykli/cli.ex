@@ -38,10 +38,12 @@ defmodule Sykli.CLI do
 
   defp run_sykli(args) do
     path = List.first(args) || "."
+    start_time = System.monotonic_time(:millisecond)
 
     case Sykli.run(path) do
       {:ok, results} ->
-        IO.puts("\n#{IO.ANSI.green()}All tasks passed#{IO.ANSI.reset()}")
+        duration = System.monotonic_time(:millisecond) - start_time
+        IO.puts("\n#{IO.ANSI.green()}✓ All tasks completed in #{format_duration(duration)}#{IO.ANSI.reset()}")
 
         Enum.each(results, fn {name, _} ->
           IO.puts("  ✓ #{name}")
@@ -118,5 +120,12 @@ defmodule Sykli.CLI do
       [_, num, "s"] -> {:ok, String.to_integer(num)}
       _ -> {:error, :invalid}
     end
+  end
+
+  # Format milliseconds as human readable duration
+  defp format_duration(ms) when ms < 1000, do: "#{ms}ms"
+  defp format_duration(ms) do
+    seconds = ms / 1000
+    "#{Float.round(seconds, 1)}s"
   end
 end
