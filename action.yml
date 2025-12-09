@@ -1,0 +1,19 @@
+name: 'Sykli'
+description: 'CI in your language. No YAML. No DSL. Just code.'
+author: 'yairfalse'
+
+branding:
+  icon: 'zap'
+  color: 'blue'
+
+inputs:
+  path:
+    description: 'Path to project containing sykli.go, sykli.rs, or sykli.ts'
+    required: false
+    default: '.'
+
+runs:
+  using: 'docker'
+  image: 'Dockerfile'
+  args:
+    - ${{ inputs.path }}
