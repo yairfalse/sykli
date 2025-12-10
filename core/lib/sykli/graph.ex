@@ -12,15 +12,16 @@ defmodule Sykli.Graph do
       :outputs,
       :depends_on,
       :condition,
-      :secrets,    # List of required secret environment variables
-      :matrix,     # Map of matrix dimensions (key -> [values])
+      # CI features
+      :secrets,       # List of required secret environment variables
+      :matrix,        # Map of matrix dimensions (key -> [values])
       :matrix_values, # Specific values for expanded tasks (key -> value)
-      :services,   # List of service containers (image, name)
+      :services,      # List of service containers (image, name)
       # v2 fields
-      :container,  # Docker image to run in
-      :workdir,    # Working directory inside container
-      :env,        # Environment variables (map)
-      :mounts      # List of mounts (directories and caches)
+      :container,     # Docker image to run in
+      :workdir,       # Working directory inside container
+      :env,           # Environment variables (map)
+      :mounts         # List of mounts (directories and caches)
     ]
   end
 
@@ -49,7 +50,8 @@ defmodule Sykli.Graph do
       inputs: map["inputs"] || [],
       outputs: normalize_outputs(map["outputs"]),
       depends_on: (map["depends_on"] || []) |> Enum.uniq(),
-      condition: map["when"],
+      condition: map["when"] || map["condition"],
+      # CI features
       secrets: map["secrets"] || [],
       matrix: map["matrix"],
       matrix_values: nil,
@@ -109,7 +111,8 @@ defmodule Sykli.Graph do
   @doc """
   Expands matrix tasks into individual tasks.
   A task with matrix: {"os": ["linux", "macos"], "version": ["1.0", "2.0"]}
-  becomes 4 tasks: task-linux-1.0, task-linux-2.0, task-macos-1.0, task-macos-2.0
+  becomes 4 tasks: task-1.0-linux, task-1.0-macos, task-2.0-linux, task-2.0-macos
+  (suffix order is deterministic based on sorted keys)
   """
   def expand_matrix(graph) do
     # Collect all expanded tasks and original task names that were expanded
@@ -131,6 +134,7 @@ defmodule Sykli.Graph do
             new_tasks =
               combinations
               |> Enum.map(fn combo ->
+                # Sort by key for deterministic suffix
                 suffix = combo |> Enum.sort() |> Enum.map(fn {_k, v} -> v end) |> Enum.join("-")
                 new_name = "#{name}-#{suffix}"
 
@@ -152,27 +156,24 @@ defmodule Sykli.Graph do
 
     # Update dependencies: if a task depends on an expanded task,
     # it should depend on ALL expanded variants
-    updated_graph =
-      expanded_tasks
-      |> Enum.map(fn {name, task} ->
-        new_deps =
-          task.depends_on
-          |> Enum.flat_map(fn dep ->
-            if MapSet.member?(expanded_names, dep) do
-              # Find all expanded variants of this dependency
-              expanded_tasks
-              |> Map.keys()
-              |> Enum.filter(&String.starts_with?(&1, "#{dep}-"))
-            else
-              [dep]
-            end
-          end)
+    expanded_tasks
+    |> Enum.map(fn {name, task} ->
+      new_deps =
+        (task.depends_on || [])
+        |> Enum.flat_map(fn dep ->
+          if MapSet.member?(expanded_names, dep) do
+            # Find all expanded variants of this dependency
+            expanded_tasks
+            |> Map.keys()
+            |> Enum.filter(&String.starts_with?(&1, "#{dep}-"))
+          else
+            [dep]
+          end
+        end)
 
-        {name, %{task | depends_on: new_deps}}
-      end)
-      |> Map.new()
-
-    updated_graph
+      {name, %{task | depends_on: new_deps}}
+    end)
+    |> Map.new()
   end
 
   # Generate all combinations of matrix dimensions
@@ -200,14 +201,14 @@ defmodule Sykli.Graph do
 
     in_degree =
       Enum.reduce(graph, in_degree, fn {_name, task}, acc ->
-        Enum.reduce(task.depends_on, acc, fn dep, acc2 ->
+        Enum.reduce(task.depends_on || [], acc, fn dep, acc2 ->
           Map.update(acc2, dep, 0, & &1)
         end)
       end)
 
     in_degree =
       Enum.reduce(graph, in_degree, fn {_name, task}, acc ->
-        Enum.reduce(task.depends_on, acc, fn _dep, acc2 ->
+        Enum.reduce(task.depends_on || [], acc, fn _dep, acc2 ->
           Map.update!(acc2, task.name, &(&1 + 1))
         end)
       end)
@@ -237,7 +238,7 @@ defmodule Sykli.Graph do
     # Find tasks that depend on current
     dependents =
       graph
-      |> Enum.filter(fn {_name, t} -> current in t.depends_on end)
+      |> Enum.filter(fn {_name, t} -> current in (t.depends_on || []) end)
       |> Enum.map(fn {name, _} -> name end)
 
     # Decrease in-degree for dependents

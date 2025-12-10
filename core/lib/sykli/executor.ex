@@ -153,58 +153,133 @@ defmodule Sykli.Executor do
     end
   end
 
-  defp run_and_cache(%Sykli.Graph.Task{name: name, outputs: outputs} = task, workdir, cache_key) do
-    # Build the actual command (docker run or direct)
-    cmd_tuple = build_command(task, workdir)
-    display_cmd = elem(cmd_tuple, 2)
+  defp run_and_cache(%Sykli.Graph.Task{name: name, outputs: outputs, services: services} = task, workdir, cache_key) do
+    # Start services if any
+    {network, service_containers} = start_services(name, services || [])
 
-    IO.puts("#{IO.ANSI.cyan()}▶ #{name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{display_cmd}#{IO.ANSI.reset()}")
+    try do
+      # Build the actual command (docker run or direct)
+      cmd_tuple = build_command(task, workdir, network)
+      display_cmd = elem(cmd_tuple, 2)
 
-    # Post pending status to GitHub
-    maybe_github_status(name, "pending")
+      IO.puts("#{IO.ANSI.cyan()}▶ #{name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{display_cmd}#{IO.ANSI.reset()}")
 
-    # Track execution time
-    start_time = System.monotonic_time(:millisecond)
+      # Post pending status to GitHub
+      maybe_github_status(name, "pending")
 
-    # Run with streaming output
-    case run_streaming(cmd_tuple, workdir) do
-      {:ok, 0} ->
-        duration_ms = System.monotonic_time(:millisecond) - start_time
-        IO.puts("#{IO.ANSI.green()}✓ #{name}#{IO.ANSI.reset()}")
+      # Track execution time
+      start_time = System.monotonic_time(:millisecond)
 
-        # Store in cache with outputs
-        if cache_key do
-          Sykli.Cache.store(cache_key, task, outputs || [], duration_ms, workdir)
-        end
+      # Run with streaming output
+      case run_streaming(cmd_tuple, workdir) do
+        {:ok, 0} ->
+          duration_ms = System.monotonic_time(:millisecond) - start_time
+          IO.puts("#{IO.ANSI.green()}✓ #{name}#{IO.ANSI.reset()}")
 
-        maybe_github_status(name, "success")
-        :ok
+          # Store in cache with outputs
+          if cache_key do
+            Sykli.Cache.store(cache_key, task, outputs || [], duration_ms, workdir)
+          end
 
-      {:ok, code} ->
-        IO.puts("#{IO.ANSI.red()}✗ #{name} (exit #{code})#{IO.ANSI.reset()}")
-        maybe_github_status(name, "failure")
-        {:error, {:exit_code, code}}
+          maybe_github_status(name, "success")
+          :ok
 
-      {:error, reason} ->
-        IO.puts("#{IO.ANSI.red()}✗ #{name} (error: #{inspect(reason)})#{IO.ANSI.reset()}")
-        maybe_github_status(name, "failure")
-        {:error, reason}
+        {:ok, code} ->
+          IO.puts("#{IO.ANSI.red()}✗ #{name} (exit #{code})#{IO.ANSI.reset()}")
+          maybe_github_status(name, "failure")
+          {:error, {:exit_code, code}}
+
+        {:error, reason} ->
+          IO.puts("#{IO.ANSI.red()}✗ #{name} (error: #{inspect(reason)})#{IO.ANSI.reset()}")
+          maybe_github_status(name, "failure")
+          {:error, reason}
+      end
+    after
+      # Always stop services, even on failure
+      stop_services(network, service_containers)
     end
+  end
+
+  # ----- SERVICE LIFECYCLE -----
+
+  # Start service containers and create network
+  # Returns {network_name | nil, [container_ids]}
+  defp start_services(_task_name, []), do: {nil, []}
+  defp start_services(task_name, services) do
+    docker_path = System.find_executable("docker") || "/usr/bin/docker"
+    network_name = "sykli-#{sanitize_volume_name(task_name)}-#{:rand.uniform(100_000)}"
+
+    # Create network
+    {_, 0} = System.cmd(docker_path, ["network", "create", network_name], stderr_to_stdout: true)
+    IO.puts("  #{IO.ANSI.faint()}Created network #{network_name}#{IO.ANSI.reset()}")
+
+    # Start each service
+    container_ids =
+      Enum.map(services, fn %{image: image, name: name} ->
+        container_name = "#{network_name}-#{name}"
+
+        # Run container detached on the network
+        {output, 0} = System.cmd(docker_path, [
+          "run", "-d",
+          "--name", container_name,
+          "--network", network_name,
+          "--network-alias", name,
+          image
+        ], stderr_to_stdout: true)
+
+        container_id = String.trim(output)
+        IO.puts("  #{IO.ANSI.faint()}Started service #{name} (#{image})#{IO.ANSI.reset()}")
+        container_id
+      end)
+
+    # Give services a moment to start
+    if length(services) > 0 do
+      Process.sleep(1000)
+    end
+
+    {network_name, container_ids}
+  end
+
+  # Stop service containers and remove network
+  defp stop_services(nil, []), do: :ok
+  defp stop_services(network_name, container_ids) do
+    docker_path = System.find_executable("docker") || "/usr/bin/docker"
+
+    # Stop and remove containers
+    Enum.each(container_ids, fn container_id ->
+      System.cmd(docker_path, ["rm", "-f", container_id], stderr_to_stdout: true)
+    end)
+
+    # Remove network
+    if network_name do
+      System.cmd(docker_path, ["network", "rm", network_name], stderr_to_stdout: true)
+      IO.puts("  #{IO.ANSI.faint()}Removed network #{network_name}#{IO.ANSI.reset()}")
+    end
+
+    :ok
   end
 
   # ----- COMMAND BUILDING -----
 
   # Build the command to run - returns {:shell, cmd} or {:docker, args}
-  defp build_command(%Sykli.Graph.Task{container: nil, command: command}, _workdir) do
+  defp build_command(%Sykli.Graph.Task{container: nil, command: command}, _workdir, _network) do
     # No container - run directly via shell
     {:shell, command, command}
   end
 
-  defp build_command(%Sykli.Graph.Task{} = task, workdir) do
+  defp build_command(%Sykli.Graph.Task{} = task, workdir, network) do
     # Container task - build docker args list (no shell escaping needed)
     abs_workdir = Path.expand(workdir)
 
     docker_args = ["run", "--rm"]
+
+    # Connect to network if services are running
+    network_args =
+      if network do
+        ["--network", network]
+      else
+        []
+      end
 
     # Add volume mounts
     mount_args =
@@ -238,7 +313,7 @@ defmodule Sykli.Executor do
       |> Enum.flat_map(fn {k, v} -> ["-e", "#{k}=#{v}"] end)
 
     # Build args list - each arg passed directly to docker (no shell injection possible)
-    all_args = docker_args ++ mount_args ++ workdir_args ++ env_args ++
+    all_args = docker_args ++ network_args ++ mount_args ++ workdir_args ++ env_args ++
                [task.container, "sh", "-c", task.command]
 
     display = "[#{task.container}] #{task.command}"
