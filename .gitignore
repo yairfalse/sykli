@@ -58,3 +58,4 @@ docs/*
 
 # Build artifacts from example projects
 examples/go-project/app
+docs/landing-page.md
