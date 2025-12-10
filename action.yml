@@ -20,7 +20,7 @@ runs:
       uses: actions/cache@v4
       with:
         path: ~/.sykli/cache
-        key: sykli-${{ runner.os }}-${{ hashFiles('**/sykli.go', '**/sykli.rs', '**/sykli.ts') }}
+        key: sykli-${{ runner.os }}-${{ hashFiles('**/*.go', '**/*.rs', '**/*.ts') }}
         restore-keys: |
           sykli-${{ runner.os }}-
 
