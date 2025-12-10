@@ -35,6 +35,7 @@ runs:
     - name: Run sykli
       shell: bash
       run: |
+        set -e
         # Clone and build sykli (TODO: use release binary)
         # TODO: Update the repository URL below to the official sykli repository before merging.
         git clone --depth 1 https://github.com/sykli-org/sykli.git /tmp/sykli
