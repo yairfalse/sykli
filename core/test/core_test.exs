@@ -134,4 +134,54 @@ defmodule SykliTest do
     task = Map.get(graph, "test")
     assert length(task.services) == 2
   end
+
+  # ----- ADDITIONAL MATRIX TESTS -----
+
+  test "expand_matrix preserves matrix_values for expanded tasks" do
+    json = ~s({"tasks":[{"name":"test","command":"go test","matrix":{"os":["linux"],"ver":["1.0"]}}]})
+    {:ok, graph} = Sykli.Graph.parse(json)
+    expanded = Sykli.Graph.expand_matrix(graph)
+
+    # Find the expanded task
+    task = expanded |> Map.values() |> hd()
+    assert task.matrix_values != nil
+    assert task.matrix_values["os"] == "linux"
+    assert task.matrix_values["ver"] == "1.0"
+  end
+
+  test "expand_matrix with nil matrix returns task unchanged" do
+    json = ~s({"tasks":[{"name":"test","command":"go test"}]})
+    {:ok, graph} = Sykli.Graph.parse(json)
+    expanded = Sykli.Graph.expand_matrix(graph)
+    assert Map.has_key?(expanded, "test")
+    task = Map.get(expanded, "test")
+    assert task.matrix == nil
+  end
+
+  # ----- CONDITION EDGE CASES -----
+
+  test "parses legacy 'condition' field" do
+    json = ~s({"tasks":[{"name":"deploy","command":"./deploy.sh","condition":"branch == 'main'"}]})
+    {:ok, graph} = Sykli.Graph.parse(json)
+    task = Map.get(graph, "deploy")
+    assert task.condition == "branch == 'main'"
+  end
+
+  test "when field takes precedence over condition field" do
+    json = ~s({"tasks":[{"name":"deploy","command":"./deploy.sh","when":"tag != ''","condition":"branch == 'main'"}]})
+    {:ok, graph} = Sykli.Graph.parse(json)
+    task = Map.get(graph, "deploy")
+    assert task.condition == "tag != ''"
+  end
+
+  # ----- SERVICE VALIDATION -----
+
+  test "services parses image and name correctly" do
+    json = ~s({"tasks":[{"name":"test","command":"test","services":[{"image":"postgres:15","name":"db"}]}]})
+    {:ok, graph} = Sykli.Graph.parse(json)
+    task = Map.get(graph, "test")
+    service = hd(task.services)
+    assert service.image == "postgres:15"
+    assert service.name == "db"
+  end
 end
