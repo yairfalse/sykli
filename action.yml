@@ -37,8 +37,7 @@ runs:
       run: |
         set -e
         # Clone and build sykli (TODO: use release binary)
-        # TODO: Update the repository URL below to the official sykli repository before merging.
-        git clone --depth 1 https://github.com/sykli-org/sykli.git /tmp/sykli
+        git clone --depth 1 https://github.com/yairfalse/sykli.git /tmp/sykli
         cd /tmp/sykli/core
         mix local.hex --force
         mix local.rebar --force
