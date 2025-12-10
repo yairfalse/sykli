@@ -12,15 +12,16 @@ defmodule Sykli.Graph do
       :outputs,
       :depends_on,
       :condition,
-      # v2 fields
-      :container,  # Docker image to run in
-      :workdir,    # Working directory inside container
-      :env,        # Environment variables (map)
-      :mounts,     # List of mounts (directories and caches)
       # CI features
-      :matrix,     # Matrix build dimensions (map of lists)
-      :secrets,    # Required secrets (list of strings)
-      :services    # Service containers (list of {image, name})
+      :secrets,       # List of required secret environment variables
+      :matrix,        # Map of matrix dimensions (key -> [values])
+      :matrix_values, # Specific values for expanded tasks (key -> value)
+      :services,      # List of service containers (image, name)
+      # v2 fields
+      :container,     # Docker image to run in
+      :workdir,       # Working directory inside container
+      :env,           # Environment variables (map)
+      :mounts         # List of mounts (directories and caches)
     ]
   end
 
@@ -50,16 +51,34 @@ defmodule Sykli.Graph do
       outputs: normalize_outputs(map["outputs"]),
       depends_on: (map["depends_on"] || []) |> Enum.uniq(),
       condition: map["when"] || map["condition"],
+      # CI features
+      secrets: map["secrets"] || [],
+      matrix: map["matrix"],
+      matrix_values: nil,
+      services: parse_services(map["services"]),
       # v2 fields
       container: map["container"],
       workdir: map["workdir"],
       env: map["env"] || %{},
-      mounts: parse_mounts(map["mounts"]),
-      # CI features
-      matrix: map["matrix"] || %{},
-      secrets: map["secrets"] || [],
-      services: parse_services(map["services"])
+      mounts: parse_mounts(map["mounts"])
     }
+  end
+
+  defp parse_services(nil), do: []
+  defp parse_services(services) when is_list(services) do
+    Enum.map(services, fn s ->
+      image = s["image"]
+      name = s["name"]
+
+      if is_nil(image) or image == "" do
+        raise "service image cannot be empty"
+      end
+      if is_nil(name) or name == "" do
+        raise "service name cannot be empty"
+      end
+
+      %{image: image, name: name}
+    end)
   end
 
   defp parse_mounts(nil), do: []
@@ -84,77 +103,89 @@ defmodule Sykli.Graph do
     end)
   end
 
-  defp parse_services(nil), do: []
-  defp parse_services(services) when is_list(services) do
-    Enum.map(services, fn s ->
-      %{image: s["image"], name: s["name"]}
-    end)
-  end
-
   # Handle both v1 (list) and v2 (map) output formats
   defp normalize_outputs(nil), do: []
   defp normalize_outputs(outputs) when is_list(outputs), do: outputs
   defp normalize_outputs(outputs) when is_map(outputs), do: Map.values(outputs)
 
   @doc """
-  Expands matrix tasks into individual tasks for each combination.
+  Expands matrix tasks into individual tasks.
+  A task with matrix: {"os": ["linux", "macos"], "version": ["1.0", "2.0"]}
+  becomes 4 tasks: task-1.0-linux, task-1.0-macos, task-2.0-linux, task-2.0-macos
+  (suffix order is deterministic based on sorted keys)
   """
   def expand_matrix(graph) do
-    # Collect which original task names get expanded
-    expanded_names = %{}
+    # Collect all expanded tasks and original task names that were expanded
+    {expanded_tasks, expanded_names} =
+      graph
+      |> Enum.reduce({%{}, MapSet.new()}, fn {name, task}, {acc_tasks, acc_names} ->
+        case task.matrix do
+          nil ->
+            {Map.put(acc_tasks, name, task), acc_names}
 
-    {expanded_graph, expanded_names} =
-      Enum.reduce(graph, {%{}, expanded_names}, fn {name, task}, {acc, names} ->
-        if task.matrix == nil or task.matrix == %{} do
-          {Map.put(acc, name, task), names}
-        else
-          # Generate all combinations
-          combinations = matrix_combinations(task.matrix)
+          matrix when map_size(matrix) == 0 ->
+            {Map.put(acc_tasks, name, task), acc_names}
 
-          if combinations == [] do
-            {Map.put(acc, name, task), names}
-          else
-            # Create a task for each combination
+          matrix ->
+            # Generate all combinations
+            combinations = matrix_combinations(matrix)
+
+            # Create expanded tasks
             new_tasks =
-              Enum.map(combinations, fn combo ->
-                suffix = combo |> Map.values() |> Enum.join("-")
+              combinations
+              |> Enum.map(fn combo ->
+                # Sort by key for deterministic suffix
+                suffix = combo |> Enum.sort() |> Enum.map(fn {_k, v} -> v end) |> Enum.join("-")
                 new_name = "#{name}-#{suffix}"
+
+                # Merge matrix values into env
                 new_env = Map.merge(task.env || %{}, combo)
-                {new_name, %{task | name: new_name, env: new_env, matrix: nil}}
+
+                %{task |
+                  name: new_name,
+                  matrix: nil,
+                  matrix_values: combo,
+                  env: new_env
+                }
               end)
+              |> Map.new(fn t -> {t.name, t} end)
 
-            expanded_task_names = Enum.map(new_tasks, fn {n, _} -> n end)
-            new_names = Map.put(names, name, expanded_task_names)
-
-            {Map.merge(acc, Map.new(new_tasks)), new_names}
-          end
+            {Map.merge(acc_tasks, new_tasks), MapSet.put(acc_names, name)}
         end
       end)
 
-    # Update dependencies to point to expanded tasks
-    Enum.reduce(expanded_graph, %{}, fn {name, task}, acc ->
+    # Update dependencies: if a task depends on an expanded task,
+    # it should depend on ALL expanded variants
+    expanded_tasks
+    |> Enum.map(fn {name, task} ->
       new_deps =
-        Enum.flat_map(task.depends_on || [], fn dep ->
-          case Map.get(expanded_names, dep) do
-            nil -> [dep]
-            expanded -> expanded
+        (task.depends_on || [])
+        |> Enum.flat_map(fn dep ->
+          if MapSet.member?(expanded_names, dep) do
+            # Find all expanded variants of this dependency
+            expanded_tasks
+            |> Map.keys()
+            |> Enum.filter(&String.starts_with?(&1, "#{dep}-"))
+          else
+            [dep]
           end
         end)
 
-      Map.put(acc, name, %{task | depends_on: new_deps})
+      {name, %{task | depends_on: new_deps}}
     end)
+    |> Map.new()
   end
 
-  defp matrix_combinations(matrix) when matrix == %{}, do: []
+  # Generate all combinations of matrix dimensions
+  defp matrix_combinations(matrix) when map_size(matrix) == 0, do: [%{}]
+
   defp matrix_combinations(matrix) do
-    matrix
-    |> Map.to_list()
-    |> Enum.reduce([[]], fn {key, values}, acc ->
-      for combo <- acc, value <- values do
-        [{key, value} | combo]
-      end
-    end)
-    |> Enum.map(&Map.new/1)
+    [{key, values} | rest] = Map.to_list(matrix)
+    rest_combinations = matrix_combinations(Map.new(rest))
+
+    for value <- values, combo <- rest_combinations do
+      Map.put(combo, key, value)
+    end
   end
 
   @doc """
@@ -170,14 +201,14 @@ defmodule Sykli.Graph do
 
     in_degree =
       Enum.reduce(graph, in_degree, fn {_name, task}, acc ->
-        Enum.reduce(task.depends_on, acc, fn dep, acc2 ->
+        Enum.reduce(task.depends_on || [], acc, fn dep, acc2 ->
           Map.update(acc2, dep, 0, & &1)
         end)
       end)
 
     in_degree =
       Enum.reduce(graph, in_degree, fn {_name, task}, acc ->
-        Enum.reduce(task.depends_on, acc, fn _dep, acc2 ->
+        Enum.reduce(task.depends_on || [], acc, fn _dep, acc2 ->
           Map.update!(acc2, task.name, &(&1 + 1))
         end)
       end)
@@ -207,7 +238,7 @@ defmodule Sykli.Graph do
     # Find tasks that depend on current
     dependents =
       graph
-      |> Enum.filter(fn {_name, t} -> current in t.depends_on end)
+      |> Enum.filter(fn {_name, t} -> current in (t.depends_on || []) end)
       |> Enum.map(fn {name, _} -> name end)
 
     # Decrease in-degree for dependents

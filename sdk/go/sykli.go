@@ -132,6 +132,12 @@ type Mount struct {
 	sourcePath string
 }
 
+// Service represents a service container that runs alongside a task.
+type Service struct {
+	image string
+	name  string
+}
+
 // Task represents a single task in the pipeline.
 type Task struct {
 	pipeline  *Pipeline
@@ -144,6 +150,10 @@ type Task struct {
 	inputs    []string
 	outputs   map[string]string
 	dependsOn []string
+	when      string
+	secrets   []string
+	matrix    map[string][]string
+	services  []Service
 }
 
 // Task creates a new task with the given name.
@@ -263,6 +273,73 @@ func (t *Task) After(tasks ...string) *Task {
 	return t
 }
 
+// When sets a condition for when this task should run.
+// The condition is evaluated at runtime based on CI context variables:
+//   - branch == 'main' - run only on main branch
+//   - branch != 'main' - run on all branches except main
+//   - tag != '' - run only when a tag is present
+//   - event == 'push' - run only on push events
+//   - ci == true - run only in CI environment
+func (t *Task) When(condition string) *Task {
+	if condition == "" {
+		panic("condition cannot be empty")
+	}
+	t.when = condition
+	return t
+}
+
+// Secret declares that this task requires a secret environment variable.
+// The secret should be provided by the CI environment (e.g., GitHub Actions secrets).
+func (t *Task) Secret(name string) *Task {
+	if name == "" {
+		panic("secret name cannot be empty")
+	}
+	t.secrets = append(t.secrets, name)
+	return t
+}
+
+// Secrets declares multiple secrets that this task requires.
+func (t *Task) Secrets(names ...string) *Task {
+	for _, name := range names {
+		if name == "" {
+			panic("secret name cannot be empty")
+		}
+	}
+	t.secrets = append(t.secrets, names...)
+	return t
+}
+
+// Matrix adds a matrix dimension for this task.
+// Matrix builds run the task multiple times with different parameter combinations.
+// Each dimension's values are exposed as environment variables.
+func (t *Task) Matrix(key string, values ...string) *Task {
+	if key == "" {
+		panic("matrix key cannot be empty")
+	}
+	if len(values) == 0 {
+		panic("matrix values cannot be empty")
+	}
+	if t.matrix == nil {
+		t.matrix = make(map[string][]string)
+	}
+	t.matrix[key] = values
+	return t
+}
+
+// Service adds a service container that runs alongside this task.
+// Services are background containers (like databases) that run during task execution.
+// The service is accessible via its name as hostname.
+func (t *Task) Service(image, name string) *Task {
+	if image == "" {
+		panic("service image cannot be empty")
+	}
+	if name == "" {
+		panic("service name cannot be empty")
+	}
+	t.services = append(t.services, Service{image: image, name: name})
+	return t
+}
+
 // =============================================================================
 // LANGUAGE PRESETS
 // =============================================================================
@@ -356,16 +433,25 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 		Type     string `json:"type"`
 	}
 
+	type jsonService struct {
+		Image string `json:"image"`
+		Name  string `json:"name"`
+	}
+
 	type jsonTask struct {
-		Name      string            `json:"name"`
-		Command   string            `json:"command"`
-		Container string            `json:"container,omitempty"`
-		Workdir   string            `json:"workdir,omitempty"`
-		Env       map[string]string `json:"env,omitempty"`
-		Mounts    []jsonMount       `json:"mounts,omitempty"`
-		Inputs    []string          `json:"inputs,omitempty"`
-		Outputs   map[string]string `json:"outputs,omitempty"`
-		DependsOn []string          `json:"depends_on,omitempty"`
+		Name      string              `json:"name"`
+		Command   string              `json:"command"`
+		Container string              `json:"container,omitempty"`
+		Workdir   string              `json:"workdir,omitempty"`
+		Env       map[string]string   `json:"env,omitempty"`
+		Mounts    []jsonMount         `json:"mounts,omitempty"`
+		Inputs    []string            `json:"inputs,omitempty"`
+		Outputs   map[string]string   `json:"outputs,omitempty"`
+		DependsOn []string            `json:"depends_on,omitempty"`
+		When      string              `json:"when,omitempty"`
+		Secrets   []string            `json:"secrets,omitempty"`
+		Matrix    map[string][]string `json:"matrix,omitempty"`
+		Services  []jsonService       `json:"services,omitempty"`
 	}
 
 	type jsonResource struct {
@@ -435,6 +521,19 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 			Inputs:    t.inputs,
 			Outputs:   outputs,
 			DependsOn: t.dependsOn,
+			When:      t.when,
+			Secrets:   t.secrets,
+			Matrix:    t.matrix,
+			Services:  func() []jsonService {
+				if len(t.services) == 0 {
+					return nil
+				}
+				svcs := make([]jsonService, len(t.services))
+				for j, s := range t.services {
+					svcs[j] = jsonService{Image: s.image, Name: s.name}
+				}
+				return svcs
+			}(),
 		}
 	}
 

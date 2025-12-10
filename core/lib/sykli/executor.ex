@@ -102,6 +102,31 @@ defmodule Sykli.Executor do
   # ----- RUNNING A SINGLE TASK -----
 
   defp run_single(%Sykli.Graph.Task{} = task, workdir) do
+    # Check condition first
+    if should_run?(task) do
+      # Validate required secrets are present
+      case validate_secrets(task) do
+        :ok ->
+          run_task_with_cache(task, workdir)
+
+        {:error, missing} ->
+          IO.puts(
+            "#{IO.ANSI.red()}✗ #{task.name}#{IO.ANSI.reset()} " <>
+              "#{IO.ANSI.faint()}(missing secrets: #{Enum.join(missing, ", ")})#{IO.ANSI.reset()}"
+          )
+
+          {:error, {:missing_secrets, missing}}
+      end
+    else
+      IO.puts(
+        "#{IO.ANSI.faint()}○ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(skipped: condition not met)#{IO.ANSI.reset()}"
+      )
+
+      :ok
+    end
+  end
+
+  defp run_task_with_cache(%Sykli.Graph.Task{} = task, workdir) do
     # Check cache first
     case Sykli.Cache.check(task, workdir) do
       {:hit, key} ->
@@ -392,6 +417,119 @@ defmodule Sykli.Executor do
   defp maybe_github_status(task_name, state) do
     if Sykli.GitHub.enabled?() do
       Sykli.GitHub.update_status(task_name, state)
+    end
+  end
+
+  # ----- SECRET VALIDATION -----
+
+  # Validates that all required secrets are present as environment variables
+  defp validate_secrets(%Sykli.Graph.Task{secrets: nil}), do: :ok
+  defp validate_secrets(%Sykli.Graph.Task{secrets: []}), do: :ok
+
+  defp validate_secrets(%Sykli.Graph.Task{secrets: secrets}) do
+    missing =
+      secrets
+      |> Enum.filter(fn name ->
+        case System.get_env(name) do
+          nil -> true
+          "" -> true
+          _ -> false
+        end
+      end)
+
+    if missing == [] do
+      :ok
+    else
+      {:error, missing}
+    end
+  end
+
+  # ----- CONDITION EVALUATION -----
+
+  # Check if a task should run based on its condition
+  defp should_run?(%Sykli.Graph.Task{condition: nil}), do: true
+  defp should_run?(%Sykli.Graph.Task{condition: ""}), do: true
+
+  defp should_run?(%Sykli.Graph.Task{condition: condition}) do
+    context = build_context()
+    evaluate_condition(condition, context)
+  end
+
+  # Build context from environment variables (CI systems set these)
+  defp build_context do
+    %{
+      # GitHub Actions
+      "branch" => get_branch(),
+      "tag" => System.get_env("GITHUB_REF_TYPE") == "tag" && get_ref_name(),
+      "event" => System.get_env("GITHUB_EVENT_NAME"),
+      "pr_number" => System.get_env("GITHUB_PR_NUMBER"),
+      # Generic CI
+      "ci" => System.get_env("CI") == "true"
+    }
+  end
+
+  defp get_branch do
+    cond do
+      # GitHub Actions
+      ref = System.get_env("GITHUB_REF_NAME") ->
+        if System.get_env("GITHUB_REF_TYPE") == "branch", do: ref, else: nil
+
+      # GitLab CI
+      branch = System.get_env("CI_COMMIT_BRANCH") ->
+        branch
+
+      # Generic / local - try git
+      true ->
+        case System.cmd("git", ["rev-parse", "--abbrev-ref", "HEAD"], stderr_to_stdout: true) do
+          {branch, 0} -> String.trim(branch)
+          _ -> nil
+        end
+    end
+  end
+
+  defp get_ref_name do
+    System.get_env("GITHUB_REF_NAME") || System.get_env("CI_COMMIT_TAG")
+  end
+
+  # Evaluate a condition expression against context
+  # Supports: branch == 'main', tag != '', event == 'push'
+  defp evaluate_condition(condition, context) do
+    cond do
+      # branch == 'value'
+      Regex.match?(~r/^branch\s*==\s*'([^']*)'$/, condition) ->
+        [_, value] = Regex.run(~r/^branch\s*==\s*'([^']*)'$/, condition)
+        context["branch"] == value
+
+      # branch != 'value'
+      Regex.match?(~r/^branch\s*!=\s*'([^']*)'$/, condition) ->
+        [_, value] = Regex.run(~r/^branch\s*!=\s*'([^']*)'$/, condition)
+        context["branch"] != value
+
+      # tag == 'value' (for specific tag)
+      Regex.match?(~r/^tag\s*==\s*'([^']*)'$/, condition) ->
+        [_, value] = Regex.run(~r/^tag\s*==\s*'([^']*)'$/, condition)
+        context["tag"] == value
+
+      # tag != '' (any tag)
+      Regex.match?(~r/^tag\s*!=\s*''$/, condition) ->
+        context["tag"] != nil && context["tag"] != false && context["tag"] != ""
+
+      # event == 'value'
+      Regex.match?(~r/^event\s*==\s*'([^']*)'$/, condition) ->
+        [_, value] = Regex.run(~r/^event\s*==\s*'([^']*)'$/, condition)
+        context["event"] == value
+
+      # ci == true
+      condition == "ci == true" ->
+        context["ci"] == true
+
+      # Unknown condition - default to true (run the task)
+      true ->
+        IO.puts(
+          "#{IO.ANSI.yellow()}⚠ Unknown condition format: #{condition}, running task#{IO.ANSI.reset()}"
+        )
+
+        true
     end
   end
 end
