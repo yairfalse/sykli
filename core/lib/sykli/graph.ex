@@ -3,6 +3,11 @@ defmodule Sykli.Graph do
   Parses task graph JSON and performs topological sort.
   """
 
+  defmodule Service do
+    @moduledoc "Represents a service container for a task"
+    defstruct [:image, :name]
+  end
+
   defmodule Task do
     @moduledoc "Represents a single task in the pipeline"
     defstruct [
@@ -77,7 +82,7 @@ defmodule Sykli.Graph do
         raise "service name cannot be empty"
       end
 
-      %{image: image, name: name}
+      %Service{image: image, name: name}
     end)
   end
 

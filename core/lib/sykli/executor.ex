@@ -215,7 +215,7 @@ defmodule Sykli.Executor do
 
     # Start each service
     container_ids =
-      Enum.map(services, fn %{image: image, name: name} ->
+      Enum.map(services, fn %Sykli.Graph.Service{image: image, name: name} ->
         container_name = "#{network_name}-#{name}"
 
         # Run container detached on the network
