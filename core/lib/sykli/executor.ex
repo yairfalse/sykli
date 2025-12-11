@@ -145,17 +145,43 @@ defmodule Sykli.Executor do
               "#{IO.ANSI.yellow()}⚠ Cache restore failed for #{task.name}: #{inspect(reason)}#{IO.ANSI.reset()}"
             )
 
-            run_and_cache(task, workdir, nil)
+            run_with_retry(task, workdir, nil)
         end
 
       {:miss, cache_key} ->
-        run_and_cache(task, workdir, cache_key)
+        run_with_retry(task, workdir, cache_key)
     end
   end
 
-  defp run_and_cache(%Sykli.Graph.Task{name: name, outputs: outputs, services: services} = task, workdir, cache_key) do
+  # Run task with retry logic
+  defp run_with_retry(task, workdir, cache_key) do
+    max_attempts = (task.retry || 0) + 1
+    do_run_with_retry(task, workdir, cache_key, 1, max_attempts)
+  end
+
+  defp do_run_with_retry(task, workdir, cache_key, attempt, max_attempts) do
+    case run_and_cache(task, workdir, cache_key) do
+      :ok ->
+        :ok
+
+      {:error, _reason} when attempt < max_attempts ->
+        IO.puts(
+          "#{IO.ANSI.yellow()}↻ #{task.name}#{IO.ANSI.reset()} " <>
+            "#{IO.ANSI.faint()}(retry #{attempt}/#{max_attempts - 1})#{IO.ANSI.reset()}"
+        )
+        do_run_with_retry(task, workdir, cache_key, attempt + 1, max_attempts)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp run_and_cache(%Sykli.Graph.Task{name: name, outputs: outputs, services: services, timeout: timeout} = task, workdir, cache_key) do
     # Start services if any
     {network, service_containers} = start_services(name, services || [])
+
+    # Calculate timeout in milliseconds (default 5 minutes)
+    timeout_ms = (timeout || 300) * 1000
 
     try do
       # Build the actual command (docker run or direct)
@@ -170,8 +196,8 @@ defmodule Sykli.Executor do
       # Track execution time
       start_time = System.monotonic_time(:millisecond)
 
-      # Run with streaming output
-      case run_streaming(cmd_tuple, workdir) do
+      # Run with streaming output (with custom timeout)
+      case run_streaming(cmd_tuple, workdir, timeout_ms) do
         {:ok, 0} ->
           duration_ms = System.monotonic_time(:millisecond) - start_time
           IO.puts("#{IO.ANSI.green()}✓ #{name}#{IO.ANSI.reset()}")
@@ -347,7 +373,7 @@ defmodule Sykli.Executor do
   end
 
   # Run command with streaming output to console
-  defp run_streaming({:shell, command, _display}, workdir) do
+  defp run_streaming({:shell, command, _display}, workdir, timeout_ms) do
     # Shell command - use Port with sh -c
     port = Port.open(
       {:spawn_executable, "/bin/sh"},
@@ -361,13 +387,13 @@ defmodule Sykli.Executor do
     )
 
     try do
-      stream_output(port)
+      stream_output(port, timeout_ms)
     after
       safe_port_close(port)
     end
   end
 
-  defp run_streaming({:docker, args, _display}, workdir) do
+  defp run_streaming({:docker, args, _display}, workdir, timeout_ms) do
     # Docker command - use Port with docker directly (no shell, no escaping needed)
     docker_path = System.find_executable("docker") || "/usr/bin/docker"
 
@@ -383,7 +409,7 @@ defmodule Sykli.Executor do
     )
 
     try do
-      stream_output(port)
+      stream_output(port, timeout_ms)
     after
       safe_port_close(port)
     end
@@ -398,17 +424,17 @@ defmodule Sykli.Executor do
     end
   end
 
-  defp stream_output(port) do
+  defp stream_output(port, timeout_ms) do
     receive do
       {^port, {:data, data}} ->
         # Stream output with task prefix
         IO.write("  #{IO.ANSI.faint()}#{data}#{IO.ANSI.reset()}")
-        stream_output(port)
+        stream_output(port, timeout_ms)
 
       {^port, {:exit_status, status}} ->
         {:ok, status}
     after
-      300_000 ->
+      timeout_ms ->
         safe_port_close(port)
         {:error, :timeout}
     end

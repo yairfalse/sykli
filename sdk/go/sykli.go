@@ -154,6 +154,8 @@ type Task struct {
 	secrets   []string
 	matrix    map[string][]string
 	services  []Service
+	retry     int
+	timeout   int // seconds
 }
 
 // Task creates a new task with the given name.
@@ -340,6 +342,24 @@ func (t *Task) Service(image, name string) *Task {
 	return t
 }
 
+// Retry sets the number of times to retry this task on failure.
+func (t *Task) Retry(n int) *Task {
+	if n < 0 {
+		panic("retry count cannot be negative")
+	}
+	t.retry = n
+	return t
+}
+
+// Timeout sets the timeout for this task in seconds.
+func (t *Task) Timeout(seconds int) *Task {
+	if seconds <= 0 {
+		panic("timeout must be positive")
+	}
+	t.timeout = seconds
+	return t
+}
+
 // =============================================================================
 // LANGUAGE PRESETS
 // =============================================================================
@@ -452,6 +472,8 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 		Secrets   []string            `json:"secrets,omitempty"`
 		Matrix    map[string][]string `json:"matrix,omitempty"`
 		Services  []jsonService       `json:"services,omitempty"`
+		Retry     int                 `json:"retry,omitempty"`
+		Timeout   int                 `json:"timeout,omitempty"`
 	}
 
 	type jsonResource struct {
@@ -524,7 +546,9 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 			When:      t.when,
 			Secrets:   t.secrets,
 			Matrix:    t.matrix,
-			Services:  func() []jsonService {
+			Retry:     t.retry,
+			Timeout:   t.timeout,
+			Services: func() []jsonService {
 				if len(t.services) == 0 {
 					return nil
 				}

@@ -22,6 +22,9 @@ defmodule Sykli.Graph do
       :matrix,        # Map of matrix dimensions (key -> [values])
       :matrix_values, # Specific values for expanded tasks (key -> value)
       :services,      # List of service containers (image, name)
+      # Robustness features
+      :retry,         # Number of retries on failure (nil = no retry)
+      :timeout,       # Timeout in seconds (nil = default 5 min)
       # v2 fields
       :container,     # Docker image to run in
       :workdir,       # Working directory inside container
@@ -61,6 +64,9 @@ defmodule Sykli.Graph do
       matrix: map["matrix"],
       matrix_values: nil,
       services: parse_services(map["services"]),
+      # Robustness features
+      retry: map["retry"],
+      timeout: map["timeout"],
       # v2 fields
       container: map["container"],
       workdir: map["workdir"],
@@ -263,4 +269,5 @@ defmodule Sykli.Graph do
     result = if task, do: [task | result], else: result
     do_topo_sort(new_queue, new_in_degree, graph, result)
   end
+
 end

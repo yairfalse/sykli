@@ -184,4 +184,36 @@ defmodule SykliTest do
     assert service.image == "postgres:15"
     assert service.name == "db"
   end
+
+  # ----- RETRY TESTS -----
+
+  test "parses retry from JSON" do
+    json = ~s({"tasks":[{"name":"test","command":"go test","retry":3}]})
+    {:ok, graph} = Sykli.Graph.parse(json)
+    task = Map.get(graph, "test")
+    assert task.retry == 3
+  end
+
+  test "retry is nil when not set" do
+    json = ~s({"tasks":[{"name":"test","command":"go test"}]})
+    {:ok, graph} = Sykli.Graph.parse(json)
+    task = Map.get(graph, "test")
+    assert task.retry == nil
+  end
+
+  # ----- TIMEOUT TESTS -----
+
+  test "parses timeout from JSON" do
+    json = ~s({"tasks":[{"name":"build","command":"make","timeout":600}]})
+    {:ok, graph} = Sykli.Graph.parse(json)
+    task = Map.get(graph, "build")
+    assert task.timeout == 600
+  end
+
+  test "timeout is nil when not set" do
+    json = ~s({"tasks":[{"name":"test","command":"go test"}]})
+    {:ok, graph} = Sykli.Graph.parse(json)
+    task = Map.get(graph, "test")
+    assert task.timeout == nil
+  end
 end
