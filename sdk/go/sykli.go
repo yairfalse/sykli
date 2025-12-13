@@ -93,7 +93,7 @@ type Directory struct {
 // Dir creates a directory resource.
 func (p *Pipeline) Dir(path string) *Directory {
 	if path == "" {
-		log.Fatal().Msg("directory path cannot be empty")
+		log.Panic().Msg("directory path cannot be empty")
 	}
 	d := &Directory{
 		pipeline: p,
@@ -125,7 +125,7 @@ type CacheVolume struct {
 // Cache creates a named cache volume.
 func (p *Pipeline) Cache(name string) *CacheVolume {
 	if name == "" {
-		log.Fatal().Msg("cache name cannot be empty")
+		log.Panic().Msg("cache name cannot be empty")
 	}
 	c := &CacheVolume{
 		pipeline: p,
@@ -186,11 +186,11 @@ type Task struct {
 // Task creates a new task with the given name.
 func (p *Pipeline) Task(name string) *Task {
 	if name == "" {
-		log.Fatal().Msg("task name cannot be empty")
+		log.Panic().Msg("task name cannot be empty")
 	}
 	for _, existing := range p.tasks {
 		if existing.name == name {
-			log.Fatal().Str("task", name).Msg("task already exists")
+			log.Panic().Str("task", name).Msg("task already exists")
 		}
 	}
 	t := &Task{
@@ -208,7 +208,7 @@ func (p *Pipeline) Task(name string) *Task {
 // Run sets the command for this task.
 func (t *Task) Run(cmd string) *Task {
 	if cmd == "" {
-		log.Fatal().Str("task", t.name).Msg("command cannot be empty")
+		log.Panic().Str("task", t.name).Msg("command cannot be empty")
 	}
 	t.command = cmd
 	return t
@@ -217,7 +217,7 @@ func (t *Task) Run(cmd string) *Task {
 // Container sets the container image for this task.
 func (t *Task) Container(image string) *Task {
 	if image == "" {
-		log.Fatal().Str("task", t.name).Msg("container image cannot be empty")
+		log.Panic().Str("task", t.name).Msg("container image cannot be empty")
 	}
 	t.container = image
 	return t
@@ -226,10 +226,10 @@ func (t *Task) Container(image string) *Task {
 // Mount mounts a directory into the container.
 func (t *Task) Mount(dir *Directory, path string) *Task {
 	if dir == nil {
-		log.Fatal().Str("task", t.name).Msg("directory cannot be nil")
+		log.Panic().Str("task", t.name).Msg("directory cannot be nil")
 	}
 	if path == "" || path[0] != '/' {
-		log.Fatal().Str("task", t.name).Str("path", path).Msg("mount path must be absolute (start with /)")
+		log.Panic().Str("task", t.name).Str("path", path).Msg("mount path must be absolute (start with /)")
 	}
 	t.mounts = append(t.mounts, Mount{
 		resource:   dir.ID(),
@@ -243,10 +243,10 @@ func (t *Task) Mount(dir *Directory, path string) *Task {
 // MountCache mounts a cache volume into the container.
 func (t *Task) MountCache(cache *CacheVolume, path string) *Task {
 	if cache == nil {
-		log.Fatal().Str("task", t.name).Msg("cache cannot be nil")
+		log.Panic().Str("task", t.name).Msg("cache cannot be nil")
 	}
 	if path == "" || path[0] != '/' {
-		log.Fatal().Str("task", t.name).Str("path", path).Msg("mount path must be absolute (start with /)")
+		log.Panic().Str("task", t.name).Str("path", path).Msg("mount path must be absolute (start with /)")
 	}
 	t.mounts = append(t.mounts, Mount{
 		resource:  cache.ID(),
@@ -265,7 +265,7 @@ func (t *Task) Workdir(path string) *Task {
 // Env sets an environment variable.
 func (t *Task) Env(key, value string) *Task {
 	if key == "" {
-		log.Fatal().Str("task", t.name).Msg("environment variable key cannot be empty")
+		log.Panic().Str("task", t.name).Msg("environment variable key cannot be empty")
 	}
 	t.env[key] = value
 	return t
@@ -310,7 +310,7 @@ func (t *Task) After(tasks ...string) *Task {
 //   - ci == true - run only in CI environment
 func (t *Task) When(condition string) *Task {
 	if condition == "" {
-		log.Fatal().Str("task", t.name).Msg("condition cannot be empty")
+		log.Panic().Str("task", t.name).Msg("condition cannot be empty")
 	}
 	t.when = condition
 	return t
@@ -320,7 +320,7 @@ func (t *Task) When(condition string) *Task {
 // The secret should be provided by the CI environment (e.g., GitHub Actions secrets).
 func (t *Task) Secret(name string) *Task {
 	if name == "" {
-		log.Fatal().Str("task", t.name).Msg("secret name cannot be empty")
+		log.Panic().Str("task", t.name).Msg("secret name cannot be empty")
 	}
 	t.secrets = append(t.secrets, name)
 	return t
@@ -330,7 +330,7 @@ func (t *Task) Secret(name string) *Task {
 func (t *Task) Secrets(names ...string) *Task {
 	for _, name := range names {
 		if name == "" {
-			log.Fatal().Str("task", t.name).Msg("secret name cannot be empty")
+			log.Panic().Str("task", t.name).Msg("secret name cannot be empty")
 		}
 	}
 	t.secrets = append(t.secrets, names...)
@@ -342,10 +342,10 @@ func (t *Task) Secrets(names ...string) *Task {
 // Each dimension's values are exposed as environment variables.
 func (t *Task) Matrix(key string, values ...string) *Task {
 	if key == "" {
-		log.Fatal().Str("task", t.name).Msg("matrix key cannot be empty")
+		log.Panic().Str("task", t.name).Msg("matrix key cannot be empty")
 	}
 	if len(values) == 0 {
-		log.Fatal().Str("task", t.name).Str("key", key).Msg("matrix values cannot be empty")
+		log.Panic().Str("task", t.name).Str("key", key).Msg("matrix values cannot be empty")
 	}
 	if t.matrix == nil {
 		t.matrix = make(map[string][]string)
@@ -359,10 +359,10 @@ func (t *Task) Matrix(key string, values ...string) *Task {
 // The service is accessible via its name as hostname.
 func (t *Task) Service(image, name string) *Task {
 	if image == "" {
-		log.Fatal().Str("task", t.name).Msg("service image cannot be empty")
+		log.Panic().Str("task", t.name).Msg("service image cannot be empty")
 	}
 	if name == "" {
-		log.Fatal().Str("task", t.name).Msg("service name cannot be empty")
+		log.Panic().Str("task", t.name).Msg("service name cannot be empty")
 	}
 	t.services = append(t.services, Service{image: image, name: name})
 	return t
@@ -371,7 +371,7 @@ func (t *Task) Service(image, name string) *Task {
 // Retry sets the number of times to retry this task on failure.
 func (t *Task) Retry(n int) *Task {
 	if n < 0 {
-		log.Fatal().Str("task", t.name).Int("retry", n).Msg("retry count cannot be negative")
+		log.Panic().Str("task", t.name).Int("retry", n).Msg("retry count cannot be negative")
 	}
 	t.retry = n
 	return t
@@ -380,7 +380,7 @@ func (t *Task) Retry(n int) *Task {
 // Timeout sets the timeout for this task in seconds.
 func (t *Task) Timeout(seconds int) *Task {
 	if seconds <= 0 {
-		log.Fatal().Str("task", t.name).Int("timeout", seconds).Msg("timeout must be positive")
+		log.Panic().Str("task", t.name).Int("timeout", seconds).Msg("timeout must be positive")
 	}
 	t.timeout = seconds
 	return t

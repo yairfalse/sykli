@@ -38,6 +38,7 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::env;
 use std::io::{self, Write};
+use tracing::debug;
 
 // =============================================================================
 // RESOURCES
@@ -118,6 +119,9 @@ struct TaskData {
     secrets: Vec<String>,
     matrix: HashMap<String, Vec<String>>,
     services: Vec<Service>,
+    // Robustness features
+    retry: Option<u32>,   // Number of retries on failure
+    timeout: Option<u32>, // Timeout in seconds
 }
 
 impl<'a> Task<'a> {
@@ -369,6 +373,48 @@ impl<'a> Task<'a> {
         });
         self
     }
+
+    /// Sets the number of retries on failure.
+    ///
+    /// If the task fails, it will be retried up to `count` times before being marked as failed.
+    ///
+    /// # Example
+    /// ```rust
+    /// use sykli::Pipeline;
+    ///
+    /// let mut p = Pipeline::new();
+    /// p.task("flaky-test")
+    ///     .run("cargo test -- --include-ignored")
+    ///     .retry(3);  // Retry up to 3 times on failure
+    /// ```
+    pub fn retry(self, count: u32) -> Self {
+        debug!(task = %self.pipeline.tasks[self.index].name, retry = count, "setting retry");
+        self.pipeline.tasks[self.index].retry = Some(count);
+        self
+    }
+
+    /// Sets the timeout for this task in seconds.
+    ///
+    /// If the task doesn't complete within the timeout, it will be killed and marked as failed.
+    /// Default timeout is 300 seconds (5 minutes).
+    ///
+    /// # Example
+    /// ```rust
+    /// use sykli::Pipeline;
+    ///
+    /// let mut p = Pipeline::new();
+    /// p.task("long-build")
+    ///     .run("cargo build --release")
+    ///     .timeout(600);  // 10 minute timeout
+    /// ```
+    pub fn timeout(self, seconds: u32) -> Self {
+        if seconds == 0 {
+            panic!("timeout must be greater than 0");
+        }
+        debug!(task = %self.pipeline.tasks[self.index].name, timeout = seconds, "setting timeout");
+        self.pipeline.tasks[self.index].timeout = Some(seconds);
+        self
+    }
 }
 
 // =============================================================================
@@ -591,6 +637,8 @@ impl Pipeline {
                                 .collect(),
                         )
                     },
+                    retry: t.retry,
+                    timeout: t.timeout,
                 })
                 .collect(),
         };
@@ -698,6 +746,10 @@ struct JsonTask {
     matrix: Option<HashMap<String, Vec<String>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     services: Option<Vec<JsonService>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    retry: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    timeout: Option<u32>,
 }
 
 #[derive(Serialize)]
@@ -1279,5 +1331,80 @@ mod tests {
     fn test_service_empty_name_panics() {
         let mut p = Pipeline::new();
         p.task("test").run("cargo test").service("postgres:15", "");
+    }
+
+    // ----- RETRY TESTS -----
+
+    #[test]
+    fn test_retry_in_json() {
+        let mut p = Pipeline::new();
+        p.task("flaky").run("./flaky.sh").retry(3);
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        assert_eq!(json["tasks"][0]["retry"], 3);
+    }
+
+    #[test]
+    fn test_retry_not_set() {
+        let mut p = Pipeline::new();
+        p.task("test").run("cargo test");
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        assert!(json["tasks"][0]["retry"].is_null());
+    }
+
+    // ----- TIMEOUT TESTS -----
+
+    #[test]
+    fn test_timeout_in_json() {
+        let mut p = Pipeline::new();
+        p.task("long").run("./long-running.sh").timeout(600);
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        assert_eq!(json["tasks"][0]["timeout"], 600);
+    }
+
+    #[test]
+    fn test_timeout_not_set() {
+        let mut p = Pipeline::new();
+        p.task("test").run("cargo test");
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        assert!(json["tasks"][0]["timeout"].is_null());
+    }
+
+    #[test]
+    #[should_panic(expected = "timeout must be greater than 0")]
+    fn test_timeout_zero_panics() {
+        let mut p = Pipeline::new();
+        p.task("test").run("cargo test").timeout(0);
+    }
+
+    #[test]
+    fn test_retry_and_timeout_combined() {
+        let mut p = Pipeline::new();
+        p.task("flaky")
+            .run("./flaky.sh")
+            .retry(2)
+            .timeout(120);
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        assert_eq!(json["tasks"][0]["retry"], 2);
+        assert_eq!(json["tasks"][0]["timeout"], 120);
     }
 }
