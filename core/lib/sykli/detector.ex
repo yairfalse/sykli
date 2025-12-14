@@ -29,7 +29,7 @@ defmodule Sykli.Detector do
     dir = Path.dirname(path)
     file = Path.basename(path)
 
-    case System.cmd("go", ["run", file, "--emit"], cd: dir, stderr_to_stdout: true) do
+    case System.cmd("go", ["run", file, "--emit"], cd: dir) do
       {output, 0} -> {:ok, output}
       {error, _} -> {:error, {:go_failed, error}}
     end
