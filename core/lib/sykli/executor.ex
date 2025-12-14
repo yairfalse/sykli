@@ -9,12 +9,25 @@ defmodule Sykli.Executor do
 
   def run(tasks, graph, opts \\ []) do
     workdir = Keyword.get(opts, :workdir, ".")
+    start_time = System.monotonic_time(:millisecond)
+    total_tasks = length(tasks)
 
     # Group tasks by "level" - tasks at same level can run in parallel
     levels = group_by_level(tasks, graph)
 
-    # Execute level by level
-    run_levels(levels, workdir)
+    # Execute level by level, collecting results with timing
+    # Pass progress state: {completed_count, total_count}
+    result = run_levels(levels, workdir, [], {0, total_tasks})
+
+    # Print summary
+    total_time = System.monotonic_time(:millisecond) - start_time
+    print_summary(result, total_time)
+
+    # Return original format
+    case result do
+      {:ok, results} -> {:ok, results}
+      {:error, results} -> {:error, results}
+    end
   end
 
   # ----- GROUPING TASKS BY DEPENDENCY LEVEL -----
@@ -63,51 +76,66 @@ defmodule Sykli.Executor do
 
   # ----- EXECUTING LEVELS -----
 
-  defp run_levels([], _workdir), do: {:ok, []}
+  defp run_levels([], _workdir, acc, _progress), do: {:ok, Enum.reverse(acc)}
 
-  defp run_levels([level | rest], workdir) do
-    IO.puts("\n#{IO.ANSI.faint()}── Level with #{length(level)} task(s) ──#{IO.ANSI.reset()}")
+  defp run_levels([level | rest], workdir, acc, {completed, total}) do
+    level_size = length(level)
+    next_tasks = rest |> List.flatten() |> Enum.map(& &1.name)
+
+    # Show level header with upcoming tasks
+    IO.puts("\n#{IO.ANSI.faint()}── Level with #{level_size} task(s)#{if level_size > 1, do: " (parallel)", else: ""} ──#{IO.ANSI.reset()}")
+    if length(next_tasks) > 0 do
+      IO.puts("#{IO.ANSI.faint()}   next → #{Enum.join(Enum.take(next_tasks, 3), ", ")}#{if length(next_tasks) > 3, do: " +#{length(next_tasks) - 3} more", else: ""}#{IO.ANSI.reset()}")
+    end
 
     # THIS IS THE PARALLEL BIT!
     # Task.async spawns a new process for each task
     # Task.await_many waits for all to complete
 
+    # Create a counter agent for progress tracking
+    {:ok, counter} = Agent.start_link(fn -> completed end)
+
     async_tasks =
       level
       |> Enum.map(fn task ->
         Task.async(fn ->
-          {task.name, run_single(task, workdir)}
+          # Get and increment counter
+          task_num = Agent.get_and_update(counter, fn n -> {n + 1, n + 1} end)
+          start_time = System.monotonic_time(:millisecond)
+          result = run_single(task, workdir, {task_num, total})
+          duration = System.monotonic_time(:millisecond) - start_time
+          {task.name, result, duration}
         end)
       end)
 
     # Wait for all tasks in this level (5 minute timeout)
     results = Task.await_many(async_tasks, 300_000)
+    Agent.stop(counter)
+
+    new_completed = completed + level_size
 
     # Check if any failed
-    failed = Enum.find(results, fn {_name, status} -> status != :ok end)
+    failed = Enum.find(results, fn {_name, status, _duration} -> status != :ok end)
 
     if failed do
-      {name, {:error, _reason}} = failed
+      {name, {:error, _reason}, _duration} = failed
       IO.puts("#{IO.ANSI.red()}✗ #{name} failed, stopping#{IO.ANSI.reset()}")
-      {:error, results}
+      {:error, Enum.reverse(acc) ++ results}
     else
       # Continue to next level
-      case run_levels(rest, workdir) do
-        {:ok, rest_results} -> {:ok, results ++ rest_results}
-        error -> error
-      end
+      run_levels(rest, workdir, Enum.reverse(results) ++ acc, {new_completed, total})
     end
   end
 
   # ----- RUNNING A SINGLE TASK -----
 
-  defp run_single(%Sykli.Graph.Task{} = task, workdir) do
+  defp run_single(%Sykli.Graph.Task{} = task, workdir, progress) do
     # Check condition first
     if should_run?(task) do
       # Validate required secrets are present
       case validate_secrets(task) do
         :ok ->
-          run_task_with_cache(task, workdir)
+          run_task_with_cache(task, workdir, progress)
 
         {:error, missing} ->
           IO.puts(
@@ -126,7 +154,9 @@ defmodule Sykli.Executor do
     end
   end
 
-  defp run_task_with_cache(%Sykli.Graph.Task{} = task, workdir) do
+  defp run_task_with_cache(%Sykli.Graph.Task{} = task, workdir, progress) do
+    prefix = progress_prefix(progress)
+
     # Check cache first
     case Sykli.Cache.check(task, workdir) do
       {:hit, key} ->
@@ -134,7 +164,7 @@ defmodule Sykli.Executor do
         case Sykli.Cache.restore(key, workdir) do
           :ok ->
             IO.puts(
-              "#{IO.ANSI.yellow()}⊙ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(cached)#{IO.ANSI.reset()}"
+              "#{prefix}#{IO.ANSI.yellow()}⊙ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}CACHED#{IO.ANSI.reset()}"
             )
 
             maybe_github_status(task.name, "success")
@@ -142,25 +172,25 @@ defmodule Sykli.Executor do
 
           {:error, reason} ->
             IO.puts(
-              "#{IO.ANSI.yellow()}⚠ Cache restore failed for #{task.name}: #{inspect(reason)}#{IO.ANSI.reset()}"
+              "#{prefix}#{IO.ANSI.yellow()}⚠ Cache restore failed for #{task.name}: #{inspect(reason)}#{IO.ANSI.reset()}"
             )
 
-            run_with_retry(task, workdir, nil)
+            run_with_retry(task, workdir, nil, progress)
         end
 
       {:miss, cache_key} ->
-        run_with_retry(task, workdir, cache_key)
+        run_with_retry(task, workdir, cache_key, progress)
     end
   end
 
   # Run task with retry logic
-  defp run_with_retry(task, workdir, cache_key) do
+  defp run_with_retry(task, workdir, cache_key, progress) do
     max_attempts = (task.retry || 0) + 1
-    do_run_with_retry(task, workdir, cache_key, 1, max_attempts)
+    do_run_with_retry(task, workdir, cache_key, 1, max_attempts, progress)
   end
 
-  defp do_run_with_retry(task, workdir, cache_key, attempt, max_attempts) do
-    case run_and_cache(task, workdir, cache_key) do
+  defp do_run_with_retry(task, workdir, cache_key, attempt, max_attempts, progress) do
+    case run_and_cache(task, workdir, cache_key, progress) do
       :ok ->
         :ok
 
@@ -169,26 +199,33 @@ defmodule Sykli.Executor do
           "#{IO.ANSI.yellow()}↻ #{task.name}#{IO.ANSI.reset()} " <>
             "#{IO.ANSI.faint()}(retry #{attempt}/#{max_attempts - 1})#{IO.ANSI.reset()}"
         )
-        do_run_with_retry(task, workdir, cache_key, attempt + 1, max_attempts)
+        do_run_with_retry(task, workdir, cache_key, attempt + 1, max_attempts, progress)
 
       {:error, reason} ->
         {:error, reason}
     end
   end
 
-  defp run_and_cache(%Sykli.Graph.Task{name: name, outputs: outputs, services: services, timeout: timeout} = task, workdir, cache_key) do
+  defp run_and_cache(%Sykli.Graph.Task{name: name, outputs: outputs, services: services, timeout: timeout} = task, workdir, cache_key, progress) do
+    prefix = progress_prefix(progress)
+
     # Start services if any
     {network, service_containers} = start_services(name, services || [])
 
     # Calculate timeout in milliseconds (default 5 minutes)
     timeout_ms = (timeout || 300) * 1000
 
+    # Get start timestamp
+    now = :calendar.local_time()
+    {_, {h, m, s}} = now
+    timestamp = :io_lib.format("~2..0B:~2..0B:~2..0B", [h, m, s]) |> to_string()
+
     try do
       # Build the actual command (docker run or direct)
       cmd_tuple = build_command(task, workdir, network)
       display_cmd = elem(cmd_tuple, 2)
 
-      IO.puts("#{IO.ANSI.cyan()}▶ #{name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{display_cmd}#{IO.ANSI.reset()}")
+      IO.puts("#{prefix}#{IO.ANSI.cyan()}▶ #{name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{timestamp} #{display_cmd}#{IO.ANSI.reset()}")
 
       # Post pending status to GitHub
       maybe_github_status(name, "pending")
@@ -198,9 +235,10 @@ defmodule Sykli.Executor do
 
       # Run with streaming output (with custom timeout)
       case run_streaming(cmd_tuple, workdir, timeout_ms) do
-        {:ok, 0} ->
+        {:ok, 0, lines, _output} ->
           duration_ms = System.monotonic_time(:millisecond) - start_time
-          IO.puts("#{IO.ANSI.green()}✓ #{name}#{IO.ANSI.reset()}")
+          lines_str = if lines > 0, do: " #{lines}L", else: ""
+          IO.puts("#{IO.ANSI.green()}✓ #{name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{format_duration(duration_ms)}#{lines_str}#{IO.ANSI.reset()}")
 
           # Store in cache with outputs
           if cache_key do
@@ -210,13 +248,28 @@ defmodule Sykli.Executor do
           maybe_github_status(name, "success")
           :ok
 
-        {:ok, code} ->
-          IO.puts("#{IO.ANSI.red()}✗ #{name} (exit #{code})#{IO.ANSI.reset()}")
+        {:ok, code, lines, output} ->
+          duration_ms = System.monotonic_time(:millisecond) - start_time
+          lines_str = if lines > 0, do: " #{lines}L", else: ""
+          IO.puts("#{IO.ANSI.red()}✗ #{name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{format_duration(duration_ms)}#{lines_str} (exit #{code})#{IO.ANSI.reset()}")
+
+          # Show helpful hints
+          hints = Sykli.ErrorHints.get_hints(code, output)
+          if length(hints) > 0 do
+            IO.puts(Sykli.ErrorHints.format_hints(hints))
+          end
+
           maybe_github_status(name, "failure")
           {:error, {:exit_code, code}}
 
+        {:error, :timeout} ->
+          IO.puts("#{IO.ANSI.red()}✗ #{name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(timeout after #{timeout}s)#{IO.ANSI.reset()}")
+          IO.puts("  #{IO.ANSI.yellow()}Increase timeout or check if task is stuck#{IO.ANSI.reset()}")
+          maybe_github_status(name, "failure")
+          {:error, :timeout}
+
         {:error, reason} ->
-          IO.puts("#{IO.ANSI.red()}✗ #{name} (error: #{inspect(reason)})#{IO.ANSI.reset()}")
+          IO.puts("#{IO.ANSI.red()}✗ #{name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(error: #{inspect(reason)})#{IO.ANSI.reset()}")
           maybe_github_status(name, "failure")
           {:error, reason}
       end
@@ -425,14 +478,24 @@ defmodule Sykli.Executor do
   end
 
   defp stream_output(port, timeout_ms) do
+    stream_output(port, timeout_ms, 0, [])
+  end
+
+  defp stream_output(port, timeout_ms, line_count, output_acc) do
     receive do
       {^port, {:data, data}} ->
         # Stream output with task prefix
         IO.write("  #{IO.ANSI.faint()}#{data}#{IO.ANSI.reset()}")
-        stream_output(port, timeout_ms)
+        # Count newlines in data
+        new_lines = data |> :binary.matches("\n") |> length()
+        # Keep last 50 lines for error analysis
+        stream_output(port, timeout_ms, line_count + new_lines, [data | output_acc])
 
       {^port, {:exit_status, status}} ->
-        {:ok, status}
+        # Combine output (reversed because we prepended)
+        full_output = output_acc |> Enum.reverse() |> Enum.join()
+        output = String.slice(full_output, -min(String.length(full_output), 4000)..-1//1)
+        {:ok, status, line_count, output}
     after
       timeout_ms ->
         safe_port_close(port)
@@ -517,45 +580,87 @@ defmodule Sykli.Executor do
     System.get_env("GITHUB_REF_NAME") || System.get_env("CI_COMMIT_TAG")
   end
 
-  # Evaluate a condition expression against context
-  # Supports: branch == 'main', tag != '', event == 'push'
+  # Evaluate a condition expression against context using safe evaluator
+  # Allows: branch == "main", tag != "", ci and branch == "main"
   defp evaluate_condition(condition, context) do
-    cond do
-      # branch == 'value'
-      Regex.match?(~r/^branch\s*==\s*'([^']*)'$/, condition) ->
-        [_, value] = Regex.run(~r/^branch\s*==\s*'([^']*)'$/, condition)
-        context["branch"] == value
+    # Convert context map to atom-keyed map for evaluator
+    eval_context = %{
+      branch: context["branch"],
+      tag: context["tag"] || "",
+      event: context["event"],
+      pr_number: context["pr_number"],
+      ci: context["ci"] || false
+    }
 
-      # branch != 'value'
-      Regex.match?(~r/^branch\s*!=\s*'([^']*)'$/, condition) ->
-        [_, value] = Regex.run(~r/^branch\s*!=\s*'([^']*)'$/, condition)
-        context["branch"] != value
+    case Sykli.ConditionEvaluator.evaluate(condition, eval_context) do
+      {:ok, result} ->
+        !!result
 
-      # tag == 'value' (for specific tag)
-      Regex.match?(~r/^tag\s*==\s*'([^']*)'$/, condition) ->
-        [_, value] = Regex.run(~r/^tag\s*==\s*'([^']*)'$/, condition)
-        context["tag"] == value
-
-      # tag != '' (any tag)
-      Regex.match?(~r/^tag\s*!=\s*''$/, condition) ->
-        context["tag"] != nil && context["tag"] != false && context["tag"] != ""
-
-      # event == 'value'
-      Regex.match?(~r/^event\s*==\s*'([^']*)'$/, condition) ->
-        [_, value] = Regex.run(~r/^event\s*==\s*'([^']*)'$/, condition)
-        context["event"] == value
-
-      # ci == true
-      condition == "ci == true" ->
-        context["ci"] == true
-
-      # Unknown condition - default to true (run the task)
-      true ->
+      {:error, reason} ->
         IO.puts(
-          "#{IO.ANSI.yellow()}⚠ Unknown condition format: #{condition}, running task#{IO.ANSI.reset()}"
+          "#{IO.ANSI.yellow()}⚠ Invalid condition: #{condition} (#{reason})#{IO.ANSI.reset()}"
         )
+        # On error, skip the task (safer than running)
+        false
+    end
+  end
 
-        true
+  # ----- PROGRESS PREFIX -----
+
+  defp progress_prefix(nil), do: ""
+  defp progress_prefix({current, total}) do
+    "#{IO.ANSI.faint()}[#{current}/#{total}]#{IO.ANSI.reset()} "
+  end
+
+  # ----- DURATION FORMATTING -----
+
+  defp format_duration(ms) when ms < 1000, do: "#{ms}ms"
+  defp format_duration(ms) when ms < 60_000, do: "#{Float.round(ms / 1000, 1)}s"
+  defp format_duration(ms), do: "#{Float.round(ms / 60_000, 1)}m"
+
+  # ----- SUMMARY -----
+
+  defp print_summary({:ok, results}, total_time), do: do_print_summary(results, total_time, :ok)
+  defp print_summary({:error, results}, total_time), do: do_print_summary(results, total_time, :error)
+
+  defp do_print_summary(results, total_time, status) do
+    if Enum.empty?(results) do
+      :ok
+    else
+      IO.puts("\n#{IO.ANSI.faint()}─────────────────────────────────────────#{IO.ANSI.reset()}")
+
+      # Count results
+      passed = Enum.count(results, fn {_name, result, _duration} -> result == :ok end)
+      failed = Enum.count(results, fn {_name, result, _duration} -> result != :ok end)
+
+      # Status icon
+      {icon, color} = if status == :ok, do: {"✓", IO.ANSI.green()}, else: {"✗", IO.ANSI.red()}
+
+      IO.puts(
+        "#{color}#{icon}#{IO.ANSI.reset()} " <>
+        "#{IO.ANSI.bright()}#{passed} passed#{IO.ANSI.reset()}" <>
+        if(failed > 0, do: ", #{IO.ANSI.red()}#{failed} failed#{IO.ANSI.reset()}", else: "") <>
+        " #{IO.ANSI.faint()}in #{format_duration(total_time)}#{IO.ANSI.reset()}"
+      )
+
+      # Show slowest tasks if there are more than 3
+      if length(results) > 3 do
+        slowest =
+          results
+          |> Enum.filter(fn {_name, result, _duration} -> result == :ok end)
+          |> Enum.sort_by(fn {_name, _result, duration} -> -duration end)
+          |> Enum.take(3)
+
+        if length(slowest) > 0 do
+          IO.puts("")
+          IO.puts("#{IO.ANSI.faint()}Slowest:#{IO.ANSI.reset()}")
+          Enum.each(slowest, fn {name, _result, duration} ->
+            IO.puts("  #{IO.ANSI.faint()}#{format_duration(duration)}#{IO.ANSI.reset()} #{name}")
+          end)
+        end
+      end
+
+      IO.puts("")
     end
   end
 end
