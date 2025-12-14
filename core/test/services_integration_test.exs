@@ -235,14 +235,15 @@ defmodule Sykli.ServicesIntegrationTest do
       {:ok, order} = Sykli.Graph.topo_sort(graph)
 
       # Note: This test verifies DNS resolution works within the Docker network
-      result = Sykli.Executor.run(order, graph, workdir: @test_workdir)
+      # May fail if alpine doesn't have the right tools, but cleanup should always happen
+      _result = Sykli.Executor.run(order, graph, workdir: @test_workdir)
 
-      # May fail if alpine doesn't have the right tools, but network should be set up
-      # The important thing is that cleanup happens
-      case result do
-        {:ok, _} -> assert true
-        {:error, _} -> assert true
-      end
+      # Verify cleanup happened regardless of task result
+      {output, 0} = System.cmd("docker", ["ps", "-a", "--format", "{{.Names}}"], stderr_to_stdout: true)
+      refute String.contains?(output, "sykli-test-resolve")
+
+      {output, 0} = System.cmd("docker", ["network", "ls", "--format", "{{.Name}}"], stderr_to_stdout: true)
+      refute String.contains?(output, "sykli-test-resolve")
     end
   end
 end

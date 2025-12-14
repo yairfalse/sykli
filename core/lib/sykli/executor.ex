@@ -487,13 +487,14 @@ defmodule Sykli.Executor do
         # Stream output with task prefix
         IO.write("  #{IO.ANSI.faint()}#{data}#{IO.ANSI.reset()}")
         # Count newlines in data
-        new_lines = data |> String.graphemes() |> Enum.count(&(&1 == "\n"))
+        new_lines = data |> :binary.matches("\n") |> length()
         # Keep last 50 lines for error analysis
         stream_output(port, timeout_ms, line_count + new_lines, [data | output_acc])
 
       {^port, {:exit_status, status}} ->
         # Combine output (reversed because we prepended)
-        output = output_acc |> Enum.reverse() |> Enum.join() |> String.slice(-4000..-1//1) || ""
+        full_output = output_acc |> Enum.reverse() |> Enum.join()
+        output = String.slice(full_output, -min(String.length(full_output), 4000)..-1//1)
         {:ok, status, line_count, output}
     after
       timeout_ms ->
@@ -579,25 +580,25 @@ defmodule Sykli.Executor do
     System.get_env("GITHUB_REF_NAME") || System.get_env("CI_COMMIT_TAG")
   end
 
-  # Evaluate a condition expression against context using Code.eval_string
-  # This allows any valid Elixir expression: branch == "main", tag != "", ci and branch == "main"
+  # Evaluate a condition expression against context using safe evaluator
+  # Allows: branch == "main", tag != "", ci and branch == "main"
   defp evaluate_condition(condition, context) do
-    # Convert context map to binding (list of {atom, value} tuples)
-    binding = [
+    # Convert context map to atom-keyed map for evaluator
+    eval_context = %{
       branch: context["branch"],
       tag: context["tag"] || "",
       event: context["event"],
       pr_number: context["pr_number"],
       ci: context["ci"] || false
-    ]
+    }
 
-    try do
-      {result, _binding} = Code.eval_string(condition, binding)
-      !!result
-    rescue
-      e ->
+    case Sykli.ConditionEvaluator.evaluate(condition, eval_context) do
+      {:ok, result} ->
+        !!result
+
+      {:error, reason} ->
         IO.puts(
-          "#{IO.ANSI.yellow()}⚠ Invalid condition: #{condition} (#{inspect(e.__struct__)})#{IO.ANSI.reset()}"
+          "#{IO.ANSI.yellow()}⚠ Invalid condition: #{condition} (#{reason})#{IO.ANSI.reset()}"
         )
         # On error, skip the task (safer than running)
         false

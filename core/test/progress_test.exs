@@ -47,10 +47,10 @@ defmodule Sykli.ProgressTest do
   end
 
   describe "cache status" do
+    @tag :skip
     test "shows CACHED for cache hits" do
-      # This is harder to test without mocking cache
-      # For now just verify the output format exists
-      assert true
+      # TODO: Implement with cache mocking
+      flunk("Not implemented - requires cache mocking")
     end
   end
 
