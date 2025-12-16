@@ -1599,6 +1599,7 @@ mod tests {
     #[test]
     fn test_no_cycle_valid_dag() {
         // Valid DAG with no cycles - should succeed
+        // build depends on test, lint; deploy depends on build
         let mut p = Pipeline::new();
         p.task("test").run("cargo test");
         p.task("lint").run("cargo clippy");
@@ -1612,7 +1613,8 @@ mod tests {
 
     #[test]
     fn test_no_cycle_diamond_pattern() {
-        // Diamond pattern: A -> B, A -> C, B -> D, C -> D
+        // Diamond pattern: b -> a, c -> a, d -> b, d -> c
+        // (b,c depend on a; d depends on b,c; execution: a then b,c then d)
         let mut p = Pipeline::new();
         p.task("a").run("echo a");
         p.task("b").run("echo b").after(&["a"]);

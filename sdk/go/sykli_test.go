@@ -3,6 +3,7 @@ package sykli
 import (
 	"bytes"
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -679,14 +680,14 @@ func TestCycleErrorShowsPath(t *testing.T) {
 
 	errStr := err.Error()
 	// Error should mention both tasks in the cycle
-	if !contains(errStr, "a") || !contains(errStr, "b") {
+	if !strings.Contains(errStr, "a") || !strings.Contains(errStr, "b") {
 		t.Errorf("cycle error should mention tasks in cycle, got: %v", errStr)
 	}
 }
 
 func TestNoCycleValidDAG(t *testing.T) {
 	// Valid DAG with no cycles - should succeed
-	// test, lint -> build -> deploy
+	// build depends on test, lint; deploy depends on build
 	p := New()
 	p.Task("test").Run("go test")
 	p.Task("lint").Run("go vet")
@@ -700,8 +701,8 @@ func TestNoCycleValidDAG(t *testing.T) {
 }
 
 func TestNoCycleDiamondPattern(t *testing.T) {
-	// Diamond pattern: A -> B, A -> C, B -> D, C -> D
-	// This is valid (no cycle), just diamond-shaped dependencies
+	// Diamond pattern: b -> a, c -> a, d -> b, d -> c
+	// (b,c depend on a; d depends on b,c; execution: a then b,c then d)
 	p := New()
 	p.Task("a").Run("echo a")
 	p.Task("b").Run("echo b").After("a")
@@ -734,19 +735,5 @@ func containsCycleError(err error) bool {
 		return false
 	}
 	s := err.Error()
-	return contains(s, "cycle") || contains(s, "circular")
-}
-
-// Simple string contains helper
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsAt(s, substr))
-}
-
-func containsAt(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
+	return strings.Contains(s, "cycle") || strings.Contains(s, "circular")
 }
