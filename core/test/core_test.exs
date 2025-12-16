@@ -216,4 +216,49 @@ defmodule SykliTest do
     task = Map.get(graph, "test")
     assert task.timeout == nil
   end
+
+  # ----- CYCLE DETECTION TESTS -----
+
+  test "detects self-referencing cycle" do
+    json = ~s({"tasks":[{"name":"a","command":"echo","depends_on":["a"]}]})
+    {:ok, graph} = Sykli.Graph.parse(json)
+    {:error, {:cycle_detected, path}} = Sykli.Graph.topo_sort(graph)
+    assert is_list(path)
+    assert "a" in path
+  end
+
+  test "detects direct cycle between two tasks" do
+    json = ~s({"tasks":[
+      {"name":"a","command":"echo","depends_on":["b"]},
+      {"name":"b","command":"echo","depends_on":["a"]}
+    ]})
+    {:ok, graph} = Sykli.Graph.parse(json)
+    {:error, {:cycle_detected, path}} = Sykli.Graph.topo_sort(graph)
+    assert is_list(path)
+    assert "a" in path
+    assert "b" in path
+  end
+
+  test "detects indirect cycle: a -> b -> c -> a" do
+    json = ~s({"tasks":[
+      {"name":"a","command":"echo","depends_on":["b"]},
+      {"name":"b","command":"echo","depends_on":["c"]},
+      {"name":"c","command":"echo","depends_on":["a"]}
+    ]})
+    {:ok, graph} = Sykli.Graph.parse(json)
+    {:error, {:cycle_detected, path}} = Sykli.Graph.topo_sort(graph)
+    assert is_list(path)
+    assert length(path) >= 3
+  end
+
+  test "no cycle in valid DAG" do
+    json = ~s({"tasks":[
+      {"name":"test","command":"echo"},
+      {"name":"build","command":"echo","depends_on":["test"]},
+      {"name":"deploy","command":"echo","depends_on":["build"]}
+    ]})
+    {:ok, graph} = Sykli.Graph.parse(json)
+    {:ok, order} = Sykli.Graph.topo_sort(graph)
+    assert length(order) == 3
+  end
 end

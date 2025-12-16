@@ -233,13 +233,15 @@ defmodule Sykli.Graph do
     do_topo_sort(queue, in_degree, graph, [])
   end
 
-  defp do_topo_sort([], in_degree, _graph, result) do
+  defp do_topo_sort([], in_degree, graph, result) do
     remaining = Enum.filter(in_degree, fn {_, deg} -> deg > 0 end)
 
     if remaining == [] do
       {:ok, Enum.reverse(result)}
     else
-      {:error, :cycle_detected}
+      # Find the actual cycle path using DFS
+      cycle_path = detect_cycle(graph)
+      {:error, {:cycle_detected, cycle_path}}
     end
   end
 
@@ -268,6 +270,80 @@ defmodule Sykli.Graph do
 
     result = if task, do: [task | result], else: result
     do_topo_sort(new_queue, new_in_degree, graph, result)
+  end
+
+  @doc """
+  Detects cycles in the task graph using DFS with three-color marking.
+  Returns the cycle path if found, empty list otherwise.
+  """
+  def detect_cycle(graph) do
+    # Build adjacency map: task name -> dependencies
+    deps = Map.new(graph, fn {name, task} -> {name, task.depends_on || []} end)
+
+    # Colors: :white (unvisited), :gray (in progress), :black (done)
+    initial_color = Map.new(Map.keys(graph), fn name -> {name, :white} end)
+
+    # DFS from each unvisited node
+    result =
+      Enum.reduce_while(Map.keys(graph), {initial_color, %{}, nil}, fn name, {color, parent, _} ->
+        if color[name] == :white do
+          case dfs_detect_cycle(name, deps, color, parent) do
+            {:cycle, path} -> {:halt, {color, parent, path}}
+            {:ok, new_color, new_parent} -> {:cont, {new_color, new_parent, nil}}
+          end
+        else
+          {:cont, {color, parent, nil}}
+        end
+      end)
+
+    case result do
+      {_, _, nil} -> []
+      {_, _, path} -> path
+    end
+  end
+
+  defp dfs_detect_cycle(node, deps, color, parent) do
+    color = Map.put(color, node, :gray)
+
+    node_deps = Map.get(deps, node, [])
+
+    result =
+      Enum.reduce_while(node_deps, {:ok, color, parent}, fn dep, {:ok, c, p} ->
+        cond do
+          c[dep] == :gray ->
+            # Found a cycle - reconstruct the path
+            path = reconstruct_cycle(node, dep, p)
+            {:halt, {:cycle, path}}
+
+          c[dep] == :white ->
+            p = Map.put(p, dep, node)
+            case dfs_detect_cycle(dep, deps, c, p) do
+              {:cycle, path} -> {:halt, {:cycle, path}}
+              {:ok, new_c, new_p} -> {:cont, {:ok, new_c, new_p}}
+            end
+
+          true ->
+            {:cont, {:ok, c, p}}
+        end
+      end)
+
+    case result do
+      {:cycle, path} -> {:cycle, path}
+      {:ok, c, p} -> {:ok, Map.put(c, node, :black), p}
+    end
+  end
+
+  defp reconstruct_cycle(from, to, parent) do
+    # Cycle: to -> ... -> from -> to
+    build_cycle_path(from, to, parent, [to])
+  end
+
+  defp build_cycle_path(current, target, parent, path) do
+    if current == target do
+      [target | path]
+    else
+      build_cycle_path(Map.get(parent, current, target), target, parent, [current | path])
+    end
   end
 
 end

@@ -526,6 +526,14 @@ impl Pipeline {
             }
         }
 
+        // Cycle detection
+        if let Some(cycle) = self.detect_cycle() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("dependency cycle detected: {}", cycle.join(" -> ")),
+            ));
+        }
+
         // Detect version based on usage
         let has_v2_features = !self.dirs.is_empty()
             || !self.caches.is_empty()
@@ -693,6 +701,92 @@ impl<'a> RustPreset<'a> {
             .run("cargo build --release")
             .inputs(&Self::inputs())
             .outputs(&[output])
+    }
+}
+
+// =============================================================================
+// CYCLE DETECTION
+// =============================================================================
+
+/// Color for DFS cycle detection
+#[derive(Clone, Copy, PartialEq)]
+enum Color {
+    White, // unvisited
+    Gray,  // currently visiting (in recursion stack)
+    Black, // completely processed
+}
+
+impl Pipeline {
+    /// Detects cycles in the task dependency graph using DFS.
+    /// Returns the cycle path if found, None otherwise.
+    fn detect_cycle(&self) -> Option<Vec<String>> {
+        // Build adjacency map: task name -> dependencies
+        let deps: HashMap<&str, Vec<&str>> = self
+            .tasks
+            .iter()
+            .map(|t| (t.name.as_str(), t.depends_on.iter().map(|s| s.as_str()).collect()))
+            .collect();
+
+        let mut color: HashMap<&str, Color> = self
+            .tasks
+            .iter()
+            .map(|t| (t.name.as_str(), Color::White))
+            .collect();
+
+        let mut parent: HashMap<&str, &str> = HashMap::new();
+
+        // DFS from each unvisited node
+        for task in &self.tasks {
+            if color[task.name.as_str()] == Color::White {
+                if let Some(cycle) = self.dfs_detect_cycle(task.name.as_str(), &deps, &mut color, &mut parent) {
+                    return Some(cycle);
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Performs DFS and returns cycle path if found.
+    fn dfs_detect_cycle<'a>(
+        &self,
+        node: &'a str,
+        deps: &HashMap<&'a str, Vec<&'a str>>,
+        color: &mut HashMap<&'a str, Color>,
+        parent: &mut HashMap<&'a str, &'a str>,
+    ) -> Option<Vec<String>> {
+        color.insert(node, Color::Gray);
+
+        if let Some(node_deps) = deps.get(node) {
+            for &dep in node_deps {
+                if color.get(dep) == Some(&Color::Gray) {
+                    // Found a cycle - reconstruct the path
+                    return Some(self.reconstruct_cycle(node, dep, parent));
+                }
+                if color.get(dep) == Some(&Color::White) {
+                    parent.insert(dep, node);
+                    if let Some(cycle) = self.dfs_detect_cycle(dep, deps, color, parent) {
+                        return Some(cycle);
+                    }
+                }
+            }
+        }
+
+        color.insert(node, Color::Black);
+        None
+    }
+
+    /// Reconstructs the cycle path from the detected back edge.
+    fn reconstruct_cycle(&self, from: &str, to: &str, parent: &HashMap<&str, &str>) -> Vec<String> {
+        // Cycle: to -> ... -> from -> to
+        let mut cycle = vec![to.to_string()];
+        let mut current = from;
+        while current != to {
+            cycle.insert(0, current.to_string());
+            current = parent.get(current).unwrap_or(&to);
+        }
+        cycle.insert(0, to.to_string()); // Close the cycle
+        cycle
     }
 }
 
@@ -1406,5 +1500,143 @@ mod tests {
 
         assert_eq!(json["tasks"][0]["retry"], 2);
         assert_eq!(json["tasks"][0]["timeout"], 120);
+    }
+
+    // ----- CYCLE DETECTION TESTS -----
+
+    #[test]
+    fn test_cycle_self_reference() {
+        // A task that depends on itself: A -> A
+        let mut p = Pipeline::new();
+        p.task("build").run("cargo build").after(&["build"]);
+
+        let mut buf = Vec::new();
+        let result = p.emit_to(&mut buf);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("cycle"), "expected cycle error, got: {}", err);
+    }
+
+    #[test]
+    fn test_cycle_direct_two_tasks() {
+        // Direct cycle between two tasks: A -> B -> A
+        let mut p = Pipeline::new();
+        p.task("a").run("echo a").after(&["b"]);
+        p.task("b").run("echo b").after(&["a"]);
+
+        let mut buf = Vec::new();
+        let result = p.emit_to(&mut buf);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("cycle"), "expected cycle error, got: {}", err);
+    }
+
+    #[test]
+    fn test_cycle_indirect_three_tasks() {
+        // Indirect cycle: A -> B -> C -> A
+        let mut p = Pipeline::new();
+        p.task("a").run("echo a").after(&["b"]);
+        p.task("b").run("echo b").after(&["c"]);
+        p.task("c").run("echo c").after(&["a"]);
+
+        let mut buf = Vec::new();
+        let result = p.emit_to(&mut buf);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("cycle"), "expected cycle error, got: {}", err);
+    }
+
+    #[test]
+    fn test_cycle_longer_chain() {
+        // Longer cycle: A -> B -> C -> D -> E -> A
+        let mut p = Pipeline::new();
+        p.task("a").run("echo a").after(&["b"]);
+        p.task("b").run("echo b").after(&["c"]);
+        p.task("c").run("echo c").after(&["d"]);
+        p.task("d").run("echo d").after(&["e"]);
+        p.task("e").run("echo e").after(&["a"]);
+
+        let mut buf = Vec::new();
+        let result = p.emit_to(&mut buf);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("cycle"), "expected cycle error, got: {}", err);
+    }
+
+    #[test]
+    fn test_cycle_in_complex_graph() {
+        // Complex graph with a cycle hidden among valid dependencies
+        let mut p = Pipeline::new();
+        p.task("test").run("cargo test");
+        p.task("lint").run("cargo clippy");
+        p.task("build").run("cargo build").after(&["test", "lint"]);
+        p.task("deploy").run("./deploy.sh").after(&["build", "verify"]);
+        p.task("verify").run("./verify.sh").after(&["deploy"]);
+
+        let mut buf = Vec::new();
+        let result = p.emit_to(&mut buf);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("cycle"), "expected cycle error, got: {}", err);
+    }
+
+    #[test]
+    fn test_cycle_error_shows_path() {
+        // Verify the error message includes the cycle path
+        let mut p = Pipeline::new();
+        p.task("a").run("echo a").after(&["b"]);
+        p.task("b").run("echo b").after(&["a"]);
+
+        let mut buf = Vec::new();
+        let result = p.emit_to(&mut buf);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        // Error should mention both tasks in the cycle
+        assert!(err.contains("a") && err.contains("b"),
+            "cycle error should mention tasks in cycle, got: {}", err);
+    }
+
+    #[test]
+    fn test_no_cycle_valid_dag() {
+        // Valid DAG with no cycles - should succeed
+        // build depends on test, lint; deploy depends on build
+        let mut p = Pipeline::new();
+        p.task("test").run("cargo test");
+        p.task("lint").run("cargo clippy");
+        p.task("build").run("cargo build").after(&["test", "lint"]);
+        p.task("deploy").run("./deploy.sh").after(&["build"]);
+
+        let mut buf = Vec::new();
+        let result = p.emit_to(&mut buf);
+        assert!(result.is_ok(), "valid DAG should not error: {:?}", result);
+    }
+
+    #[test]
+    fn test_no_cycle_diamond_pattern() {
+        // Diamond pattern: b -> a, c -> a, d -> b, d -> c
+        // (b,c depend on a; d depends on b,c; execution: a then b,c then d)
+        let mut p = Pipeline::new();
+        p.task("a").run("echo a");
+        p.task("b").run("echo b").after(&["a"]);
+        p.task("c").run("echo c").after(&["a"]);
+        p.task("d").run("echo d").after(&["b", "c"]);
+
+        let mut buf = Vec::new();
+        let result = p.emit_to(&mut buf);
+        assert!(result.is_ok(), "diamond pattern should not error: {:?}", result);
+    }
+
+    #[test]
+    fn test_no_cycle_multiple_roots() {
+        // Multiple independent roots converging
+        let mut p = Pipeline::new();
+        p.task("a").run("echo a");
+        p.task("b").run("echo b");
+        p.task("c").run("echo c");
+        p.task("final").run("echo final").after(&["a", "b", "c"]);
+
+        let mut buf = Vec::new();
+        let result = p.emit_to(&mut buf);
+        assert!(result.is_ok(), "multiple roots should not error: {:?}", result);
     }
 }

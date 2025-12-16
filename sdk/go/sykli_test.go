@@ -3,6 +3,7 @@ package sykli
 import (
 	"bytes"
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -578,4 +579,161 @@ func TestServiceEmptyNamePanics(t *testing.T) {
 
 	p := New()
 	p.Task("test").Run("go test").Service("postgres:15", "")
+}
+
+// ----- CYCLE DETECTION TESTS -----
+
+func TestCycleSelfReference(t *testing.T) {
+	// A task that depends on itself: A -> A
+	p := New()
+	p.Task("build").Run("go build").After("build")
+
+	_, err := emitJSON(p)
+	if err == nil {
+		t.Error("expected error for self-referencing dependency")
+	}
+	if err != nil && !containsCycleError(err) {
+		t.Errorf("expected cycle error, got: %v", err)
+	}
+}
+
+func TestCycleDirectTwoTasks(t *testing.T) {
+	// Direct cycle between two tasks: A -> B -> A
+	p := New()
+	p.Task("a").Run("echo a").After("b")
+	p.Task("b").Run("echo b").After("a")
+
+	_, err := emitJSON(p)
+	if err == nil {
+		t.Error("expected error for direct cycle between two tasks")
+	}
+	if err != nil && !containsCycleError(err) {
+		t.Errorf("expected cycle error, got: %v", err)
+	}
+}
+
+func TestCycleIndirectThreeTasks(t *testing.T) {
+	// Indirect cycle: A -> B -> C -> A
+	p := New()
+	p.Task("a").Run("echo a").After("b")
+	p.Task("b").Run("echo b").After("c")
+	p.Task("c").Run("echo c").After("a")
+
+	_, err := emitJSON(p)
+	if err == nil {
+		t.Error("expected error for indirect cycle among three tasks")
+	}
+	if err != nil && !containsCycleError(err) {
+		t.Errorf("expected cycle error, got: %v", err)
+	}
+}
+
+func TestCycleLongerChain(t *testing.T) {
+	// Longer cycle: A -> B -> C -> D -> E -> A
+	p := New()
+	p.Task("a").Run("echo a").After("b")
+	p.Task("b").Run("echo b").After("c")
+	p.Task("c").Run("echo c").After("d")
+	p.Task("d").Run("echo d").After("e")
+	p.Task("e").Run("echo e").After("a")
+
+	_, err := emitJSON(p)
+	if err == nil {
+		t.Error("expected error for longer cycle chain")
+	}
+	if err != nil && !containsCycleError(err) {
+		t.Errorf("expected cycle error, got: %v", err)
+	}
+}
+
+func TestCycleInComplexGraph(t *testing.T) {
+	// Complex graph with a cycle hidden among valid dependencies
+	// Valid: test, lint have no deps
+	// Valid: build depends on test, lint
+	// Cycle: deploy -> verify -> deploy
+	p := New()
+	p.Task("test").Run("go test")
+	p.Task("lint").Run("go vet")
+	p.Task("build").Run("go build").After("test", "lint")
+	p.Task("deploy").Run("./deploy.sh").After("build", "verify")
+	p.Task("verify").Run("./verify.sh").After("deploy")
+
+	_, err := emitJSON(p)
+	if err == nil {
+		t.Error("expected error for cycle in complex graph")
+	}
+	if err != nil && !containsCycleError(err) {
+		t.Errorf("expected cycle error, got: %v", err)
+	}
+}
+
+func TestCycleErrorShowsPath(t *testing.T) {
+	// Verify the error message includes the cycle path
+	p := New()
+	p.Task("a").Run("echo a").After("b")
+	p.Task("b").Run("echo b").After("a")
+
+	_, err := emitJSON(p)
+	if err == nil {
+		t.Fatal("expected error for cycle")
+	}
+
+	errStr := err.Error()
+	// Error should mention both tasks in the cycle
+	if !strings.Contains(errStr, "a") || !strings.Contains(errStr, "b") {
+		t.Errorf("cycle error should mention tasks in cycle, got: %v", errStr)
+	}
+}
+
+func TestNoCycleValidDAG(t *testing.T) {
+	// Valid DAG with no cycles - should succeed
+	// build depends on test, lint; deploy depends on build
+	p := New()
+	p.Task("test").Run("go test")
+	p.Task("lint").Run("go vet")
+	p.Task("build").Run("go build").After("test", "lint")
+	p.Task("deploy").Run("./deploy.sh").After("build")
+
+	_, err := emitJSON(p)
+	if err != nil {
+		t.Errorf("valid DAG should not error: %v", err)
+	}
+}
+
+func TestNoCycleDiamondPattern(t *testing.T) {
+	// Diamond pattern: b -> a, c -> a, d -> b, d -> c
+	// (b,c depend on a; d depends on b,c; execution: a then b,c then d)
+	p := New()
+	p.Task("a").Run("echo a")
+	p.Task("b").Run("echo b").After("a")
+	p.Task("c").Run("echo c").After("a")
+	p.Task("d").Run("echo d").After("b", "c")
+
+	_, err := emitJSON(p)
+	if err != nil {
+		t.Errorf("diamond pattern should not error: %v", err)
+	}
+}
+
+func TestNoCycleMultipleRoots(t *testing.T) {
+	// Multiple independent roots converging
+	p := New()
+	p.Task("a").Run("echo a")
+	p.Task("b").Run("echo b")
+	p.Task("c").Run("echo c")
+	p.Task("final").Run("echo final").After("a", "b", "c")
+
+	_, err := emitJSON(p)
+	if err != nil {
+		t.Errorf("multiple roots should not error: %v", err)
+	}
+}
+
+// Helper to check if error is a cycle error
+func containsCycleError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "cycle") || strings.Contains(s, "circular")
 }

@@ -424,6 +424,92 @@ func (g *GoPreset) Build(output string) *Task {
 }
 
 // =============================================================================
+// CYCLE DETECTION
+// =============================================================================
+
+// Color constants for DFS cycle detection
+const (
+	white = iota // unvisited
+	gray         // currently visiting (in recursion stack)
+	black        // completely processed
+)
+
+// detectCycle uses DFS to detect cycles in the task dependency graph.
+// Returns the cycle path if found, nil otherwise.
+func (p *Pipeline) detectCycle() []string {
+	// Build adjacency map: task name -> dependencies
+	deps := make(map[string][]string)
+	for _, t := range p.tasks {
+		deps[t.name] = t.dependsOn
+	}
+
+	color := make(map[string]int)
+	parent := make(map[string]string)
+
+	// Initialize all tasks as white (unvisited)
+	for _, t := range p.tasks {
+		color[t.name] = white
+	}
+
+	// DFS from each unvisited node
+	for _, t := range p.tasks {
+		if color[t.name] == white {
+			if cycle := p.dfsDetectCycle(t.name, deps, color, parent); cycle != nil {
+				return cycle
+			}
+		}
+	}
+
+	return nil
+}
+
+// dfsDetectCycle performs DFS and returns cycle path if found.
+func (p *Pipeline) dfsDetectCycle(node string, deps map[string][]string, color map[string]int, parent map[string]string) []string {
+	color[node] = gray
+
+	for _, dep := range deps[node] {
+		if color[dep] == gray {
+			// Found a cycle - reconstruct the path
+			return p.reconstructCycle(node, dep, parent)
+		}
+		if color[dep] == white {
+			parent[dep] = node
+			if cycle := p.dfsDetectCycle(dep, deps, color, parent); cycle != nil {
+				return cycle
+			}
+		}
+	}
+
+	color[node] = black
+	return nil
+}
+
+// reconstructCycle builds the cycle path from the detected back edge.
+func (p *Pipeline) reconstructCycle(from, to string, parent map[string]string) []string {
+	// Cycle: to -> ... -> from -> to
+	cycle := []string{to}
+	current := from
+	for current != to {
+		cycle = append([]string{current}, cycle...)
+		current = parent[current]
+	}
+	cycle = append([]string{to}, cycle...) // Close the cycle
+	return cycle
+}
+
+// formatCyclePath formats a cycle as a readable string: a -> b -> c -> a
+func formatCyclePath(cycle []string) string {
+	if len(cycle) == 0 {
+		return ""
+	}
+	result := cycle[0]
+	for i := 1; i < len(cycle); i++ {
+		result += " -> " + cycle[i]
+	}
+	return result
+}
+
+// =============================================================================
 // EMIT
 // =============================================================================
 
@@ -459,6 +545,13 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 				return fmt.Errorf("task %q depends on unknown task %q", t.name, dep)
 			}
 		}
+	}
+
+	// Cycle detection using DFS with three-color marking
+	if cycle := p.detectCycle(); cycle != nil {
+		cyclePath := formatCyclePath(cycle)
+		log.Error().Strs("cycle", cycle).Msg("dependency cycle detected")
+		return fmt.Errorf("dependency cycle detected: %s", cyclePath)
 	}
 
 	// Detect version based on usage

@@ -57,6 +57,15 @@ defmodule Sykli.CLI do
         IO.puts("\n#{IO.ANSI.red()}Build failed#{IO.ANSI.reset()}")
         System.halt(1)
 
+      {:error, {:cycle_detected, path}} when is_list(path) and length(path) > 0 ->
+        cycle_str = Enum.join(path, " -> ")
+        IO.puts("#{IO.ANSI.red()}Error: dependency cycle detected: #{cycle_str}#{IO.ANSI.reset()}")
+        System.halt(1)
+
+      {:error, {:cycle_detected, _}} ->
+        IO.puts("#{IO.ANSI.red()}Error: dependency cycle detected#{IO.ANSI.reset()}")
+        System.halt(1)
+
       {:error, reason} ->
         IO.puts("#{IO.ANSI.red()}Error: #{inspect(reason)}#{IO.ANSI.reset()}")
         System.halt(1)
