@@ -1535,9 +1535,9 @@ mod tests {
     fn test_cycle_indirect_three_tasks() {
         // Indirect cycle: A -> B -> C -> A
         let mut p = Pipeline::new();
-        p.task("a").run("echo a").after(&["c"]);
-        p.task("b").run("echo b").after(&["a"]);
-        p.task("c").run("echo c").after(&["b"]);
+        p.task("a").run("echo a").after(&["b"]);
+        p.task("b").run("echo b").after(&["c"]);
+        p.task("c").run("echo c").after(&["a"]);
 
         let mut buf = Vec::new();
         let result = p.emit_to(&mut buf);
@@ -1550,11 +1550,11 @@ mod tests {
     fn test_cycle_longer_chain() {
         // Longer cycle: A -> B -> C -> D -> E -> A
         let mut p = Pipeline::new();
-        p.task("a").run("echo a").after(&["e"]);
-        p.task("b").run("echo b").after(&["a"]);
-        p.task("c").run("echo c").after(&["b"]);
-        p.task("d").run("echo d").after(&["c"]);
-        p.task("e").run("echo e").after(&["d"]);
+        p.task("a").run("echo a").after(&["b"]);
+        p.task("b").run("echo b").after(&["c"]);
+        p.task("c").run("echo c").after(&["d"]);
+        p.task("d").run("echo d").after(&["e"]);
+        p.task("e").run("echo e").after(&["a"]);
 
         let mut buf = Vec::new();
         let result = p.emit_to(&mut buf);

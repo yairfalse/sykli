@@ -614,9 +614,9 @@ func TestCycleDirectTwoTasks(t *testing.T) {
 func TestCycleIndirectThreeTasks(t *testing.T) {
 	// Indirect cycle: A -> B -> C -> A
 	p := New()
-	p.Task("a").Run("echo a").After("c")
-	p.Task("b").Run("echo b").After("a")
-	p.Task("c").Run("echo c").After("b")
+	p.Task("a").Run("echo a").After("b")
+	p.Task("b").Run("echo b").After("c")
+	p.Task("c").Run("echo c").After("a")
 
 	_, err := emitJSON(p)
 	if err == nil {
@@ -630,11 +630,11 @@ func TestCycleIndirectThreeTasks(t *testing.T) {
 func TestCycleLongerChain(t *testing.T) {
 	// Longer cycle: A -> B -> C -> D -> E -> A
 	p := New()
-	p.Task("a").Run("echo a").After("e")
-	p.Task("b").Run("echo b").After("a")
-	p.Task("c").Run("echo c").After("b")
-	p.Task("d").Run("echo d").After("c")
-	p.Task("e").Run("echo e").After("d")
+	p.Task("a").Run("echo a").After("b")
+	p.Task("b").Run("echo b").After("c")
+	p.Task("c").Run("echo c").After("d")
+	p.Task("d").Run("echo d").After("e")
+	p.Task("e").Run("echo e").After("a")
 
 	_, err := emitJSON(p)
 	if err == nil {
