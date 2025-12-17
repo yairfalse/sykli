@@ -61,7 +61,7 @@ sykli.go  →  JSON task graph  →  Elixir core  →  parallel execution
    SDK           stdout            engine
 ```
 
-1. Write `sykli.go` (or `.rs`, `.ts`)
+1. Write `sykli.go` (or `.rs`, `.ts`, `.exs`)
 2. Core runs it, gets task graph as JSON
 3. Core executes tasks in parallel by dependency level
 
@@ -139,20 +139,60 @@ s.Go().Build("./app").After("test", "lint")
 s.Emit()
 ```
 
+### Elixir SDK
+
+```elixir
+# sykli.exs
+Mix.install([{:sykli, "~> 0.1"}])
+
+use Sykli
+
+pipeline do
+  task "test" do
+    run "mix test"
+    inputs ["**/*.ex", "mix.exs"]
+  end
+
+  task "build" do
+    run "mix compile"
+    after_ ["test"]
+  end
+end
+```
+
+With presets:
+
+```elixir
+pipeline do
+  mix_deps()
+  mix_test()
+  mix_credo()
+  mix_format()
+end
+```
+
+---
+
+## Status
+
+> ⚠️ **Experimental** — Sykli is an experimental project, primarily used internally by us. APIs may change. Use at your own risk, but feel free to try it out!
+
 ---
 
 ## Features
 
 | Feature | Status |
 |---------|--------|
-| Go SDK | Done |
-| Parallel execution | Done |
-| Container tasks | Done |
-| Volume mounts | Done |
-| Cache mounts | Done |
-| Content-addressed caching | Done |
-| GitHub commit status | Done |
-| Rust/TypeScript SDKs | Planned |
+| Go SDK | ✅ Done |
+| Rust SDK | ✅ Done |
+| Elixir SDK | ✅ Done ([hex.pm/packages/sykli](https://hex.pm/packages/sykli)) |
+| Parallel execution | ✅ Done |
+| Container tasks | ✅ Done |
+| Volume mounts | ✅ Done |
+| Cache mounts | ✅ Done |
+| Content-addressed caching | ✅ Done |
+| GitHub commit status | ✅ Done |
+| TypeScript SDK | Planned |
 | Remote execution | Planned |
 
 ---

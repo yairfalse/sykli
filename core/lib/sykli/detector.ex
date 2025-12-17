@@ -6,7 +6,8 @@ defmodule Sykli.Detector do
   @sdk_files [
     {"sykli.go", &__MODULE__.run_go/1},
     {"sykli.rs", &__MODULE__.run_rust/1},
-    {"sykli.ts", &__MODULE__.run_ts/1}
+    {"sykli.ts", &__MODULE__.run_ts/1},
+    {"sykli.exs", &__MODULE__.run_elixir/1}
   ]
 
   def find(path) do
@@ -58,6 +59,18 @@ defmodule Sykli.Detector do
     case System.cmd("npx", ["tsx", file, "--emit"], cd: dir, stderr_to_stdout: true) do
       {output, 0} -> {:ok, output}
       {error, _} -> {:error, {:ts_failed, error}}
+    end
+  end
+
+  def run_elixir(path) do
+    dir = Path.dirname(path)
+    file = Path.basename(path)
+
+    # Run elixir script with --emit flag
+    # The script should use `Mix.install([{:sykli, path: "..."}])` or have sykli available
+    case System.cmd("elixir", [file, "--emit"], cd: dir, stderr_to_stdout: true) do
+      {output, 0} -> {:ok, output}
+      {error, _} -> {:error, {:elixir_failed, error}}
     end
   end
 end

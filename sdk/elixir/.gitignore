@@ -1,0 +1,15 @@
+# Build artifacts
+/_build/
+/deps/
+/doc/
+*.tar
+
+# Dev files
+demo.exs
+learn.exs
+example_sykli.exs
+
+# Elixir
+*.beam
+*.ez
+erl_crash.dump
