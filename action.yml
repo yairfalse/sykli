@@ -8,7 +8,7 @@ branding:
 
 inputs:
   path:
-    description: 'Path to project containing sykli.go or sykli.rs'
+    description: 'Path to project containing sykli.go, sykli.rs, or sykli.exs'
     required: false
     default: '.'
 
@@ -20,7 +20,7 @@ runs:
       uses: actions/cache@v4
       with:
         path: ~/.sykli/cache
-        key: sykli-${{ runner.os }}-${{ hashFiles('**/*.go', '**/*.rs', '**/*.ts') }}
+        key: sykli-${{ runner.os }}-${{ hashFiles('**/*.go', '**/*.rs', '**/*.ts', '**/*.exs') }}
         restore-keys: |
           sykli-${{ runner.os }}-
 
