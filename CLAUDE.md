@@ -111,10 +111,11 @@ Output:
 
 ## NEXT
 
-- [ ] Content-addressed caching
-- [ ] Rust SDK
+- [x] Content-addressed caching (local)
+- [ ] Remote cache backend (S3/GCS)
+- [x] Rust SDK
 - [ ] Build escript binary
-- [ ] GitHub status API
+- [x] GitHub status API
 
 ---
 
