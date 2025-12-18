@@ -88,9 +88,16 @@ defmodule Sykli.Executor.Server do
     RunRegistry.update_status(run_id, :running)
 
     # Spawn execution in a separate process so we don't block
+    # Use spawn (not spawn_link) + try/catch to handle crashes gracefully
     parent = self()
-    spawn_link(fn ->
-      result = execute_with_events(run_id, tasks, graph, opts)
+    spawn(fn ->
+      result =
+        try do
+          execute_with_events(run_id, tasks, graph, opts)
+        catch
+          kind, reason ->
+            {:error, {:crashed, kind, reason}}
+        end
       send(parent, {:execution_complete, run_id, result})
     end)
 
@@ -128,17 +135,7 @@ defmodule Sykli.Executor.Server do
   # Execute tasks with event emission
   defp execute_with_events(run_id, tasks, graph, opts) do
     workdir = Keyword.get(opts, :workdir, ".")
-
-    # Wrap tasks to emit events
-    wrapped_tasks = Enum.map(tasks, fn task ->
-      %{task | name: task.name}
-    end)
-
-    # Hook into execution by running the existing executor
-    # but emitting events for task start/complete
-    result = execute_level_by_level(run_id, wrapped_tasks, graph, workdir)
-
-    result
+    execute_level_by_level(run_id, tasks, graph, workdir)
   end
 
   # Execute tasks level by level, emitting events

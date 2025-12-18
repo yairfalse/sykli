@@ -187,19 +187,21 @@ defmodule Sykli.Reporter do
   end
 
   defp buffer_event(event, %{buffer_size: size} = state) when size >= @buffer_limit do
-    # Drop oldest events when buffer is full
+    # Buffer is stored as [newest, ..., oldest] (prepend order)
+    # Drop oldest (last element) by taking first N-1, then prepend new event
     buffer = Enum.take(state.buffer, @buffer_limit - 1)
     %{state | buffer: [event | buffer], buffer_size: @buffer_limit}
   end
 
   defp buffer_event(event, state) do
+    # Prepend new event (buffer stores newest first)
     %{state | buffer: [event | state.buffer], buffer_size: state.buffer_size + 1}
   end
 
   defp flush_buffer(%{buffer: [], coordinator: _} = state), do: state
 
   defp flush_buffer(%{buffer: buffer, coordinator: coord} = state) when coord != nil do
-    # Send buffered events in order (oldest first)
+    # Buffer is [newest, ..., oldest], reverse to send oldest first
     buffer
     |> Enum.reverse()
     |> Enum.each(&send_to_coordinator(coord, &1))
