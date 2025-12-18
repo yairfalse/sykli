@@ -45,7 +45,8 @@ defmodule Sykli.CLI do
         duration = System.monotonic_time(:millisecond) - start_time
         IO.puts("\n#{IO.ANSI.green()}✓ All tasks completed in #{format_duration(duration)}#{IO.ANSI.reset()}")
 
-        Enum.each(results, fn {name, _} ->
+        # Results are {name, result, duration} tuples
+        Enum.each(results, fn {name, _, _} ->
           IO.puts("  ✓ #{name}")
         end)
 
