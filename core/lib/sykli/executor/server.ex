@@ -19,6 +19,18 @@ defmodule Sykli.Executor.Server do
 
   defstruct [:run_id, :project_path, :status, :tasks, :result, :caller]
 
+  # Default timeouts (configurable via Application config)
+  @default_sync_timeout 600_000      # 10 minutes for execute_sync
+  @default_task_timeout 300_000      # 5 minutes per task level
+
+  defp sync_timeout do
+    Application.get_env(:sykli, :executor_sync_timeout, @default_sync_timeout)
+  end
+
+  defp task_timeout do
+    Application.get_env(:sykli, :executor_task_timeout, @default_task_timeout)
+  end
+
   ## Client API
 
   def start_link(opts \\ []) do
@@ -45,8 +57,8 @@ defmodule Sykli.Executor.Server do
   def execute_sync(project_path, tasks, graph, opts \\ []) do
     {:ok, run_id} = execute(project_path, tasks, graph, opts)
 
-    # Subscribe and wait for completion
-    Events.subscribe(run_id)
+    # Subscribe to legacy format (tuples) for backward compatibility
+    Events.subscribe_legacy(run_id)
 
     receive do
       {:run_completed, ^run_id, :ok} ->
@@ -56,7 +68,7 @@ defmodule Sykli.Executor.Server do
       {:run_completed, ^run_id, {:error, reason}} ->
         {:error, run_id, reason}
     after
-      600_000 -> # 10 minute timeout
+      sync_timeout() ->
         {:error, run_id, :timeout}
     end
   end
@@ -172,7 +184,7 @@ defmodule Sykli.Executor.Server do
         end)
       end)
 
-    results = Task.await_many(async_tasks, 300_000)
+    results = Task.await_many(async_tasks, task_timeout())
 
     failed = Enum.find(results, fn {_name, status, _duration} -> status != :ok end)
 
@@ -214,36 +226,8 @@ defmodule Sykli.Executor.Server do
     end
   end
 
-  # Group tasks by dependency level (copied from Sykli.Executor)
+  # Delegate to Sykli.Executor for shared task grouping logic
   defp group_by_level(tasks, graph) do
-    task_names = Enum.map(tasks, & &1.name)
-
-    levels =
-      task_names
-      |> Enum.map(fn name -> {name, calc_level(name, graph, %{})} end)
-      |> Map.new()
-
-    tasks
-    |> Enum.group_by(fn task -> Map.get(levels, task.name, 0) end)
-    |> Enum.sort_by(fn {level, _} -> level end)
-    |> Enum.map(fn {_level, level_tasks} -> level_tasks end)
-  end
-
-  defp calc_level(name, graph, cache) do
-    if Map.has_key?(cache, name) do
-      cache[name]
-    else
-      task = Map.get(graph, name)
-      deps = if task, do: task.depends_on, else: []
-
-      if deps == [] do
-        0
-      else
-        deps
-        |> Enum.map(&calc_level(&1, graph, cache))
-        |> Enum.max()
-        |> Kernel.+(1)
-      end
-    end
+    Sykli.Executor.group_by_level(tasks, graph)
   end
 end

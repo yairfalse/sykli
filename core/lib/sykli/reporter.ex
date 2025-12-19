@@ -6,6 +6,13 @@ defmodule Sykli.Reporter do
   to the Coordinator GenServer on the coordinator node. Events
   are buffered if the coordinator is temporarily unavailable.
 
+  ## Event Format
+
+  Events are forwarded as `Sykli.Events.Event` structs, which include:
+  - ULID-based event ID for causality tracking
+  - Timestamp for temporal ordering
+  - Node information for distributed tracing
+
   ## Coordinator Discovery
 
   The Reporter looks for a coordinator in this order:
@@ -27,7 +34,13 @@ defmodule Sykli.Reporter do
 
   require Logger
 
-  @buffer_limit 1000
+  alias Sykli.Events.Event
+
+  @default_buffer_limit 1000
+
+  defp buffer_limit do
+    Application.get_env(:sykli, :reporter_buffer_limit, @default_buffer_limit)
+  end
 
   ## Client API
 
@@ -67,7 +80,7 @@ defmodule Sykli.Reporter do
 
   @impl true
   def init(_opts) do
-    # Subscribe to all events
+    # Subscribe to Event structs (v2 format with ULIDs)
     Sykli.Events.subscribe(:all)
 
     # Try to discover coordinator on startup
@@ -104,34 +117,26 @@ defmodule Sykli.Reporter do
       connected: state.connected,
       buffered: state.buffer_size
     }
+
     {:reply, status, state}
   end
 
-  # Handle execution events
+  # Handle Event struct format (v2 with ULIDs)
   @impl true
-  def handle_info({event_type, _run_id, _} = event, state)
-      when event_type in [:run_started, :task_started, :task_completed, :run_completed] do
+  def handle_info(%Event{type: type} = event, state)
+      when type in [:run_started, :task_started, :task_completed, :run_completed] do
     {:noreply, forward_event(event, state)}
   end
 
   @impl true
-  def handle_info({:run_started, _run_id, _, _} = event, state) do
-    {:noreply, forward_event(event, state)}
-  end
-
-  @impl true
-  def handle_info({:task_output, _run_id, _, _} = event, state) do
+  def handle_info(%Event{type: :task_output} = event, state) do
     # Don't buffer output events - too much data
     # Only forward if connected
     if state.connected && state.coordinator do
       send_to_coordinator(state.coordinator, event)
     end
-    {:noreply, state}
-  end
 
-  @impl true
-  def handle_info({:task_completed, _run_id, _, _} = event, state) do
-    {:noreply, forward_event(event, state)}
+    {:noreply, state}
   end
 
   # Node monitoring
@@ -178,24 +183,23 @@ defmodule Sykli.Reporter do
     buffer_event(event, state)
   end
 
-  defp send_to_coordinator(coordinator, event) do
-    # Add node info to event
-    event_with_node = {node(), event}
-
-    # Send to Coordinator GenServer on the coordinator node
-    GenServer.cast({Sykli.Coordinator, coordinator}, {:event, event_with_node})
+  defp send_to_coordinator(coordinator, %Event{} = event) do
+    # Event struct already contains node info, send directly
+    GenServer.cast({Sykli.Coordinator, coordinator}, {:event, event})
   end
 
-  defp buffer_event(event, %{buffer_size: size} = state) when size >= @buffer_limit do
-    # Buffer is stored as [newest, ..., oldest] (prepend order)
-    # Drop oldest (last element) by taking first N-1, then prepend new event
-    buffer = Enum.take(state.buffer, @buffer_limit - 1)
-    %{state | buffer: [event | buffer], buffer_size: @buffer_limit}
-  end
+  defp buffer_event(event, %{buffer_size: size} = state) do
+    limit = buffer_limit()
 
-  defp buffer_event(event, state) do
-    # Prepend new event (buffer stores newest first)
-    %{state | buffer: [event | state.buffer], buffer_size: state.buffer_size + 1}
+    if size >= limit do
+      # Buffer is stored as [newest, ..., oldest] (prepend order)
+      # Drop oldest (last element) by taking first N-1, then prepend new event
+      buffer = Enum.take(state.buffer, limit - 1)
+      %{state | buffer: [event | buffer], buffer_size: limit}
+    else
+      # Prepend new event (buffer stores newest first)
+      %{state | buffer: [event | state.buffer], buffer_size: size + 1}
+    end
   end
 
   defp flush_buffer(%{buffer: [], coordinator: _} = state), do: state

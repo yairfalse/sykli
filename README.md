@@ -192,6 +192,8 @@ end
 | Cache mounts | ✅ Done |
 | Content-addressed caching | ✅ Done |
 | GitHub commit status | ✅ Done |
+| Distributed events (ULID) | ✅ Done |
+| AHTI observability | ✅ Ready |
 | TypeScript SDK | Planned |
 | Remote execution | Planned |
 
@@ -217,6 +219,61 @@ end
 ```
 
 Elixir for a reason: OTP distribution means local and remote execution are the same system at different scales.
+
+---
+
+## Distributed Observability
+
+Every execution emits events with ULID-based IDs for causality tracking:
+
+```
+run_started    │ 01KCSVXCXAWCXEEW1DHK9YWW6V │ {project: ".", tasks: ["test", "build"]}
+task_started   │ 01KCSVXCXAWCXEEW1DHK9YWW6W │ {task: "test"}
+task_completed │ 01KCSVXCXEKRR73QMRVDA9BVWP │ {task: "test", outcome: :success}
+run_completed  │ 01KCSVXCXEKRR73QMRVDA9BVWQ │ {outcome: :success}
+```
+
+### Why ULIDs?
+
+- **Time-sortable**: Lexicographic order = temporal order
+- **Monotonic**: Events in same millisecond are strictly ordered
+- **Causality**: Parent event ID < child event ID always
+
+### Event Flow
+
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│   Worker    │────▶│  PubSub     │────▶│ Coordinator │
+│   Node      │     │  (BEAM)     │     │   Node      │
+└─────────────┘     └─────────────┘     └─────────────┘
+      │                                        │
+      │  Event structs with ULIDs              │
+      │  flow across the cluster               ▼
+      │                                 ┌─────────────┐
+      └────────────────────────────────▶│   AHTI      │
+                                        │ (optional)  │
+                                        └─────────────┘
+```
+
+Workers emit events → Reporter buffers/forwards → Coordinator aggregates.
+
+No external message queue needed—OTP distribution handles it.
+
+### AHTI Integration
+
+Events are structured for [AHTI](https://github.com/yairfalse/ahti) causality correlation:
+
+```elixir
+event = Sykli.Events.Event.new(:task_completed, run_id, %{
+  task_name: "build",
+  outcome: :success
+})
+
+# Convert to AHTI format
+ahti_json = Sykli.Events.Event.to_ahti_json(event, "prod-cluster")
+```
+
+See [`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md) for full schema mapping.
 
 ---
 
