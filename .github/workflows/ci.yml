@@ -7,9 +7,9 @@ on:
     branches: [main]
 
 jobs:
-  build:
+  core:
+    name: Core Tests
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
 
@@ -19,18 +19,111 @@ jobs:
           elixir-version: '1.16'
           otp-version: '26'
 
+      - name: Cache deps
+        uses: actions/cache@v4
+        with:
+          path: core/deps
+          key: ${{ runner.os }}-mix-${{ hashFiles('core/mix.lock') }}
+
       - name: Install dependencies
         working-directory: core
         run: mix deps.get
+
+      - name: Run tests
+        working-directory: core
+        run: mix test
 
       - name: Build escript
         working-directory: core
         run: mix escript.build
 
-      - name: Run sykli on example
+  sdk-go:
+    name: Go SDK Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Run tests
+        working-directory: sdk/go
+        run: go test ./...
+
+  sdk-rust:
+    name: Rust SDK Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Run tests
+        working-directory: sdk/rust
+        run: cargo test
+
+  sdk-elixir:
+    name: Elixir SDK Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: '1.16'
+          otp-version: '26'
+
+      - name: Cache deps
+        uses: actions/cache@v4
+        with:
+          path: sdk/elixir/deps
+          key: ${{ runner.os }}-mix-elixir-sdk-${{ hashFiles('sdk/elixir/mix.lock') }}
+
+      - name: Install dependencies
+        working-directory: sdk/elixir
+        run: mix deps.get
+
+      - name: Run tests
+        working-directory: sdk/elixir
+        run: mix test
+
+  integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [core, sdk-go, sdk-elixir]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: '1.16'
+          otp-version: '26'
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Build sykli
+        working-directory: core
+        run: |
+          mix deps.get
+          mix escript.build
+
+      - name: Test Go example
         working-directory: core
         run: ./sykli ../examples/go-project
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_SHA: ${{ github.sha }}
+
+      - name: Test Elixir example
+        working-directory: core
+        run: ./sykli ../examples/elixir-project
+        continue-on-error: true  # May fail without actual Elixir project files

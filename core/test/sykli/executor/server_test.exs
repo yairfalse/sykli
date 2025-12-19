@@ -81,8 +81,8 @@ defmodule Sykli.Executor.ServerTest do
 
       {:ok, run_id} = Server.execute("/tmp", [task], graph)
 
-      # Give it a moment to register
-      Process.sleep(10)
+      # Sync with Server to ensure registration is complete
+      :sys.get_state(Server)
 
       {:ok, run} = RunRegistry.get_run(run_id)
       assert run.project_path == "/tmp"
@@ -140,6 +140,8 @@ defmodule Sykli.Executor.ServerTest do
 
   describe "get_status/1" do
     test "returns run information from registry" do
+      Events.subscribe(:all)
+
       task = %Sykli.Graph.Task{
         name: "status_task",
         command: "echo status",
@@ -149,8 +151,8 @@ defmodule Sykli.Executor.ServerTest do
 
       {:ok, run_id} = Server.execute("/tmp", [task], graph)
 
-      # Wait for run to complete
-      Process.sleep(100)
+      # Wait for run to complete by listening for event
+      assert_receive %Event{type: :run_completed, run_id: ^run_id}, 2000
 
       result = Server.get_status(run_id)
 

@@ -4,6 +4,12 @@ defmodule Sykli.ReporterTest do
   alias Sykli.Events
   alias Sykli.Reporter
 
+  # Helper to sync with Reporter GenServer (ensures pending messages are processed)
+  defp sync_reporter do
+    :sys.get_state(Reporter)
+    :ok
+  end
+
   describe "status/0" do
     test "returns current reporter status" do
       status = Reporter.status()
@@ -64,8 +70,8 @@ defmodule Sykli.ReporterTest do
       Events.task_completed(run_id, "task1", :ok)
       Events.run_completed(run_id, :ok)
 
-      # Give a moment for events to be processed
-      Process.sleep(50)
+      # Sync to ensure events are processed
+      sync_reporter()
 
       # Check buffer increased (events are buffered when disconnected)
       new_status = Reporter.status()
@@ -128,7 +134,7 @@ defmodule Sykli.ReporterTest do
       initial_buffered = initial_status.buffered
 
       Events.task_output(run_id, "my_task", "some output")
-      Process.sleep(10)
+      sync_reporter()
 
       # task_output should NOT increase buffer (it's not buffered)
       new_status = Reporter.status()
