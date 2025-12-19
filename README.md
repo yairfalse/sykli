@@ -273,8 +273,6 @@ event = Sykli.Events.Event.new(:task_completed, run_id, %{
 ahti_json = Sykli.Events.Event.to_ahti_json(event, "prod-cluster")
 ```
 
-See [`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md) for full schema mapping.
-
 ---
 
 ## Name
