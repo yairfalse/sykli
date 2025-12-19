@@ -32,7 +32,7 @@ defmodule Sykli.Coordinator do
 
   require Logger
 
-  @history_limit 1000
+  @history_limit Application.compile_env(:sykli, :history_limit, 1000)
 
   ## Client API
 
