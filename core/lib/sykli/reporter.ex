@@ -27,7 +27,7 @@ defmodule Sykli.Reporter do
 
   require Logger
 
-  @buffer_limit 1000
+  @buffer_limit Application.compile_env(:sykli, :reporter_buffer_limit, 1000)
 
   ## Client API
 
