@@ -21,7 +21,9 @@ defmodule Sykli.MixProject do
 
   defp deps do
     [
-      {:jason, "~> 1.4"}
+      {:jason, "~> 1.4"},
+      {:phoenix_pubsub, "~> 2.2"},
+      {:libcluster, "~> 3.3"}
     ]
   end
 end
