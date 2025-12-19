@@ -129,8 +129,8 @@ defmodule Sykli.ULID do
         if new_random > @max_randomness do
           Process.sleep(1)
           generate_monotonic(System.system_time(:millisecond), %{
-            last_time: last_time,
-            last_random: last_random
+            last_time: last_time + 1,
+            last_random: 0
           })
         else
           ulid = encode(timestamp, new_random)
