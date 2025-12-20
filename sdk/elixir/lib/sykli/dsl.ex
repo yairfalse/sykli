@@ -116,16 +116,18 @@ defmodule Sykli.DSL do
 
   @doc "Sets retry count."
   def retry(count) when is_integer(count) and count >= 0 do
-    task = Process.get(:sykli_current_task)
-    Logger.debug("setting retry", task: task.name, retry: count)
-    update_current_task(fn t -> %{t | retry: count} end)
+    update_current_task(fn t ->
+      Logger.debug("setting retry", task: t.name, retry: count)
+      %{t | retry: count}
+    end)
   end
 
   @doc "Sets timeout in seconds."
   def timeout(seconds) when is_integer(seconds) and seconds > 0 do
-    task = Process.get(:sykli_current_task)
-    Logger.debug("setting timeout", task: task.name, timeout: seconds)
-    update_current_task(fn t -> %{t | timeout: seconds} end)
+    update_current_task(fn t ->
+      Logger.debug("setting timeout", task: t.name, timeout: seconds)
+      %{t | timeout: seconds}
+    end)
   end
 
   @doc "Mounts a directory into the container."
