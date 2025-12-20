@@ -3,6 +3,8 @@ defmodule Sykli.Emitter do
   Validates pipelines and emits JSON output.
   """
 
+  require Logger
+
   # ============================================================================
   # VALIDATION
   # ============================================================================
@@ -13,12 +15,14 @@ defmodule Sykli.Emitter do
 
     # Check for duplicate task names
     if MapSet.size(task_names) != length(pipeline.tasks) do
+      Logger.error("duplicate task names detected")
       raise "duplicate task names detected"
     end
 
     # Check all tasks have commands
     Enum.each(pipeline.tasks, fn task ->
       if is_nil(task.command) or task.command == "" do
+        Logger.error("task has no command", task: task.name)
         raise "task #{inspect(task.name)} has no command"
       end
     end)
@@ -27,6 +31,7 @@ defmodule Sykli.Emitter do
     Enum.each(pipeline.tasks, fn task ->
       Enum.each(task.depends_on, fn dep ->
         unless MapSet.member?(task_names, dep) do
+          Logger.error("unknown dependency", task: task.name, dependency: dep)
           raise "task #{inspect(task.name)} depends on unknown task #{inspect(dep)}"
         end
       end)
@@ -34,10 +39,15 @@ defmodule Sykli.Emitter do
 
     # Check for cycles
     case detect_cycle(pipeline.tasks) do
-      nil -> :ok
-      cycle -> raise "dependency cycle detected: #{Enum.join(cycle, " -> ")}"
+      nil ->
+        :ok
+
+      cycle ->
+        Logger.error("dependency cycle detected", cycle: cycle)
+        raise "dependency cycle detected: #{Enum.join(cycle, " -> ")}"
     end
 
+    Logger.debug("pipeline validated", tasks: length(pipeline.tasks))
     pipeline
   end
 
@@ -100,6 +110,8 @@ defmodule Sykli.Emitter do
         end)
 
     version = if has_v2_features, do: "2", else: "1"
+
+    Logger.debug("emitting pipeline", version: version, tasks: length(pipeline.tasks))
 
     output = %{
       version: version,

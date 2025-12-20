@@ -5,6 +5,8 @@ defmodule Sykli.DSL do
   These functions are imported when you `use Sykli`.
   """
 
+  require Logger
+
   # ============================================================================
   # TASK MACRO
   # ============================================================================
@@ -29,6 +31,8 @@ defmodule Sykli.DSL do
       completed_task = Process.get(:sykli_current_task)
       tasks = Process.get(:sykli_tasks)
       Process.put(:sykli_tasks, [completed_task | tasks])
+
+      Logger.debug("registered task", task: unquote(name))
 
       # Clean up current task
       Process.delete(:sykli_current_task)
@@ -112,12 +116,18 @@ defmodule Sykli.DSL do
 
   @doc "Sets retry count."
   def retry(count) when is_integer(count) and count >= 0 do
-    update_current_task(fn t -> %{t | retry: count} end)
+    update_current_task(fn t ->
+      Logger.debug("setting retry", task: t.name, retry: count)
+      %{t | retry: count}
+    end)
   end
 
   @doc "Sets timeout in seconds."
   def timeout(seconds) when is_integer(seconds) and seconds > 0 do
-    update_current_task(fn t -> %{t | timeout: seconds} end)
+    update_current_task(fn t ->
+      Logger.debug("setting timeout", task: t.name, timeout: seconds)
+      %{t | timeout: seconds}
+    end)
   end
 
   @doc "Mounts a directory into the container."
@@ -145,6 +155,7 @@ defmodule Sykli.DSL do
     resources = Process.get(:sykli_resources)
     Process.put(:sykli_resources, Map.put(resources, name, resource))
 
+    Logger.debug("registered directory", path: path, name: name)
     name
   end
 
@@ -155,6 +166,7 @@ defmodule Sykli.DSL do
     resources = Process.get(:sykli_resources)
     Process.put(:sykli_resources, Map.put(resources, name, resource))
 
+    Logger.debug("registered cache", name: name)
     name
   end
 
