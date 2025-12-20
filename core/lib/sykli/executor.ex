@@ -36,7 +36,17 @@ defmodule Sykli.Executor do
   # Tasks depending only on level 0 = level 1
   # etc.
 
-  defp group_by_level(tasks, graph) do
+  @doc """
+  Groups tasks by their dependency level for parallel execution.
+
+  Tasks at the same level have no dependencies on each other and can
+  run in parallel. Level 0 tasks have no dependencies, level 1 tasks
+  depend only on level 0, etc.
+
+  Returns a list of lists, where each inner list is a "level" of tasks
+  that can run concurrently.
+  """
+  def group_by_level(tasks, graph) do
     # Start with all tasks at level 0
     task_names = Enum.map(tasks, & &1.name)
 

@@ -32,7 +32,14 @@ defmodule Sykli.Coordinator do
 
   require Logger
 
-  @history_limit Application.compile_env(:sykli, :history_limit, 1000)
+  alias Sykli.Events.Event
+
+  @default_history_limit 1000
+
+  # Configurable via Application.get_env(:sykli, :coordinator_history_limit, 1000)
+  defp history_limit do
+    Application.get_env(:sykli, :coordinator_history_limit, @default_history_limit)
+  end
 
   ## Client API
 
@@ -107,7 +114,16 @@ defmodule Sykli.Coordinator do
     {:ok, state}
   end
 
-  # Handle events from reporters
+  # Handle Event struct format (v2 with ULIDs) from reporters
+  @impl true
+  def handle_cast({:event, %Event{} = event}, state) do
+    from_node = event.node
+    state = update_node_seen(state, from_node)
+    state = process_event_struct(event, state)
+    {:noreply, state}
+  end
+
+  # Handle legacy tuple format for backward compatibility and tests
   @impl true
   def handle_cast({:event, {from_node, event}}, state) do
     # Update node last seen
@@ -244,6 +260,62 @@ defmodule Sykli.Coordinator do
 
   defp process_event(_from_node, _event, state), do: state
 
+  # Process Event struct format (v2)
+  defp process_event_struct(%Event{type: :run_started} = event, state) do
+    %{run_id: run_id, node: from_node, data: data} = event
+
+    run = %{
+      id: run_id,
+      node: from_node,
+      project_path: data.project_path,
+      tasks: data.tasks,
+      task_status: %{},
+      status: :running,
+      started_at: event.timestamp,
+      completed_at: nil
+    }
+
+    Logger.info("[Coordinator] Run started: #{run_id} on #{from_node}")
+
+    state
+    |> put_in([:active_runs, run_id], run)
+    |> update_in([:stats, :total_runs], &(&1 + 1))
+  end
+
+  defp process_event_struct(%Event{type: :task_started} = event, state) do
+    update_task_status(state, event.run_id, event.data.task_name, :running)
+  end
+
+  defp process_event_struct(%Event{type: :task_completed} = event, state) do
+    status = if event.data.outcome == :success, do: :completed, else: :failed
+    update_task_status(state, event.run_id, event.data.task_name, status)
+  end
+
+  defp process_event_struct(%Event{type: :run_completed} = event, state) do
+    run_id = event.run_id
+
+    case Map.get(state.active_runs, run_id) do
+      nil ->
+        state
+
+      run ->
+        status = if event.data.outcome == :success, do: :completed, else: :failed
+        completed_run = %{run |
+          status: status,
+          completed_at: event.timestamp
+        }
+
+        Logger.info("[Coordinator] Run completed: #{run_id} (#{status})")
+
+        state
+        |> update_in([:active_runs], &Map.delete(&1, run_id))
+        |> add_to_history(completed_run)
+        |> update_stats(status)
+    end
+  end
+
+  defp process_event_struct(_event, state), do: state
+
   defp update_task_status(state, run_id, task_name, status) do
     case Map.get(state.active_runs, run_id) do
       nil -> state
@@ -254,9 +326,10 @@ defmodule Sykli.Coordinator do
   defp add_to_history(state, run) do
     history = [run | state.history]
     size = state.history_size + 1
+    limit = history_limit()
 
-    if size > @history_limit do
-      %{state | history: Enum.take(history, @history_limit), history_size: @history_limit}
+    if size > limit do
+      %{state | history: Enum.take(history, limit), history_size: limit}
     else
       %{state | history: history, history_size: size}
     end

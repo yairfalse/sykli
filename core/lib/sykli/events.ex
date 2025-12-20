@@ -6,39 +6,60 @@ defmodule Sykli.Events do
   When nodes are connected, PubSub automatically distributes events
   across the cluster.
 
+  ## Event Formats
+
+  Events are emitted in two formats for compatibility:
+
+  1. **Event struct** (v2) - `%Sykli.Events.Event{}` with ULID, timestamp, typed data
+  2. **Tuple** (legacy) - `{:event_type, run_id, ...}` for backward compatibility
+
+  Subscribe to the format you need:
+  - `subscribe(run_id)` - Event structs (recommended)
+  - `subscribe_legacy(run_id)` - Tuples (backward compatible)
+
   ## Event Types
 
-    * `{:run_started, run_id, project_path, tasks}` - A run has begun
-    * `{:task_started, run_id, task_name}` - A task is starting execution
-    * `{:task_output, run_id, task_name, output}` - Output from a running task
-    * `{:task_completed, run_id, task_name, :ok | {:error, reason}}` - Task finished
-    * `{:run_completed, run_id, :ok | {:error, reason}}` - All tasks done
+    * `:run_started` - A run has begun
+    * `:task_started` - A task is starting execution
+    * `:task_output` - Output from a running task
+    * `:task_completed` - Task finished
+    * `:run_completed` - All tasks done
 
   ## Example
 
-      # Subscribe to all events for a run
+      # Subscribe to events (v2 format)
       Sykli.Events.subscribe(run_id)
 
-      # Subscribe to all events (useful for coordinator)
-      Sykli.Events.subscribe(:all)
+      receive do
+        %Sykli.Events.Event{type: :task_completed} = event ->
+          IO.puts("Task \#{event.data.task_name} completed!")
+      end
 
-      # Receive events in your process
+      # Or legacy format
+      Sykli.Events.subscribe_legacy(run_id)
+
       receive do
         {:task_completed, ^run_id, task_name, :ok} ->
           IO.puts("Task \#{task_name} completed!")
       end
   """
 
+  alias Sykli.Events.Event
+
   @pubsub Sykli.PubSub
 
   @doc """
-  Subscribe to events for a specific run or all runs.
-
-  - `subscribe(run_id)` - Events for a specific run
-  - `subscribe(:all)` - All events (for coordinator/dashboard)
+  Subscribe to events (Event struct format) for a specific run or all runs.
   """
   def subscribe(run_id \\ :all) do
     Phoenix.PubSub.subscribe(@pubsub, topic(run_id))
+  end
+
+  @doc """
+  Subscribe to legacy tuple events for backward compatibility.
+  """
+  def subscribe_legacy(run_id \\ :all) do
+    Phoenix.PubSub.subscribe(@pubsub, legacy_topic(run_id))
   end
 
   @doc """
@@ -46,49 +67,112 @@ defmodule Sykli.Events do
   """
   def unsubscribe(run_id \\ :all) do
     Phoenix.PubSub.unsubscribe(@pubsub, topic(run_id))
+    Phoenix.PubSub.unsubscribe(@pubsub, legacy_topic(run_id))
   end
 
   @doc """
-  Broadcast a run_started event.
+  Broadcast a run_started event. Returns the Event struct.
   """
   def run_started(run_id, project_path, tasks) do
-    broadcast({:run_started, run_id, project_path, tasks}, run_id)
+    event = Event.new(:run_started, run_id, %{
+      project_path: project_path,
+      tasks: tasks,
+      task_count: length(tasks)
+    })
+
+    broadcast(event)
+    broadcast_legacy({:run_started, run_id, project_path, tasks}, run_id)
+    event
   end
 
   @doc """
-  Broadcast a task_started event.
+  Broadcast a task_started event. Returns the Event struct.
   """
   def task_started(run_id, task_name) do
-    broadcast({:task_started, run_id, task_name}, run_id)
+    event = Event.new(:task_started, run_id, %{task_name: task_name})
+
+    broadcast(event)
+    broadcast_legacy({:task_started, run_id, task_name}, run_id)
+    event
   end
 
   @doc """
-  Broadcast task output.
+  Broadcast task output. Returns the Event struct.
   """
   def task_output(run_id, task_name, output) do
-    broadcast({:task_output, run_id, task_name, output}, run_id)
+    event = Event.new(:task_output, run_id, %{
+      task_name: task_name,
+      output: output
+    })
+
+    broadcast(event)
+    broadcast_legacy({:task_output, run_id, task_name, output}, run_id)
+    event
   end
 
   @doc """
-  Broadcast a task_completed event.
+  Broadcast a task_completed event. Returns the Event struct.
   """
   def task_completed(run_id, task_name, result) do
-    broadcast({:task_completed, run_id, task_name, result}, run_id)
+    {outcome, error} =
+      case result do
+        :ok -> {:success, nil}
+        {:error, reason} -> {:failure, reason}
+      end
+
+    event = Event.new(:task_completed, run_id, %{
+      task_name: task_name,
+      outcome: outcome,
+      error: error
+    })
+
+    broadcast(event)
+    broadcast_legacy({:task_completed, run_id, task_name, result}, run_id)
+    event
   end
 
   @doc """
-  Broadcast a run_completed event.
+  Broadcast a run_completed event. Returns the Event struct.
   """
   def run_completed(run_id, result) do
-    broadcast({:run_completed, run_id, result}, run_id)
+    {outcome, error} =
+      case result do
+        :ok -> {:success, nil}
+        {:error, reason} -> {:failure, reason}
+      end
+
+    event = Event.new(:run_completed, run_id, %{
+      outcome: outcome,
+      error: error
+    })
+
+    broadcast(event)
+    broadcast_legacy({:run_completed, run_id, result}, run_id)
+    event
   end
 
-  # Broadcast to both the specific run topic and the :all topic
-  defp broadcast(event, run_id) do
+  @doc """
+  Create an event struct without broadcasting (for manual emission).
+  """
+  def create(type, run_id, data, opts \\ []) do
+    Event.new(type, run_id, data, opts)
+  end
+
+  # Broadcast Event struct to both run-specific and :all topics
+  defp broadcast(%Event{run_id: run_id} = event) do
     Phoenix.PubSub.broadcast(@pubsub, topic(run_id), event)
     Phoenix.PubSub.broadcast(@pubsub, topic(:all), event)
   end
 
+  # Broadcast legacy tuple format
+  defp broadcast_legacy(tuple, run_id) do
+    Phoenix.PubSub.broadcast(@pubsub, legacy_topic(run_id), tuple)
+    Phoenix.PubSub.broadcast(@pubsub, legacy_topic(:all), tuple)
+  end
+
   defp topic(:all), do: "sykli:events:all"
   defp topic(run_id), do: "sykli:events:#{run_id}"
+
+  defp legacy_topic(:all), do: "sykli:events:legacy:all"
+  defp legacy_topic(run_id), do: "sykli:events:legacy:#{run_id}"
 end

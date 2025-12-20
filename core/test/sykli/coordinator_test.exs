@@ -21,6 +21,13 @@ defmodule Sykli.CoordinatorTest do
     :ok
   end
 
+  # Helper to sync with GenServer (ensures pending casts are processed)
+  defp sync_coordinator do
+    # :sys.get_state forces the GenServer to process all pending messages
+    :sys.get_state(Coordinator)
+    :ok
+  end
+
   describe "active_runs/0" do
     test "returns empty list when no runs" do
       # Clear any existing state by getting fresh runs
@@ -35,9 +42,7 @@ defmodule Sykli.CoordinatorTest do
 
       # Simulate event from a node
       GenServer.cast(Coordinator, {:event, {node(), {:run_started, run_id, "/project", ["test"]}}})
-
-      # Give it time to process
-      Process.sleep(50)
+      sync_coordinator()
 
       runs = Coordinator.active_runs()
 
@@ -54,9 +59,9 @@ defmodule Sykli.CoordinatorTest do
 
       # Start and complete a run
       GenServer.cast(Coordinator, {:event, {node(), {:run_started, run_id, "/project", ["test"]}}})
-      Process.sleep(20)
+      sync_coordinator()
       GenServer.cast(Coordinator, {:event, {node(), {:run_completed, run_id, :ok}}})
-      Process.sleep(20)
+      sync_coordinator()
 
       history = Coordinator.run_history()
 
@@ -71,7 +76,7 @@ defmodule Sykli.CoordinatorTest do
         GenServer.cast(Coordinator, {:event, {node(), {:run_completed, run_id, :ok}}})
       end)
 
-      Process.sleep(50)
+      sync_coordinator()
 
       history = Coordinator.run_history(limit: 3)
 
@@ -84,7 +89,7 @@ defmodule Sykli.CoordinatorTest do
       run_id = "get_active_#{System.unique_integer()}"
 
       GenServer.cast(Coordinator, {:event, {node(), {:run_started, run_id, "/my/project", ["lint", "test"]}}})
-      Process.sleep(20)
+      sync_coordinator()
 
       run = Coordinator.get_run(run_id)
 
@@ -128,24 +133,98 @@ defmodule Sykli.CoordinatorTest do
 
       # Start run
       GenServer.cast(Coordinator, {:event, {node(), {:run_started, run_id, "/project", ["test", "build"]}}})
-      Process.sleep(20)
+      sync_coordinator()
 
       # Start task
       GenServer.cast(Coordinator, {:event, {node(), {:task_started, run_id, "test"}}})
-      Process.sleep(20)
+      sync_coordinator()
 
       run = Coordinator.get_run(run_id)
       assert run.task_status["test"] == :running
 
       # Complete task
       GenServer.cast(Coordinator, {:event, {node(), {:task_completed, run_id, "test", :ok}}})
-      Process.sleep(20)
+      sync_coordinator()
 
       run = Coordinator.get_run(run_id)
       assert run.task_status["test"] == :completed
 
       # Clean up
       GenServer.cast(Coordinator, {:event, {node(), {:run_completed, run_id, :ok}}})
+    end
+  end
+
+  describe "Event struct handling" do
+    alias Sykli.Events.Event
+
+    test "handles Event struct format for run_started" do
+      run_id = "event_struct_#{System.unique_integer()}"
+
+      event = Event.new(:run_started, run_id, %{
+        project_path: "/event/project",
+        tasks: ["build", "test"],
+        task_count: 2
+      })
+
+      GenServer.cast(Coordinator, {:event, event})
+      sync_coordinator()
+
+      run = Coordinator.get_run(run_id)
+      assert run.id == run_id
+      assert run.project_path == "/event/project"
+      assert run.tasks == ["build", "test"]
+
+      # Clean up
+      cleanup_event = Event.new(:run_completed, run_id, %{outcome: :success, error: nil})
+      GenServer.cast(Coordinator, {:event, cleanup_event})
+    end
+
+    test "handles Event struct format for task_started" do
+      run_id = "event_task_#{System.unique_integer()}"
+
+      # Start run first
+      run_event = Event.new(:run_started, run_id, %{
+        project_path: "/task/project",
+        tasks: ["my_task"],
+        task_count: 1
+      })
+      GenServer.cast(Coordinator, {:event, run_event})
+      sync_coordinator()
+
+      # Task started
+      task_event = Event.new(:task_started, run_id, %{task_name: "my_task"})
+      GenServer.cast(Coordinator, {:event, task_event})
+      sync_coordinator()
+
+      run = Coordinator.get_run(run_id)
+      assert run.task_status["my_task"] == :running
+
+      # Clean up
+      GenServer.cast(Coordinator, {:event, {node(), {:run_completed, run_id, :ok}}})
+    end
+
+    test "handles Event struct format for run_completed" do
+      run_id = "event_complete_#{System.unique_integer()}"
+
+      # Start run
+      run_event = Event.new(:run_started, run_id, %{
+        project_path: "/complete/project",
+        tasks: ["task"],
+        task_count: 1
+      })
+      GenServer.cast(Coordinator, {:event, run_event})
+      sync_coordinator()
+
+      # Complete run
+      complete_event = Event.new(:run_completed, run_id, %{outcome: :success, error: nil})
+      GenServer.cast(Coordinator, {:event, complete_event})
+      sync_coordinator()
+
+      # Should be in history, not active
+      assert Coordinator.get_run(run_id) == nil || Coordinator.get_run(run_id).status == :completed
+
+      history = Coordinator.run_history()
+      assert Enum.any?(history, fn r -> r.id == run_id end)
     end
   end
 end

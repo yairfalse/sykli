@@ -3,6 +3,7 @@ defmodule Sykli.Application do
   Sykli OTP Application.
 
   Starts the supervision tree with:
+  - ULID for monotonic event ID generation (AHTI compatible)
   - Phoenix.PubSub for event distribution
   - RunRegistry for tracking runs
   - Executor.Server for stateful execution
@@ -14,6 +15,9 @@ defmodule Sykli.Application do
   @impl true
   def start(_type, _args) do
     children = [
+      # ULID generator - must start first (other services may generate IDs on init)
+      Sykli.ULID,
+
       # PubSub for events - works locally and across distributed nodes
       {Phoenix.PubSub, name: Sykli.PubSub},
 

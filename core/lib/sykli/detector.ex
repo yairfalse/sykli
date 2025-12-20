@@ -37,18 +37,49 @@ defmodule Sykli.Detector do
   end
 
   def run_rust(path) do
-    # For now, assume sykli.rs is a script that can be run with cargo-script
-    # or pre-compiled. MVP: expect a sykli binary next to sykli.rs
     dir = Path.dirname(path)
     bin = Path.join(dir, "sykli")
+    cargo_toml = Path.join(dir, "Cargo.toml")
 
-    if File.exists?(bin) do
-      case System.cmd(bin, ["--emit"], cd: dir, stderr_to_stdout: true) do
-        {output, 0} -> {:ok, output}
-        {error, _} -> {:error, {:rust_failed, error}}
-      end
-    else
-      {:error, :rust_binary_not_found}
+    cond do
+      # Pre-compiled binary exists
+      File.exists?(bin) ->
+        case System.cmd(bin, ["--emit"], cd: dir, stderr_to_stdout: true) do
+          {output, 0} -> {:ok, output}
+          {error, _} -> {:error, {:rust_failed, error}}
+        end
+
+      # Cargo project with sykli feature - compile and run
+      File.exists?(cargo_toml) ->
+        case System.cmd("cargo", ["run", "--bin", "sykli", "--features", "sykli", "--", "--emit"],
+               cd: dir,
+               stderr_to_stdout: true
+             ) do
+          {output, 0} ->
+            # cargo run outputs build info then JSON - extract just the JSON
+            extract_json(output)
+
+          {error, _} ->
+            {:error, {:rust_cargo_failed, error}}
+        end
+
+      true ->
+        {:error, :rust_binary_not_found}
+    end
+  end
+
+  # Extract JSON from cargo output (skips compilation messages)
+  defp extract_json(output) do
+    # Find the JSON line (starts with { and contains "version")
+    output
+    |> String.split("\n")
+    |> Enum.find(fn line ->
+      trimmed = String.trim(line)
+      String.starts_with?(trimmed, "{") && String.contains?(trimmed, "\"version\"")
+    end)
+    |> case do
+      nil -> {:error, :no_json_in_output}
+      json -> {:ok, json}
     end
   end
 
