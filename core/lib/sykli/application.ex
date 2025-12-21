@@ -32,6 +32,20 @@ defmodule Sykli.Application do
     ]
 
     opts = [strategy: :one_for_one, name: Sykli.Supervisor]
-    Supervisor.start_link(children, opts)
+    result = Supervisor.start_link(children, opts)
+
+    # If running as Burrito binary, invoke CLI
+    if burrito?() do
+      args = Burrito.Util.Args.argv()
+      Sykli.CLI.main(args)
+    end
+
+    result
+  end
+
+  # Check if running as a Burrito-wrapped binary
+  # BURRITO_BIN_PATH is set by Burrito when running the wrapped executable
+  defp burrito? do
+    System.get_env("BURRITO_BIN_PATH") != nil
   end
 end

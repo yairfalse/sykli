@@ -32,14 +32,21 @@
 
 ## Distribution Plan
 
-### 1. Escript Binary (Core)
-Build a self-contained `sykli` binary that works on any system with Erlang/OTP.
+### 1. Standalone Binary (Core)
+Self-contained binaries for Linux and macOS (no dependencies required).
 
+**Install via curl:**
 ```bash
-cd core
-mix escript.build
-# produces: ./sykli
+curl -fsSL https://raw.githubusercontent.com/yairfalse/sykli/main/install.sh | bash
 ```
+
+**Or download directly:**
+- `sykli-linux-x86_64`
+- `sykli-linux-aarch64`
+- `sykli-macos-x86_64`
+- `sykli-macos-aarch64`
+
+Binaries are built with [Burrito](https://github.com/burrito-elixir/burrito) - bundles Erlang runtime into a single executable.
 
 ### 2. Rust SDK → crates.io
 ```bash

@@ -1,0 +1,94 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - target: linux-x86_64
+            os: ubuntu-latest
+            burrito_target: linux_x86_64
+          - target: linux-aarch64
+            os: ubuntu-latest
+            burrito_target: linux_aarch64
+          - target: macos-x86_64
+            os: macos-13
+            burrito_target: macos_x86_64
+          - target: macos-aarch64
+            os: macos-14
+            burrito_target: macos_aarch64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Zig (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          wget https://ziglang.org/download/0.11.0/zig-linux-x86_64-0.11.0.tar.xz
+          tar -xf zig-linux-x86_64-0.11.0.tar.xz
+          echo "$PWD/zig-linux-x86_64-0.11.0" >> $GITHUB_PATH
+
+      - name: Install Zig (macOS)
+        if: runner.os == 'macOS'
+        run: brew install zig xz
+
+      - name: Set up Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: '26'
+          elixir-version: '1.17'
+
+      - name: Install dependencies
+        working-directory: core
+        run: |
+          mix local.hex --force
+          mix local.rebar --force
+          mix deps.get
+
+      - name: Build release
+        working-directory: core
+        env:
+          MIX_ENV: prod
+          BURRITO_TARGET: ${{ matrix.burrito_target }}
+        run: mix release sykli --overwrite
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sykli-${{ matrix.target }}
+          path: core/burrito_out/*
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          for dir in artifacts/sykli-*/; do
+            target=$(basename "$dir" | sed 's/sykli-//')
+            cp "$dir"/* "release/sykli-$target" 2>/dev/null || true
+          done
+          ls -la release/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: release/*
+          generate_release_notes: true
