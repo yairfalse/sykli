@@ -1,4 +1,4 @@
-module sykli.dev/go
+module github.com/yairfalse/sykli/sdk/go
 
 go 1.21
 

@@ -114,8 +114,11 @@ Output:
 - [x] Content-addressed caching (local)
 - [ ] Remote cache backend (S3/GCS)
 - [x] Rust SDK
-- [ ] Build escript binary
+- [x] Elixir SDK
+- [x] Build escript binary
 - [x] GitHub status API
+- [x] Distributed observability
+- [ ] Publish SDKs (crates.io, hex.pm)
 
 ---
 
