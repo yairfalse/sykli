@@ -2,36 +2,32 @@
 //!
 //! # Simple usage
 //!
-//! ```rust
+//! ```rust,no_run
 //! use sykli::Pipeline;
 //!
-//! fn main() {
-//!     let mut p = Pipeline::new();
-//!     p.task("test").run("cargo test");
-//!     p.task("build").run("cargo build --release").after(&["test"]);
-//!     p.emit();
-//! }
+//! let mut p = Pipeline::new();
+//! p.task("test").run("cargo test");
+//! p.task("build").run("cargo build --release").after(&["test"]);
+//! p.emit();
 //! ```
 //!
 //! # With containers and caching
 //!
-//! ```rust
+//! ```rust,no_run
 //! use sykli::Pipeline;
 //!
-//! fn main() {
-//!     let mut p = Pipeline::new();
-//!     let src = p.dir(".");
-//!     let cache = p.cache("cargo-registry");
+//! let mut p = Pipeline::new();
+//! let src = p.dir(".");
+//! let cache = p.cache("cargo-registry");
 //!
-//!     p.task("test")
-//!         .container("rust:1.75")
-//!         .mount(&src, "/src")
-//!         .mount_cache(&cache, "/usr/local/cargo/registry")
-//!         .workdir("/src")
-//!         .run("cargo test");
+//! p.task("test")
+//!     .container("rust:1.75")
+//!     .mount(&src, "/src")
+//!     .mount_cache(&cache, "/usr/local/cargo/registry")
+//!     .workdir("/src")
+//!     .run("cargo test");
 //!
-//!     p.emit();
-//! }
+//! p.emit();
 //! ```
 
 use serde::Serialize;
@@ -126,31 +122,35 @@ struct TaskData {
 
 impl<'a> Task<'a> {
     /// Sets the command for this task.
+    ///
+    /// # Panics
+    /// Panics if `cmd` is empty.
+    #[must_use]
     pub fn run(self, cmd: &str) -> Self {
-        if cmd.is_empty() {
-            panic!("command cannot be empty");
-        }
+        assert!(!cmd.is_empty(), "command cannot be empty");
         self.pipeline.tasks[self.index].command = cmd.to_string();
         self
     }
 
     /// Sets the container image for this task.
+    ///
+    /// # Panics
+    /// Panics if `image` is empty.
+    #[must_use]
     pub fn container(self, image: &str) -> Self {
-        if image.is_empty() {
-            panic!("container image cannot be empty");
-        }
+        assert!(!image.is_empty(), "container image cannot be empty");
         self.pipeline.tasks[self.index].container = Some(image.to_string());
         self
     }
 
     /// Mounts a directory into the container.
+    ///
+    /// # Panics
+    /// Panics if `path` is empty or not absolute (must start with `/`).
+    #[must_use]
     pub fn mount(self, dir: &Directory, path: &str) -> Self {
-        if path.is_empty() {
-            panic!("container mount path cannot be empty");
-        }
-        if !path.starts_with('/') {
-            panic!("container mount path must be absolute (start with /)");
-        }
+        assert!(!path.is_empty(), "container mount path cannot be empty");
+        assert!(path.starts_with('/'), "container mount path must be absolute (start with /)");
         self.pipeline.tasks[self.index].mounts.push(Mount {
             resource: dir.id(),
             path: path.to_string(),
@@ -160,13 +160,13 @@ impl<'a> Task<'a> {
     }
 
     /// Mounts a cache volume into the container.
+    ///
+    /// # Panics
+    /// Panics if `path` is empty or not absolute (must start with `/`).
+    #[must_use]
     pub fn mount_cache(self, cache: &CacheVolume, path: &str) -> Self {
-        if path.is_empty() {
-            panic!("container mount path cannot be empty");
-        }
-        if !path.starts_with('/') {
-            panic!("container mount path must be absolute (start with /)");
-        }
+        assert!(!path.is_empty(), "container mount path cannot be empty");
+        assert!(path.starts_with('/'), "container mount path must be absolute (start with /)");
         self.pipeline.tasks[self.index].mounts.push(Mount {
             resource: cache.id(),
             path: path.to_string(),
@@ -176,22 +176,24 @@ impl<'a> Task<'a> {
     }
 
     /// Sets the working directory inside the container.
+    ///
+    /// # Panics
+    /// Panics if `path` is empty or not absolute (must start with `/`).
+    #[must_use]
     pub fn workdir(self, path: &str) -> Self {
-        if path.is_empty() {
-            panic!("container working directory cannot be empty");
-        }
-        if !path.starts_with('/') {
-            panic!("container working directory must be absolute (start with /)");
-        }
+        assert!(!path.is_empty(), "container working directory cannot be empty");
+        assert!(path.starts_with('/'), "container working directory must be absolute (start with /)");
         self.pipeline.tasks[self.index].workdir = Some(path.to_string());
         self
     }
 
     /// Sets an environment variable.
+    ///
+    /// # Panics
+    /// Panics if `key` is empty.
+    #[must_use]
     pub fn env(self, key: &str, value: &str) -> Self {
-        if key.is_empty() {
-            panic!("environment variable key cannot be empty");
-        }
+        assert!(!key.is_empty(), "environment variable key cannot be empty");
         self.pipeline.tasks[self.index]
             .env
             .insert(key.to_string(), value.to_string());
@@ -199,21 +201,22 @@ impl<'a> Task<'a> {
     }
 
     /// Sets input file patterns for caching.
+    #[must_use]
     pub fn inputs(self, patterns: &[&str]) -> Self {
         self.pipeline.tasks[self.index]
             .inputs
-            .extend(patterns.iter().map(|s| s.to_string()));
+            .extend(patterns.iter().map(|s| (*s).to_string()));
         self
     }
 
     /// Sets a named output path.
+    ///
+    /// # Panics
+    /// Panics if `name` or `path` is empty.
+    #[must_use]
     pub fn output(self, name: &str, path: &str) -> Self {
-        if name.is_empty() {
-            panic!("output name cannot be empty");
-        }
-        if path.is_empty() {
-            panic!("output path cannot be empty");
-        }
+        assert!(!name.is_empty(), "output name cannot be empty");
+        assert!(!path.is_empty(), "output path cannot be empty");
         self.pipeline.tasks[self.index]
             .outputs
             .insert(name.to_string(), path.to_string());
@@ -221,23 +224,26 @@ impl<'a> Task<'a> {
     }
 
     /// Sets output paths (for backward compatibility).
+    ///
+    /// # Panics
+    /// Panics if any path is empty.
+    #[must_use]
     pub fn outputs(self, paths: &[&str]) -> Self {
         for (i, path) in paths.iter().enumerate() {
-            if path.is_empty() {
-                panic!("output path cannot be empty");
-            }
+            assert!(!path.is_empty(), "output path cannot be empty");
             self.pipeline.tasks[self.index]
                 .outputs
-                .insert(format!("output_{}", i), path.to_string());
+                .insert(format!("output_{i}"), (*path).to_string());
         }
         self
     }
 
     /// Sets dependencies - this task runs after the named tasks.
+    #[must_use]
     pub fn after(self, tasks: &[&str]) -> Self {
         self.pipeline.tasks[self.index]
             .depends_on
-            .extend(tasks.iter().map(|s| s.to_string()));
+            .extend(tasks.iter().map(|s| (*s).to_string()));
         self
     }
 
@@ -259,10 +265,12 @@ impl<'a> Task<'a> {
     ///     .run("./deploy.sh")
     ///     .when("branch == 'main'");
     /// ```
+    ///
+    /// # Panics
+    /// Panics if `condition` is empty.
+    #[must_use]
     pub fn when(self, condition: &str) -> Self {
-        if condition.is_empty() {
-            panic!("condition cannot be empty");
-        }
+        assert!(!condition.is_empty(), "condition cannot be empty");
         self.pipeline.tasks[self.index].condition = Some(condition.to_string());
         self
     }
@@ -282,10 +290,12 @@ impl<'a> Task<'a> {
     ///     .secret("GITHUB_TOKEN")
     ///     .secret("NPM_TOKEN");
     /// ```
+    ///
+    /// # Panics
+    /// Panics if `name` is empty.
+    #[must_use]
     pub fn secret(self, name: &str) -> Self {
-        if name.is_empty() {
-            panic!("secret name cannot be empty");
-        }
+        assert!(!name.is_empty(), "secret name cannot be empty");
         self.pipeline.tasks[self.index]
             .secrets
             .push(name.to_string());
@@ -303,15 +313,17 @@ impl<'a> Task<'a> {
     ///     .run("./deploy.sh")
     ///     .secrets(&["GITHUB_TOKEN", "NPM_TOKEN", "AWS_KEY"]);
     /// ```
+    ///
+    /// # Panics
+    /// Panics if any secret name is empty.
+    #[must_use]
     pub fn secrets(self, names: &[&str]) -> Self {
         for name in names {
-            if name.is_empty() {
-                panic!("secret name cannot be empty");
-            }
+            assert!(!name.is_empty(), "secret name cannot be empty");
         }
         self.pipeline.tasks[self.index]
             .secrets
-            .extend(names.iter().map(|s| s.to_string()));
+            .extend(names.iter().map(|s| (*s).to_string()));
         self
     }
 
@@ -331,16 +343,16 @@ impl<'a> Task<'a> {
     ///     .matrix("os", &["ubuntu", "macos"]);
     /// // This creates 6 task variants (3 versions × 2 OS)
     /// ```
+    ///
+    /// # Panics
+    /// Panics if `key` or `values` is empty.
+    #[must_use]
     pub fn matrix(self, key: &str, values: &[&str]) -> Self {
-        if key.is_empty() {
-            panic!("matrix key cannot be empty");
-        }
-        if values.is_empty() {
-            panic!("matrix values cannot be empty");
-        }
+        assert!(!key.is_empty(), "matrix key cannot be empty");
+        assert!(!values.is_empty(), "matrix values cannot be empty");
         self.pipeline.tasks[self.index]
             .matrix
-            .insert(key.to_string(), values.iter().map(|s| s.to_string()).collect());
+            .insert(key.to_string(), values.iter().map(|s| (*s).to_string()).collect());
         self
     }
 
@@ -360,13 +372,13 @@ impl<'a> Task<'a> {
     ///     .service("redis:7", "cache");
     /// // postgres available at hostname "db", redis at "cache"
     /// ```
+    ///
+    /// # Panics
+    /// Panics if `image` or `name` is empty.
+    #[must_use]
     pub fn service(self, image: &str, name: &str) -> Self {
-        if image.is_empty() {
-            panic!("service image cannot be empty");
-        }
-        if name.is_empty() {
-            panic!("service name cannot be empty");
-        }
+        assert!(!image.is_empty(), "service image cannot be empty");
+        assert!(!name.is_empty(), "service name cannot be empty");
         self.pipeline.tasks[self.index].services.push(Service {
             image: image.to_string(),
             name: name.to_string(),
@@ -387,6 +399,7 @@ impl<'a> Task<'a> {
     ///     .run("cargo test -- --include-ignored")
     ///     .retry(3);  // Retry up to 3 times on failure
     /// ```
+    #[must_use]
     pub fn retry(self, count: u32) -> Self {
         debug!(task = %self.pipeline.tasks[self.index].name, retry = count, "setting retry");
         self.pipeline.tasks[self.index].retry = Some(count);
@@ -407,10 +420,12 @@ impl<'a> Task<'a> {
     ///     .run("cargo build --release")
     ///     .timeout(600);  // 10 minute timeout
     /// ```
+    ///
+    /// # Panics
+    /// Panics if `seconds` is 0.
+    #[must_use]
     pub fn timeout(self, seconds: u32) -> Self {
-        if seconds == 0 {
-            panic!("timeout must be greater than 0");
-        }
+        assert!(seconds > 0, "timeout must be greater than 0");
         debug!(task = %self.pipeline.tasks[self.index].name, timeout = seconds, "setting timeout");
         self.pipeline.tasks[self.index].timeout = Some(seconds);
         self
@@ -430,6 +445,7 @@ pub struct Pipeline {
 
 impl Pipeline {
     /// Creates a new pipeline.
+    #[must_use]
     pub fn new() -> Self {
         Pipeline {
             tasks: Vec::new(),
@@ -439,10 +455,11 @@ impl Pipeline {
     }
 
     /// Creates a directory resource.
+    ///
+    /// # Panics
+    /// Panics if `path` is empty.
     pub fn dir(&mut self, path: &str) -> Directory {
-        if path.is_empty() {
-            panic!("directory path cannot be empty");
-        }
+        assert!(!path.is_empty(), "directory path cannot be empty");
         let dir = Directory {
             path: path.to_string(),
             globs: Vec::new(),
@@ -452,10 +469,11 @@ impl Pipeline {
     }
 
     /// Creates a named cache volume.
+    ///
+    /// # Panics
+    /// Panics if `name` is empty.
     pub fn cache(&mut self, name: &str) -> CacheVolume {
-        if name.is_empty() {
-            panic!("cache name cannot be empty");
-        }
+        assert!(!name.is_empty(), "cache name cannot be empty");
         let cache = CacheVolume {
             name: name.to_string(),
         };
@@ -464,13 +482,15 @@ impl Pipeline {
     }
 
     /// Creates a new task with the given name.
+    ///
+    /// # Panics
+    /// Panics if `name` is empty or if a task with the same name already exists.
     pub fn task(&mut self, name: &str) -> Task<'_> {
-        if name.is_empty() {
-            panic!("task name cannot be empty");
-        }
-        if self.tasks.iter().any(|t| t.name == name) {
-            panic!("task {:?} already exists", name);
-        }
+        assert!(!name.is_empty(), "task name cannot be empty");
+        assert!(
+            !self.tasks.iter().any(|t| t.name == name),
+            "task {name:?} already exists"
+        );
         self.tasks.push(TaskData {
             name: name.to_string(),
             ..Default::default()
@@ -494,7 +514,7 @@ impl Pipeline {
     /// If emission fails, exits with code 1.
     ///
     /// **Note:** This method exits the process and does not return. For non-exiting
-    /// behavior, use [`emit_to`] directly.
+    /// behavior, use [`Pipeline::emit_to`] directly.
     pub fn emit(&self) {
         if env::args().any(|arg| arg == "--emit") {
             if let Err(e) = self.emit_to(&mut io::stdout()) {
