@@ -26,6 +26,9 @@ erl_crash.dump
 go.work
 go.work.sum
 
+# Rust
+target/
+
 # IDE
 .vscode/
 .idea/
