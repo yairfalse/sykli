@@ -22,7 +22,7 @@ jobs:
             os: ubuntu-latest
             burrito_target: linux_aarch64
           - target: macos-x86_64
-            os: macos-13
+            os: macos-15-large
             burrito_target: macos_x86_64
           - target: macos-aarch64
             os: macos-14
@@ -34,9 +34,9 @@ jobs:
       - name: Install Zig (Linux)
         if: runner.os == 'Linux'
         run: |
-          wget https://ziglang.org/download/0.11.0/zig-linux-x86_64-0.11.0.tar.xz
-          tar -xf zig-linux-x86_64-0.11.0.tar.xz
-          echo "$PWD/zig-linux-x86_64-0.11.0" >> $GITHUB_PATH
+          wget https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz
+          tar -xf zig-x86_64-linux-0.15.2.tar.xz
+          echo "$PWD/zig-x86_64-linux-0.15.2" >> $GITHUB_PATH
 
       - name: Install Zig (macOS)
         if: runner.os == 'macOS'
