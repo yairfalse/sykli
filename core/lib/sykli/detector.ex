@@ -100,8 +100,12 @@ defmodule Sykli.Detector do
     # Run elixir script with --emit flag
     # The script should use `Mix.install([{:sykli, path: "..."}])` or have sykli available
     case System.cmd("elixir", [file, "--emit"], cd: dir, stderr_to_stdout: true) do
-      {output, 0} -> {:ok, output}
-      {error, _} -> {:error, {:elixir_failed, error}}
+      {output, 0} ->
+        # Extract JSON from output (Logger.debug messages may be mixed in)
+        extract_json(output)
+
+      {error, _} ->
+        {:error, {:elixir_failed, error}}
     end
   end
 end

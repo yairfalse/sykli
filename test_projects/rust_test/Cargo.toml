@@ -1,0 +1,15 @@
+[package]
+name = "rust_test"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "sykli"
+path = "sykli.rs"
+
+[features]
+sykli = ["dep:sykli"]
+
+[dependencies.sykli]
+path = "../../sdk/rust"
+optional = true
