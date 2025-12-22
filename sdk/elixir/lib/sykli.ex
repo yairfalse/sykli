@@ -59,6 +59,7 @@ defmodule Sykli do
 
   defmacro __using__(_opts) do
     quote do
+      require Logger
       import Sykli, only: [pipeline: 1]
       import Sykli.DSL
     end
