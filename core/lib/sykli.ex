@@ -23,7 +23,22 @@ defmodule Sykli do
     else
       {:error, :no_sdk_file} ->
         IO.puts(:stderr, "\e[31m✗ No sykli file found\e[0m")
-        IO.puts(:stderr, "  Create one of: sykli.go, sykli.rs, or sykli.exs")
+        IO.puts(:stderr, "")
+        IO.puts(:stderr, "\e[36mQuick start — create sykli.go:\e[0m")
+        IO.puts(:stderr, "")
+        IO.puts(:stderr, "    package main")
+        IO.puts(:stderr, "")
+        IO.puts(:stderr, "    import sykli \"github.com/yairfalse/sykli/sdk/go\"")
+        IO.puts(:stderr, "")
+        IO.puts(:stderr, "    func main() {")
+        IO.puts(:stderr, "        s := sykli.New()")
+        IO.puts(:stderr, "        s.Task(\"hello\").Run(\"echo 'Hello from sykli!'\")")
+        IO.puts(:stderr, "        s.Emit()")
+        IO.puts(:stderr, "    }")
+        IO.puts(:stderr, "")
+        IO.puts(:stderr, "Then run: \e[32msykli\e[0m")
+        IO.puts(:stderr, "")
+        IO.puts(:stderr, "Docs: \e[34mhttps://github.com/yairfalse/sykli\e[0m")
         {:error, :no_sdk_file}
 
       {:error, {:missing_tool, tool, hint}} ->
