@@ -2,175 +2,257 @@
 
 **CI in your language. No YAML. No DSL. Just code.**
 
+## What is Sykli?
+
+Sykli lets you define CI pipelines in Go, Rust, or Elixir instead of YAML. Your pipeline is a real program that outputs a task graph, which Sykli executes in parallel.
+
 ```go
-// sykli.go — this IS your CI
+// sykli.go — your CI config is just Go code
 package main
 
-import "sykli.dev/go"
+import sykli "github.com/yairfalse/sykli/sdk/go"
 
 func main() {
     s := sykli.New()
 
-    // Define resources
-    src := s.Dir(".")
-    goModCache := s.Cache("go-mod")
-
-    // Tasks run in containers with caches
-    s.Task("test").
-        Container("golang:1.21").
-        Mount(src, "/src").
-        MountCache(goModCache, "/go/pkg/mod").
-        Workdir("/src").
-        Run("go test ./...")
-
-    s.Task("build").
-        Container("golang:1.21").
-        Mount(src, "/src").
-        MountCache(goModCache, "/go/pkg/mod").
-        Workdir("/src").
-        Env("CGO_ENABLED", "0").
-        Run("go build -o ./app .").
-        Output("binary", "./app").
-        After("test")
+    s.Task("test").Run("go test ./...")
+    s.Task("lint").Run("go vet ./...")
+    s.Task("build").Run("go build -o app").After("test", "lint")
 
     s.Emit()
 }
 ```
 
-Run `sykli`. Done.
+Run `sykli` in your project directory. That's it.
 
 ---
 
-## Why
+## Quick Start
 
-CI configuration files started simple but grew into pseudo-programming languages. YAML with templating, custom DSLs with conditionals, proprietary scripting layers. The result: you're programming, but in a language designed for configuration.
+**1. Install sykli:**
 
-Sykli takes a different approach. Your CI definition is a program in your language—Go, Rust, or Elixir. It runs, emits a task graph as JSON, and an executor runs the tasks in parallel. No interpretation layer. No config-language barriers. Just code that describes what to build and run.
+```bash
+curl -fsSL https://raw.githubusercontent.com/yairfalse/sykli/main/install.sh | bash
+```
 
-- **No YAML** — your CI config is real code
-- **No DSL** — use your language's full power
-- **No magic** — SDK emits JSON, core executes it
-- **Local first** — same behavior on your machine and CI
+**2. Create `sykli.go` in your project:**
+
+```go
+package main
+
+import sykli "github.com/yairfalse/sykli/sdk/go"
+
+func main() {
+    s := sykli.New()
+    s.Task("test").Run("echo 'Running tests...'")
+    s.Task("build").Run("echo 'Building...'").After("test")
+    s.Emit()
+}
+```
+
+**3. Run it:**
+
+```bash
+$ sykli
+
+── Level with 1 task(s) ──
+▶ test  echo 'Running tests...'
+  Running tests...
+✓ test  2ms
+
+── Level with 1 task(s) ──
+▶ build  echo 'Building...'
+  Building...
+✓ build  1ms
+
+─────────────────────────────────────────
+✓ 2 passed in 48ms
+```
+
+Tasks run in parallel when they have no dependencies. Tasks with dependencies wait for them to complete.
+
+---
+
+## Why Not YAML?
+
+CI config files started simple, then grew conditional logic, templating, and variable substitution. Now you're programming in YAML—a language designed for configuration, not logic.
+
+Sykli flips this: **write your CI in a real programming language.** You get:
+
+- **Type checking** — catch errors before running
+- **IDE support** — autocomplete, go-to-definition, refactoring
+- **Abstraction** — functions, loops, conditionals that actually work
+- **Testing** — unit test your pipeline logic
+- **Local execution** — same behavior on your machine and CI
 
 ---
 
 ## How It Works
 
 ```
-sykli.go  →  JSON task graph  →  Elixir core  →  parallel execution
-   SDK           stdout            engine
+sykli.go  ──run──▶  JSON task graph  ──▶  parallel execution
+   SDK                  stdout              Elixir engine
 ```
 
-1. Write `sykli.go` (or `.rs`, `.exs`)
-2. Core runs it, gets task graph as JSON
-3. Core executes tasks in parallel by dependency level
+1. Sykli detects your SDK file (`sykli.go`, `sykli.rs`, or `sykli.exs`)
+2. Runs it to get a JSON task graph
+3. Executes tasks in parallel by dependency level
+4. Caches results based on input file hashes
 
 ---
 
-## Install
+## Error Handling
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/yairfalse/sykli/main/install.sh | bash
-```
-
-Or download binaries directly from [releases](https://github.com/yairfalse/sykli/releases).
-
----
-
-## SDK
-
-### Simple Tasks
+Sykli catches problems before execution. Here's what happens with a dependency cycle:
 
 ```go
-s := sykli.New()
+s.Task("a").Run("echo a").After("b")
+s.Task("b").Run("echo b").After("a")  // cycle: a → b → a
+s.Emit()
+```
 
+```bash
+$ sykli
+ERR dependency cycle detected  cycle=["a","b","a"]
+```
+
+And when a task fails:
+
+```bash
+$ sykli
+
+── Level with 1 task(s) ──
+▶ test  exit 1
+✗ test  (exit 1)
+✗ test failed, stopping
+
+─────────────────────────────────────────
+✗ 1 failed in 12ms
+```
+
+---
+
+## SDK Examples
+
+### Caching with Inputs
+
+Tasks with inputs are cached. If input files haven't changed, the task is skipped:
+
+```go
+s.Task("test").
+    Run("go test ./...").
+    Inputs("**/*.go", "go.mod")
+```
+
+```bash
+$ sykli
+⊙ test  CACHED
+
+✓ 1 passed in 3ms
+```
+
+### Dependencies
+
+```go
 s.Task("test").Run("go test ./...")
 s.Task("lint").Run("go vet ./...")
 s.Task("build").Run("go build -o app").After("test", "lint")
-
-s.Emit()
 ```
 
-### Container Tasks
+`test` and `lint` run in parallel. `build` waits for both.
+
+### Conditional Execution
 
 ```go
-s := sykli.New()
+s.Task("deploy").
+    Run("./deploy.sh").
+    When("branch == 'main'").
+    Secret("DEPLOY_TOKEN")
+```
 
-// Resources
-src := s.Dir(".")
-nodeModules := s.Cache("node-modules")
+### Retry Flaky Tasks
 
-// Run in container with mounted source and cache
+```go
+s.Task("integration").
+    Run("./integration-tests.sh").
+    Retry(3).
+    Timeout(300)
+```
+
+### Matrix Builds
+
+```go
 s.Task("test").
-    Container("node:20").
-    Mount(src, "/app").
-    MountCache(nodeModules, "/app/node_modules").
-    Workdir("/app").
-    Run("npm test")
-
-s.Emit()
+    Run("go test ./...").
+    Matrix("go_version", "1.21", "1.22", "1.23")
 ```
 
-### Inputs & Outputs
+Expands to `test[go_version=1.21]`, `test[go_version=1.22]`, `test[go_version=1.23]`.
+
+### Service Containers
 
 ```go
-s.Task("build").
-    Run("go build -o ./dist/app").
-    Inputs("**/*.go", "go.mod").   // Cache invalidation
-    Output("binary", "./dist/app") // Named outputs
-
-s.Emit()
-```
-
-### Presets
-
-```go
-s := sykli.New()
-
-s.Go().Test()
-s.Go().Lint()
-s.Go().Build("./app").After("test", "lint")
-
-s.Emit()
-```
-
-### Elixir SDK
-
-```elixir
-# sykli.exs
-Mix.install([{:sykli, "~> 0.1"}])
-
-use Sykli
-
-pipeline do
-  task "test" do
-    run "mix test"
-    inputs ["**/*.ex", "mix.exs"]
-  end
-
-  task "build" do
-    run "mix compile"
-    after_ ["test"]
-  end
-end
-```
-
-With presets:
-
-```elixir
-pipeline do
-  mix_deps()
-  mix_test()
-  mix_credo()
-  mix_format()
-end
+s.Task("test").
+    Run("go test ./...").
+    Service("postgres:15", "db").
+    Service("redis:7", "cache")
 ```
 
 ---
 
-## Status
+## All Three SDKs
 
-> ⚠️ **Experimental** — Sykli is an experimental project, primarily used internally by us. APIs may change. Use at your own risk, but feel free to try it out!
+### Go
+
+```go
+package main
+
+import sykli "github.com/yairfalse/sykli/sdk/go"
+
+func main() {
+    s := sykli.New()
+    s.Go().Test()
+    s.Go().Lint()
+    s.Go().Build("./app").After("test", "lint")
+    s.Emit()
+}
+```
+
+### Rust
+
+```rust
+use sykli::Pipeline;
+
+fn main() {
+    let mut p = Pipeline::new();
+    p.rust().test();
+    p.rust().lint();
+    p.rust().build("target/release/app").after(&["test", "lint"]);
+    p.emit();
+}
+```
+
+### Elixir
+
+```elixir
+Mix.install([{:sykli, "~> 0.1"}])
+
+defmodule Pipeline do
+  use Sykli
+
+  pipeline do
+    task "test" do
+      run "mix test"
+      inputs ["**/*.ex", "mix.exs"]
+    end
+
+    task "build" do
+      run "mix compile"
+      after_ ["test"]
+    end
+  end
+end
+```
 
 ---
 
@@ -178,17 +260,18 @@ end
 
 | Feature | Status |
 |---------|--------|
-| Go SDK | ✅ Done |
-| Rust SDK | ✅ Done |
-| Elixir SDK | ✅ Done ([hex.pm/packages/sykli](https://hex.pm/packages/sykli)) |
-| Parallel execution | ✅ Done |
-| Container tasks | ✅ Done |
-| Volume mounts | ✅ Done |
-| Cache mounts | ✅ Done |
-| Content-addressed caching | ✅ Done |
-| GitHub commit status | ✅ Done |
-| Distributed events (ULID) | ✅ Done |
-| AHTI observability | ✅ Ready |
+| Go SDK | ✅ |
+| Rust SDK | ✅ |
+| Elixir SDK | ✅ |
+| Parallel execution | ✅ |
+| Content-addressed caching | ✅ |
+| Cycle detection | ✅ |
+| Retry & timeout | ✅ |
+| Conditional execution | ✅ |
+| Matrix builds | ✅ |
+| Service containers | ✅ |
+| Container tasks | ✅ |
+| GitHub status API | ✅ |
 | Remote execution | Planned |
 
 ---
@@ -212,60 +295,13 @@ end
                                          parallel
 ```
 
-Elixir for a reason: OTP distribution means local and remote execution are the same system at different scales.
+The engine is written in Elixir/OTP. Why? The same code that runs locally can distribute across a cluster—local and remote execution are the same system at different scales.
 
 ---
 
-## Distributed Observability
+## Status
 
-Every execution emits events with ULID-based IDs for causality tracking:
-
-```
-run_started    │ 01KCSVXCXAWCXEEW1DHK9YWW6V │ {project: ".", tasks: ["test", "build"]}
-task_started   │ 01KCSVXCXAWCXEEW1DHK9YWW6W │ {task: "test"}
-task_completed │ 01KCSVXCXEKRR73QMRVDA9BVWP │ {task: "test", outcome: :success}
-run_completed  │ 01KCSVXCXEKRR73QMRVDA9BVWQ │ {outcome: :success}
-```
-
-### Why ULIDs?
-
-- **Time-sortable**: Lexicographic order = temporal order
-- **Monotonic**: Events in same millisecond are strictly ordered
-- **Causality**: Parent event ID < child event ID always
-
-### Event Flow
-
-```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   Worker    │────▶│  PubSub     │────▶│ Coordinator │
-│   Node      │     │  (BEAM)     │     │   Node      │
-└─────────────┘     └─────────────┘     └─────────────┘
-      │                                        │
-      │  Event structs with ULIDs              │
-      │  flow across the cluster               ▼
-      │                                 ┌─────────────┐
-      └────────────────────────────────▶│   AHTI      │
-                                        │ (optional)  │
-                                        └─────────────┘
-```
-
-Workers emit events → Reporter buffers/forwards → Coordinator aggregates.
-
-No external message queue needed—OTP distribution handles it.
-
-### AHTI Integration
-
-Events are structured for [AHTI](https://github.com/yairfalse/ahti) causality correlation:
-
-```elixir
-event = Sykli.Events.Event.new(:task_completed, run_id, %{
-  task_name: "build",
-  outcome: :success
-})
-
-# Convert to AHTI format
-ahti_json = Sykli.Events.Event.to_ahti_json(event, "prod-cluster")
-```
+> **Experimental** — Sykli is used internally by us. APIs may change. Use at your own risk.
 
 ---
 
