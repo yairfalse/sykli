@@ -45,7 +45,7 @@ Run `sykli`. Done.
 
 CI configuration files started simple but grew into pseudo-programming languages. YAML with templating, custom DSLs with conditionals, proprietary scripting layers. The result: you're programming, but in a language designed for configuration.
 
-Sykli takes a different approach. Your CI definition is a program in your language—Go, Rust, TypeScript. It runs, emits a task graph as JSON, and an executor runs the tasks in parallel. No interpretation layer. No config-language barriers. Just code that describes what to build and run.
+Sykli takes a different approach. Your CI definition is a program in your language—Go, Rust, or Elixir. It runs, emits a task graph as JSON, and an executor runs the tasks in parallel. No interpretation layer. No config-language barriers. Just code that describes what to build and run.
 
 - **No YAML** — your CI config is real code
 - **No DSL** — use your language's full power
@@ -61,7 +61,7 @@ sykli.go  →  JSON task graph  →  Elixir core  →  parallel execution
    SDK           stdout            engine
 ```
 
-1. Write `sykli.go` (or `.rs`, `.ts`, `.exs`)
+1. Write `sykli.go` (or `.rs`, `.exs`)
 2. Core runs it, gets task graph as JSON
 3. Core executes tasks in parallel by dependency level
 
@@ -70,15 +70,10 @@ sykli.go  →  JSON task graph  →  Elixir core  →  parallel execution
 ## Install
 
 ```bash
-# Coming soon
-brew install sykli
+curl -fsSL https://raw.githubusercontent.com/yairfalse/sykli/main/install.sh | bash
 ```
 
-For now, clone and run with Mix:
-
-```bash
-cd core && mix run -e 'Sykli.run("/path/to/your/project")'
-```
+Or download binaries directly from [releases](https://github.com/yairfalse/sykli/releases).
 
 ---
 
@@ -194,7 +189,6 @@ end
 | GitHub commit status | ✅ Done |
 | Distributed events (ULID) | ✅ Done |
 | AHTI observability | ✅ Ready |
-| TypeScript SDK | Planned |
 | Remote execution | Planned |
 
 ---
