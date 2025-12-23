@@ -616,10 +616,19 @@ defmodule Sykli.Executor do
   end
 
   defp copy_artifact(source_path, dest_path, workdir, task_name) do
-    abs_source = Path.join(workdir, source_path)
-    abs_dest = Path.join(workdir, dest_path)
+    # Resolve paths and validate they stay within workdir (prevent path traversal)
+    abs_source = Path.join(workdir, source_path) |> Path.expand()
+    abs_dest = Path.join(workdir, dest_path) |> Path.expand()
 
     cond do
+      not String.starts_with?(abs_source, workdir) ->
+        IO.puts("#{IO.ANSI.red()}✗ #{task_name}: source path escapes workdir: #{source_path}#{IO.ANSI.reset()}")
+        {:error, {:path_traversal, source_path}}
+
+      not String.starts_with?(abs_dest, workdir) ->
+        IO.puts("#{IO.ANSI.red()}✗ #{task_name}: dest path escapes workdir: #{dest_path}#{IO.ANSI.reset()}")
+        {:error, {:path_traversal, dest_path}}
+
       File.regular?(abs_source) ->
         # Ensure destination directory exists
         dest_dir = Path.dirname(abs_dest)
