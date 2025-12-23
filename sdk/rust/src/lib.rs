@@ -150,7 +150,10 @@ impl<'a> Task<'a> {
     #[must_use]
     pub fn mount(self, dir: &Directory, path: &str) -> Self {
         assert!(!path.is_empty(), "container mount path cannot be empty");
-        assert!(path.starts_with('/'), "container mount path must be absolute (start with /)");
+        assert!(
+            path.starts_with('/'),
+            "container mount path must be absolute (start with /)"
+        );
         self.pipeline.tasks[self.index].mounts.push(Mount {
             resource: dir.id(),
             path: path.to_string(),
@@ -166,7 +169,10 @@ impl<'a> Task<'a> {
     #[must_use]
     pub fn mount_cache(self, cache: &CacheVolume, path: &str) -> Self {
         assert!(!path.is_empty(), "container mount path cannot be empty");
-        assert!(path.starts_with('/'), "container mount path must be absolute (start with /)");
+        assert!(
+            path.starts_with('/'),
+            "container mount path must be absolute (start with /)"
+        );
         self.pipeline.tasks[self.index].mounts.push(Mount {
             resource: cache.id(),
             path: path.to_string(),
@@ -181,8 +187,14 @@ impl<'a> Task<'a> {
     /// Panics if `path` is empty or not absolute (must start with `/`).
     #[must_use]
     pub fn workdir(self, path: &str) -> Self {
-        assert!(!path.is_empty(), "container working directory cannot be empty");
-        assert!(path.starts_with('/'), "container working directory must be absolute (start with /)");
+        assert!(
+            !path.is_empty(),
+            "container working directory cannot be empty"
+        );
+        assert!(
+            path.starts_with('/'),
+            "container working directory must be absolute (start with /)"
+        );
         self.pipeline.tasks[self.index].workdir = Some(path.to_string());
         self
     }
@@ -350,9 +362,10 @@ impl<'a> Task<'a> {
     pub fn matrix(self, key: &str, values: &[&str]) -> Self {
         assert!(!key.is_empty(), "matrix key cannot be empty");
         assert!(!values.is_empty(), "matrix values cannot be empty");
-        self.pipeline.tasks[self.index]
-            .matrix
-            .insert(key.to_string(), values.iter().map(|s| (*s).to_string()).collect());
+        self.pipeline.tasks[self.index].matrix.insert(
+            key.to_string(),
+            values.iter().map(|s| (*s).to_string()).collect(),
+        );
         self
     }
 
@@ -744,7 +757,12 @@ impl Pipeline {
         let deps: HashMap<&str, Vec<&str>> = self
             .tasks
             .iter()
-            .map(|t| (t.name.as_str(), t.depends_on.iter().map(|s| s.as_str()).collect()))
+            .map(|t| {
+                (
+                    t.name.as_str(),
+                    t.depends_on.iter().map(|s| s.as_str()).collect(),
+                )
+            })
             .collect();
 
         let mut color: HashMap<&str, Color> = self
@@ -758,7 +776,9 @@ impl Pipeline {
         // DFS from each unvisited node
         for task in &self.tasks {
             if color[task.name.as_str()] == Color::White {
-                if let Some(cycle) = self.dfs_detect_cycle(task.name.as_str(), &deps, &mut color, &mut parent) {
+                if let Some(cycle) =
+                    self.dfs_detect_cycle(task.name.as_str(), &deps, &mut color, &mut parent)
+                {
                     return Some(cycle);
                 }
             }
@@ -1129,7 +1149,10 @@ mod tests {
         p.emit_to(&mut buf).unwrap();
         let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
 
-        assert_eq!(json["tasks"][0]["outputs"]["output_0"], "target/release/myapp");
+        assert_eq!(
+            json["tasks"][0]["outputs"]["output_0"],
+            "target/release/myapp"
+        );
     }
 
     #[test]
@@ -1187,9 +1210,7 @@ mod tests {
     #[test]
     fn test_when_branch_condition() {
         let mut p = Pipeline::new();
-        p.task("deploy")
-            .run("./deploy.sh")
-            .when("branch == 'main'");
+        p.task("deploy").run("./deploy.sh").when("branch == 'main'");
 
         let mut buf = Vec::new();
         p.emit_to(&mut buf).unwrap();
@@ -1201,9 +1222,7 @@ mod tests {
     #[test]
     fn test_when_tag_condition() {
         let mut p = Pipeline::new();
-        p.task("release")
-            .run("./release.sh")
-            .when("tag != ''");
+        p.task("release").run("./release.sh").when("tag != ''");
 
         let mut buf = Vec::new();
         p.emit_to(&mut buf).unwrap();
@@ -1255,9 +1274,7 @@ mod tests {
     #[test]
     fn test_secret_single() {
         let mut p = Pipeline::new();
-        p.task("deploy")
-            .run("./deploy.sh")
-            .secret("GITHUB_TOKEN");
+        p.task("deploy").run("./deploy.sh").secret("GITHUB_TOKEN");
 
         let mut buf = Vec::new();
         p.emit_to(&mut buf).unwrap();
@@ -1509,10 +1526,7 @@ mod tests {
     #[test]
     fn test_retry_and_timeout_combined() {
         let mut p = Pipeline::new();
-        p.task("flaky")
-            .run("./flaky.sh")
-            .retry(2)
-            .timeout(120);
+        p.task("flaky").run("./flaky.sh").retry(2).timeout(120);
 
         let mut buf = Vec::new();
         p.emit_to(&mut buf).unwrap();
@@ -1590,7 +1604,9 @@ mod tests {
         p.task("test").run("cargo test");
         p.task("lint").run("cargo clippy");
         p.task("build").run("cargo build").after(&["test", "lint"]);
-        p.task("deploy").run("./deploy.sh").after(&["build", "verify"]);
+        p.task("deploy")
+            .run("./deploy.sh")
+            .after(&["build", "verify"]);
         p.task("verify").run("./verify.sh").after(&["deploy"]);
 
         let mut buf = Vec::new();
@@ -1612,8 +1628,11 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         // Error should mention both tasks in the cycle
-        assert!(err.contains("a") && err.contains("b"),
-            "cycle error should mention tasks in cycle, got: {}", err);
+        assert!(
+            err.contains("a") && err.contains("b"),
+            "cycle error should mention tasks in cycle, got: {}",
+            err
+        );
     }
 
     #[test]
@@ -1643,7 +1662,11 @@ mod tests {
 
         let mut buf = Vec::new();
         let result = p.emit_to(&mut buf);
-        assert!(result.is_ok(), "diamond pattern should not error: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "diamond pattern should not error: {:?}",
+            result
+        );
     }
 
     #[test]
@@ -1657,6 +1680,10 @@ mod tests {
 
         let mut buf = Vec::new();
         let result = p.emit_to(&mut buf);
-        assert!(result.is_ok(), "multiple roots should not error: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "multiple roots should not error: {:?}",
+            result
+        );
     }
 }
