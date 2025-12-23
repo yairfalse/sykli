@@ -1,89 +1,15 @@
-# sykli
+# SYKLI
 
 **CI in your language. No YAML. No DSL. Just code.**
 
-## What is Sykli?
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Elixir](https://img.shields.io/badge/elixir-1.16%2B-purple.svg)](https://elixir-lang.org)
 
-Sykli lets you define CI pipelines in Go, Rust, or Elixir instead of YAML. Your pipeline is a real program that outputs a task graph, which Sykli executes in parallel.
+A CI orchestrator that lets you define pipelines in Go, Rust, or Elixir. Your pipeline is a real program that outputs a task graph, which Sykli executes in parallel.
 
-```go
-// sykli.go — your CI config is just Go code
-package main
+**This is a learning project** - exploring how to build CI tools with BEAM/OTP.
 
-import sykli "github.com/yairfalse/sykli/sdk/go"
-
-func main() {
-    s := sykli.New()
-
-    s.Task("test").Run("go test ./...")
-    s.Task("lint").Run("go vet ./...")
-    s.Task("build").Run("go build -o app").After("test", "lint")
-
-    s.Emit()
-}
-```
-
-Run `sykli` in your project directory. That's it.
-
----
-
-## Quick Start
-
-**1. Install sykli:**
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/yairfalse/sykli/main/install.sh | bash
-```
-
-**2. Create `sykli.go` in your project:**
-
-```go
-package main
-
-import sykli "github.com/yairfalse/sykli/sdk/go"
-
-func main() {
-    s := sykli.New()
-    s.Task("test").Run("echo 'Running tests...'")
-    s.Task("build").Run("echo 'Building...'").After("test")
-    s.Emit()
-}
-```
-
-**3. Run it:**
-
-```bash
-$ sykli
-
-── Level with 1 task(s) ──
-▶ test  echo 'Running tests...'
-  Running tests...
-✓ test  2ms
-
-── Level with 1 task(s) ──
-▶ build  echo 'Building...'
-  Building...
-✓ build  1ms
-
-─────────────────────────────────────────
-✓ 2 passed in 48ms
-```
-
-Tasks run in parallel when they have no dependencies. Tasks with dependencies wait for them to complete.
-
----
-
-## Why Not YAML?
-
-CI config files started simple, then grew conditional logic, templating, and variable substitution. Now you're programming in YAML—a language designed for configuration, not logic.
-
-Sykli flips this: **write your CI in a real programming language.** You get:
-
-- **Type checking** — catch errors before running
-- **IDE support** — autocomplete, go-to-definition, refactoring
-- **Abstraction** — functions, loops, conditionals that actually work
-- **Testing** — unit test your pipeline logic
-- **Local execution** — same behavior on your machine and CI
+**Current Status**: Core working - parallel execution, caching, cycle detection, matrix builds.
 
 ---
 
@@ -95,48 +21,67 @@ sykli.go  ──run──▶  JSON task graph  ──▶  parallel execution
 ```
 
 1. Sykli detects your SDK file (`sykli.go`, `sykli.rs`, or `sykli.exs`)
-2. Runs it to get a JSON task graph
+2. Runs it with `--emit` to get a JSON task graph
 3. Executes tasks in parallel by dependency level
 4. Caches results based on input file hashes
 
 ---
 
-## Error Handling
-
-Sykli catches problems before execution. Here's what happens with a dependency cycle:
-
-```go
-s.Task("a").Run("echo a").After("b")
-s.Task("b").Run("echo b").After("a")  // cycle: a → b → a
-s.Emit()
-```
+## Quick Start
 
 ```bash
-$ sykli
-ERR dependency cycle detected  cycle=["a","b","a"]
+# Install
+curl -fsSL https://raw.githubusercontent.com/yairfalse/sykli/main/install.sh | bash
+
+# Create sykli.go
+cat > sykli.go << 'EOF'
+package main
+
+import sykli "github.com/yairfalse/sykli/sdk/go"
+
+func main() {
+    s := sykli.New()
+    s.Task("test").Run("go test ./...")
+    s.Task("build").Run("go build -o app").After("test")
+    s.Emit()
+}
+EOF
+
+# Run
+sykli
 ```
 
-And when a task fails:
-
-```bash
-$ sykli
+Output:
+```
+── Level with 1 task(s) ──
+▶ test  go test ./...
+✓ test  42ms
 
 ── Level with 1 task(s) ──
-▶ test  exit 1
-✗ test  (exit 1)
-✗ test failed, stopping
+▶ build  go build -o app
+✓ build  1.2s
 
 ─────────────────────────────────────────
-✗ 1 failed in 12ms
+✓ 2 passed in 1.3s
 ```
 
 ---
 
 ## SDK Examples
 
-### Caching with Inputs
+### Basic Tasks
 
-Tasks with inputs are cached. If input files haven't changed, the task is skipped:
+```go
+s := sykli.New()
+s.Task("test").Run("go test ./...")
+s.Task("lint").Run("go vet ./...")
+s.Task("build").Run("go build -o app").After("test", "lint")
+s.Emit()
+```
+
+`test` and `lint` run in parallel. `build` waits for both.
+
+### Caching
 
 ```go
 s.Task("test").
@@ -144,39 +89,9 @@ s.Task("test").
     Inputs("**/*.go", "go.mod")
 ```
 
-```bash
-$ sykli
+If input files haven't changed, task is skipped:
+```
 ⊙ test  CACHED
-
-✓ 1 passed in 3ms
-```
-
-### Dependencies
-
-```go
-s.Task("test").Run("go test ./...")
-s.Task("lint").Run("go vet ./...")
-s.Task("build").Run("go build -o app").After("test", "lint")
-```
-
-`test` and `lint` run in parallel. `build` waits for both.
-
-### Conditional Execution
-
-```go
-s.Task("deploy").
-    Run("./deploy.sh").
-    When("branch == 'main'").
-    Secret("DEPLOY_TOKEN")
-```
-
-### Retry Flaky Tasks
-
-```go
-s.Task("integration").
-    Run("./integration-tests.sh").
-    Retry(3).
-    Timeout(300)
 ```
 
 ### Matrix Builds
@@ -189,13 +104,38 @@ s.Task("test").
 
 Expands to `test[go_version=1.21]`, `test[go_version=1.22]`, `test[go_version=1.23]`.
 
-### Service Containers
+### Containers (v2)
 
 ```go
+s := sykli.New()
+src := s.Dir(".")
+cache := s.Cache("go-mod")
+
 s.Task("test").
-    Run("go test ./...").
-    Service("postgres:15", "db").
-    Service("redis:7", "cache")
+    Container("golang:1.21").
+    Mount(src, "/src").
+    MountCache(cache, "/go/pkg/mod").
+    Workdir("/src").
+    Run("go test ./...")
+s.Emit()
+```
+
+### Retry & Timeout
+
+```go
+s.Task("integration").
+    Run("./integration-tests.sh").
+    Retry(3).
+    Timeout(300)
+```
+
+### Conditional Execution
+
+```go
+s.Task("deploy").
+    Run("./deploy.sh").
+    When("branch == 'main'").
+    Secret("DEPLOY_TOKEN")
 ```
 
 ---
@@ -211,9 +151,8 @@ import sykli "github.com/yairfalse/sykli/sdk/go"
 
 func main() {
     s := sykli.New()
-    s.Go().Test()
-    s.Go().Lint()
-    s.Go().Build("./app").After("test", "lint")
+    s.Task("test").Run("go test ./...")
+    s.Task("build").Run("go build -o app").After("test")
     s.Emit()
 }
 ```
@@ -225,9 +164,8 @@ use sykli::Pipeline;
 
 fn main() {
     let mut p = Pipeline::new();
-    p.rust().test();
-    p.rust().lint();
-    p.rust().build("target/release/app").after(&["test", "lint"]);
+    p.task("test").run("cargo test");
+    p.task("build").run("cargo build --release").after(&["test"]);
     p.emit();
 }
 ```
@@ -235,7 +173,7 @@ fn main() {
 ### Elixir
 
 ```elixir
-Mix.install([{:sykli, "~> 0.1"}])
+Mix.install([{:sykli, path: "sdk/elixir"}])
 
 defmodule Pipeline do
   use Sykli
@@ -269,8 +207,7 @@ end
 | Retry & timeout | ✅ |
 | Conditional execution | ✅ |
 | Matrix builds | ✅ |
-| Service containers | ✅ |
-| Container tasks | ✅ |
+| Container tasks | ✅ (SDK support) |
 | GitHub status API | ✅ |
 | Remote execution | Planned |
 
@@ -290,27 +227,61 @@ end
               │  lint    │              │   test   │              │  build   │
               │ (level 0)│              │ (level 0)│              │ (level 1)│
               └──────────┘              └──────────┘              └──────────┘
-                    │                          │                          ▲
-                    └──────────────────────────┴──────────────────────────┘
-                                         parallel
 ```
 
-The engine is written in Elixir/OTP. Why? The same code that runs locally can distribute across a cluster—local and remote execution are the same system at different scales.
+**Why Elixir?** The same OTP code that runs locally can distribute across a cluster. Local and remote execution are the same system at different scales.
 
 ---
 
-## Status
+## Project Structure
 
-> **Experimental** — Sykli is used internally by us. APIs may change. Use at your own risk.
+```
+sykli/
+├── core/                   # Elixir engine
+│   └── lib/sykli/
+│       ├── detector.ex     # Finds SDK file, runs --emit
+│       ├── graph.ex        # Parses JSON, topological sort
+│       ├── executor.ex     # Parallel execution
+│       ├── cache.ex        # Content-addressed caching
+│       └── cli.ex          # CLI interface
+├── sdk/
+│   ├── go/                 # Go SDK (~1000 lines)
+│   ├── rust/               # Rust SDK (~1500 lines)
+│   └── elixir/             # Elixir SDK
+└── examples/               # Working examples
+```
 
 ---
 
-## Name
+## Development
 
-*Sykli* — Finnish for "cycle".
+```bash
+# Build escript binary
+cd core && mix escript.build
+
+# Run tests
+mix test
+
+# Run from source
+mix run -e 'Sykli.run(".")'
+```
+
+---
+
+## Naming
+
+**Sykli** (Finnish: "cycle") - Part of a Finnish tool naming theme:
+- **SYKLI** (cycle) - CI orchestrator
+- **NOPEA** (fast) - GitOps controller
+- **KULTA** (gold) - Progressive delivery
+- **RAUTA** (iron) - Gateway API controller
 
 ---
 
 ## License
 
 MIT
+
+---
+
+**Learning Elixir. Learning CI. Building tools.**
