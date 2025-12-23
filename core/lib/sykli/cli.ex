@@ -153,6 +153,6 @@ defmodule Sykli.CLI do
 
   # Halt with proper stdout flushing (needed for Burrito releases)
   defp halt(code) do
-    :erlang.halt(code, [{:flush, true}])
+    :erlang.halt(code, [flush: true])
   end
 end
