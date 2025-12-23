@@ -334,7 +334,9 @@ func (t *Task) From(tmpl *Template) *Task {
 
 	// Prepend template mounts (task mounts come after)
 	if len(tmpl.mounts) > 0 {
-		t.mounts = append(tmpl.mounts, t.mounts...)
+		mounts := make([]Mount, len(tmpl.mounts))
+		copy(mounts, tmpl.mounts)
+		t.mounts = append(mounts, t.mounts...)
 	}
 
 	log.Debug().Str("task", t.name).Str("template", tmpl.name).Msg("applied template")
