@@ -8,6 +8,11 @@ defmodule Sykli.Graph do
     defstruct [:image, :name]
   end
 
+  defmodule TaskInput do
+    @moduledoc "Represents an input artifact from another task's output"
+    defstruct [:from_task, :output, :dest]
+  end
+
   defmodule Task do
     @moduledoc "Represents a single task in the pipeline"
     defstruct [
@@ -29,7 +34,8 @@ defmodule Sykli.Graph do
       :container,     # Docker image to run in
       :workdir,       # Working directory inside container
       :env,           # Environment variables (map)
-      :mounts         # List of mounts (directories and caches)
+      :mounts,        # List of mounts (directories and caches)
+      :task_inputs    # List of TaskInput structs (artifact bindings from other tasks)
     ]
   end
 
@@ -71,8 +77,20 @@ defmodule Sykli.Graph do
       container: map["container"],
       workdir: map["workdir"],
       env: map["env"] || %{},
-      mounts: parse_mounts(map["mounts"])
+      mounts: parse_mounts(map["mounts"]),
+      task_inputs: parse_task_inputs(map["task_inputs"])
     }
+  end
+
+  defp parse_task_inputs(nil), do: []
+  defp parse_task_inputs(task_inputs) when is_list(task_inputs) do
+    Enum.map(task_inputs, fn ti ->
+      %TaskInput{
+        from_task: ti["from_task"],
+        output: ti["output"],
+        dest: ti["dest"]
+      }
+    end)
   end
 
   defp parse_services(nil), do: []
@@ -115,9 +133,15 @@ defmodule Sykli.Graph do
   end
 
   # Handle both v1 (list) and v2 (map) output formats
-  defp normalize_outputs(nil), do: []
-  defp normalize_outputs(outputs) when is_list(outputs), do: outputs
-  defp normalize_outputs(outputs) when is_map(outputs), do: Map.values(outputs)
+  # v2 keeps outputs as map for named artifact passing
+  defp normalize_outputs(nil), do: %{}
+  defp normalize_outputs(outputs) when is_list(outputs) do
+    # v1: list of paths - convert to auto-named map for consistency
+    outputs
+    |> Enum.with_index()
+    |> Map.new(fn {path, idx} -> {"output_#{idx}", path} end)
+  end
+  defp normalize_outputs(outputs) when is_map(outputs), do: outputs
 
   @doc """
   Expands matrix tasks into individual tasks.

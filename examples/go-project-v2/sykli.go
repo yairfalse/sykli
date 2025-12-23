@@ -5,7 +5,7 @@
 // This example demonstrates:
 // - Templates for DRY container configuration
 // - Parallel groups for concurrent tasks
-// - Chain for sequential pipelines
+// - Artifact passing with InputFrom
 
 package main
 
@@ -39,18 +39,24 @@ func main() {
 	)
 
 	// Build depends on all checks passing
-	build := s.Task("build").
+	s.Task("build").
 		From(golang).
 		Env("CGO_ENABLED", "0").
 		Run("go build -o ./app .").
 		Output("binary", "./app").
 		AfterGroup(checks)
 
-	// Deploy only on main branch
+	// Package uses the binary from build (artifact passing!)
+	// InputFrom automatically adds dependency on "build"
+	s.Task("package").
+		Run("docker build -t myapp:latest -f- . <<< 'FROM alpine\nCOPY app /app'").
+		InputFrom("build", "binary", "./app")
+
+	// Deploy only on main branch, uses packaged image
 	s.Task("deploy").
 		Run("./deploy.sh").
 		When("branch == 'main'").
-		After(build.Name())
+		After("package")
 
 	s.Emit()
 }
