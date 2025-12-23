@@ -19,6 +19,9 @@ defmodule Sykli.CLI do
         handle_cache(cache_args)
         halt(0)
 
+      ["graph" | graph_args] ->
+        handle_graph(graph_args)
+
       _ ->
         run_sykli(args)
     end
@@ -37,6 +40,7 @@ defmodule Sykli.CLI do
 
     Commands:
       sykli [path]     Run pipeline (default: current directory)
+      sykli graph      Show task graph (see: sykli graph --help)
       sykli cache      Manage cache (see: sykli cache --help)
 
     Examples:
@@ -83,6 +87,81 @@ defmodule Sykli.CLI do
         IO.puts("#{IO.ANSI.red()}Error: #{inspect(reason)}#{IO.ANSI.reset()}")
         halt(1)
     end
+  end
+
+  # ----- GRAPH SUBCOMMAND -----
+
+  defp handle_graph(["--help"]) do
+    IO.puts("""
+    Usage: sykli graph [options] [path]
+
+    Show the task dependency graph in various formats.
+
+    Options:
+      --mermaid    Output as Mermaid diagram (default)
+      --dot        Output as DOT (Graphviz) format
+      --help       Show this help
+
+    Examples:
+      sykli graph                  Show graph for current directory
+      sykli graph ./my-project     Show graph for ./my-project
+      sykli graph --dot            Output as DOT format
+      sykli graph --dot | dot -Tpng -o graph.png
+    """)
+    halt(0)
+  end
+
+  defp handle_graph(args) do
+    {format, path} = parse_graph_args(args)
+
+    case get_task_graph(path) do
+      {:ok, tasks} ->
+        output = case format do
+          :mermaid -> Sykli.GraphViz.to_mermaid(tasks)
+          :dot -> Sykli.GraphViz.to_dot(tasks)
+        end
+        IO.puts(output)
+        halt(0)
+
+      {:error, :no_sdk_file} ->
+        IO.puts("#{IO.ANSI.red()}No sykli.go, sykli.rs, or sykli.exs found#{IO.ANSI.reset()}")
+        halt(1)
+
+      {:error, reason} ->
+        IO.puts("#{IO.ANSI.red()}Error: #{inspect(reason)}#{IO.ANSI.reset()}")
+        halt(1)
+    end
+  end
+
+  defp parse_graph_args(args) do
+    {opts, rest} = Enum.split_with(args, &String.starts_with?(&1, "--"))
+
+    format = cond do
+      "--dot" in opts -> :dot
+      true -> :mermaid
+    end
+
+    path = List.first(rest) || "."
+    {format, path}
+  end
+
+  defp get_task_graph(path) do
+    with {:ok, sdk} <- Sykli.Detector.find(path),
+         {:ok, json} <- Sykli.Detector.emit(sdk),
+         {:ok, data} <- Jason.decode(json) do
+      tasks = parse_tasks_for_graph(data)
+      {:ok, tasks}
+    end
+  end
+
+  defp parse_tasks_for_graph(data) do
+    (data["tasks"] || [])
+    |> Enum.map(fn task ->
+      %{
+        name: task["name"],
+        depends_on: task["depends_on"] || []
+      }
+    end)
   end
 
   # ----- CACHE SUBCOMMANDS -----

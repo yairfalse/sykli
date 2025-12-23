@@ -17,7 +17,10 @@ defmodule Sykli.Task do
             matrix: %{},
             services: [],
             retry: nil,
-            timeout: nil
+            timeout: nil,
+            task_inputs: []
+
+  @type task_input :: %{from_task: String.t(), output: String.t(), dest: String.t()}
 
   @type t :: %__MODULE__{
           name: String.t(),
@@ -34,7 +37,8 @@ defmodule Sykli.Task do
           matrix: %{String.t() => [String.t()]},
           services: [map()],
           retry: non_neg_integer() | nil,
-          timeout: pos_integer() | nil
+          timeout: pos_integer() | nil,
+          task_inputs: [task_input()]
         }
 
   @doc "Creates a new task with the given name."

@@ -137,6 +137,7 @@ defmodule Sykli.Emitter do
     |> maybe_put(:inputs, non_empty(task.inputs))
     |> maybe_put(:outputs, non_empty_map(task.outputs))
     |> maybe_put(:depends_on, non_empty(task.depends_on))
+    |> maybe_put(:task_inputs, non_empty_list(task.task_inputs, &task_input_to_json/1))
     |> maybe_put(:when, task.condition)
     |> maybe_put(:secrets, non_empty(task.secrets))
     |> maybe_put(:matrix, non_empty_map(task.matrix))
@@ -147,6 +148,10 @@ defmodule Sykli.Emitter do
 
   defp mount_to_json(mount) do
     %{resource: mount.resource, path: mount.path, type: Atom.to_string(mount.type)}
+  end
+
+  defp task_input_to_json(ti) do
+    %{from_task: ti.from_task, output: ti.output, dest: ti.dest}
   end
 
   defp service_to_json(svc) do
