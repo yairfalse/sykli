@@ -91,6 +91,97 @@ struct Service {
 }
 
 // =============================================================================
+// TEMPLATE
+// =============================================================================
+
+/// A reusable task configuration template.
+///
+/// Templates allow you to define common settings (container, mounts, env)
+/// that can be inherited by multiple tasks via `from()`.
+///
+/// # Example
+/// ```rust
+/// use sykli::{Pipeline, Template};
+///
+/// let mut p = Pipeline::new();
+/// let src = p.dir(".");
+///
+/// let rust = Template::new()
+///     .container("rust:1.75")
+///     .mount_dir(&src, "/src")
+///     .workdir("/src");
+///
+/// p.task("test").from(&rust).run("cargo test");
+/// p.task("build").from(&rust).run("cargo build");
+/// ```
+#[derive(Clone, Default)]
+pub struct Template {
+    container: Option<String>,
+    workdir: Option<String>,
+    env: HashMap<String, String>,
+    mounts: Vec<Mount>,
+}
+
+impl Template {
+    /// Creates a new empty template.
+    #[must_use]
+    pub fn new() -> Self {
+        Template::default()
+    }
+
+    /// Sets the container image for tasks using this template.
+    #[must_use]
+    pub fn container(mut self, image: &str) -> Self {
+        assert!(!image.is_empty(), "container image cannot be empty");
+        self.container = Some(image.to_string());
+        self
+    }
+
+    /// Sets the working directory for tasks using this template.
+    #[must_use]
+    pub fn workdir(mut self, path: &str) -> Self {
+        assert!(!path.is_empty(), "workdir cannot be empty");
+        assert!(path.starts_with('/'), "workdir must be absolute");
+        self.workdir = Some(path.to_string());
+        self
+    }
+
+    /// Sets an environment variable for tasks using this template.
+    #[must_use]
+    pub fn env(mut self, key: &str, value: &str) -> Self {
+        assert!(!key.is_empty(), "env key cannot be empty");
+        self.env.insert(key.to_string(), value.to_string());
+        self
+    }
+
+    /// Adds a directory mount for tasks using this template.
+    #[must_use]
+    pub fn mount_dir(mut self, dir: &Directory, path: &str) -> Self {
+        assert!(!path.is_empty(), "mount path cannot be empty");
+        assert!(path.starts_with('/'), "mount path must be absolute");
+        self.mounts.push(Mount {
+            resource: dir.id(),
+            path: path.to_string(),
+            mount_type: "directory".to_string(),
+        });
+        self
+    }
+
+    /// Adds a cache mount for tasks using this template.
+    #[must_use]
+    pub fn mount_cache(mut self, cache: &CacheVolume, path: &str) -> Self {
+        assert!(!path.is_empty(), "mount path cannot be empty");
+        assert!(path.starts_with('/'), "mount path must be absolute");
+        self.mounts.push(Mount {
+            resource: cache.id(),
+            path: path.to_string(),
+            mount_type: "cache".to_string(),
+        });
+        self
+    }
+}
+
+// =============================================================================
 // TASK
 // =============================================================================
 
@@ -121,6 +212,41 @@ struct TaskData {
 }
 
 impl<'a> Task<'a> {
+    /// Applies a template's configuration to this task.
+    ///
+    /// Template settings are applied first, then task-specific settings override them.
+    #[must_use]
+    pub fn from(self, tmpl: &Template) -> Self {
+        let task = &mut self.pipeline.tasks[self.index];
+
+        // Apply template settings (task settings will override these)
+        if task.container.is_none() {
+            task.container = tmpl.container.clone();
+        }
+        if task.workdir.is_none() {
+            task.workdir = tmpl.workdir.clone();
+        }
+
+        // Merge env: template first, then task overrides
+        for (k, v) in &tmpl.env {
+            if !task.env.contains_key(k) {
+                task.env.insert(k.clone(), v.clone());
+            }
+        }
+
+        // Prepend template mounts
+        let mut new_mounts = tmpl.mounts.clone();
+        new_mounts.append(&mut task.mounts);
+        task.mounts = new_mounts;
+
+        self
+    }
+
+    /// Returns the name of this task.
+    pub fn name(&self) -> String {
+        self.pipeline.tasks[self.index].name.clone()
+    }
+
     /// Sets the command for this task.
     ///
     /// # Panics
@@ -518,6 +644,38 @@ impl Pipeline {
     /// Returns a Rust preset builder.
     pub fn rust(&mut self) -> RustPreset<'_> {
         RustPreset { pipeline: self }
+    }
+
+    /// Creates a sequential dependency chain between tasks.
+    ///
+    /// Each task in the chain depends on the previous one: a → b → c
+    ///
+    /// # Example
+    /// ```rust
+    /// use sykli::Pipeline;
+    ///
+    /// let mut p = Pipeline::new();
+    /// p.task("a").run("echo a");
+    /// p.task("b").run("echo b");
+    /// p.task("c").run("echo c");
+    /// p.chain(&["a", "b", "c"]); // b depends on a, c depends on b
+    /// ```
+    ///
+    /// # Panics
+    /// Panics if any task name doesn't exist.
+    pub fn chain(&mut self, task_names: &[&str]) {
+        for window in task_names.windows(2) {
+            let prev = window[0];
+            let curr = window[1];
+
+            // Find the current task and add dependency
+            let task = self
+                .tasks
+                .iter_mut()
+                .find(|t| t.name == curr)
+                .unwrap_or_else(|| panic!("task {:?} not found", curr));
+            task.depends_on.push(prev.to_string());
+        }
     }
 
     /// Emits the pipeline as JSON to stdout if `--emit` flag is present.
@@ -1685,5 +1843,249 @@ mod tests {
             "multiple roots should not error: {:?}",
             result
         );
+    }
+
+    // =============================================================================
+    // TEMPLATE TESTS
+    // =============================================================================
+
+    #[test]
+    fn test_template_basic() {
+        let mut p = Pipeline::new();
+        let src = p.dir(".");
+
+        // Create template with common config
+        let tmpl = Template::new()
+            .container("rust:1.75")
+            .mount_dir(&src, "/src")
+            .workdir("/src");
+
+        // Task inherits from template
+        p.task("test").from(&tmpl).run("cargo test");
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        assert_eq!(json["tasks"][0]["container"], "rust:1.75");
+        assert_eq!(json["tasks"][0]["workdir"], "/src");
+        assert_eq!(json["tasks"][0]["mounts"][0]["path"], "/src");
+    }
+
+    #[test]
+    fn test_template_with_cache() {
+        let mut p = Pipeline::new();
+        let src = p.dir(".");
+        let cache = p.cache("cargo-registry");
+
+        let tmpl = Template::new()
+            .container("rust:1.75")
+            .mount_dir(&src, "/src")
+            .mount_cache(&cache, "/usr/local/cargo/registry")
+            .workdir("/src");
+
+        p.task("test").from(&tmpl).run("cargo test");
+        p.task("build").from(&tmpl).run("cargo build");
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        // Both tasks should have 2 mounts
+        assert_eq!(json["tasks"][0]["mounts"].as_array().unwrap().len(), 2);
+        assert_eq!(json["tasks"][1]["mounts"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn test_template_with_env() {
+        let mut p = Pipeline::new();
+
+        let tmpl = Template::new()
+            .container("rust:1.75")
+            .env("RUST_BACKTRACE", "1")
+            .env("CARGO_TERM_COLOR", "always");
+
+        p.task("build").from(&tmpl).run("cargo build");
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        assert_eq!(json["tasks"][0]["env"]["RUST_BACKTRACE"], "1");
+        assert_eq!(json["tasks"][0]["env"]["CARGO_TERM_COLOR"], "always");
+    }
+
+    #[test]
+    fn test_template_override() {
+        let mut p = Pipeline::new();
+
+        let tmpl = Template::new()
+            .container("rust:1.75")
+            .env("FOO", "from-template");
+
+        // Task overrides env
+        p.task("test").from(&tmpl).env("FOO", "from-task").run("echo $FOO");
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        // Task-level should override
+        assert_eq!(json["tasks"][0]["env"]["FOO"], "from-task");
+    }
+
+    #[test]
+    fn test_template_multiple_tasks() {
+        let mut p = Pipeline::new();
+        let src = p.dir(".");
+
+        let rust = Template::new()
+            .container("rust:1.75")
+            .mount_dir(&src, "/src")
+            .workdir("/src");
+
+        p.task("lint").from(&rust).run("cargo clippy");
+        p.task("test").from(&rust).run("cargo test");
+        p.task("build").from(&rust).run("cargo build").after(&["lint", "test"]);
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        assert_eq!(json["tasks"].as_array().unwrap().len(), 3);
+        // All should have same container
+        for i in 0..3 {
+            assert_eq!(json["tasks"][i]["container"], "rust:1.75");
+        }
+    }
+
+    // =============================================================================
+    // CHAIN TESTS
+    // =============================================================================
+
+    #[test]
+    fn test_chain_basic() {
+        let mut p = Pipeline::new();
+        p.task("a").run("echo a");
+        p.task("b").run("echo b");
+        p.task("c").run("echo c");
+
+        // Chain creates: a → b → c
+        p.chain(&["a", "b", "c"]);
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        // a has no deps
+        assert!(json["tasks"][0]["depends_on"].is_null());
+        // b depends on a
+        assert_eq!(json["tasks"][1]["depends_on"][0], "a");
+        // c depends on b
+        assert_eq!(json["tasks"][2]["depends_on"][0], "b");
+    }
+
+    #[test]
+    fn test_chain_preserves_existing_deps() {
+        let mut p = Pipeline::new();
+        p.task("prereq").run("echo prereq");
+        p.task("a").run("echo a").after(&["prereq"]); // existing dep
+        p.task("b").run("echo b");
+
+        p.chain(&["a", "b"]);
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        // a should still have prereq AND nothing from chain (it's first)
+        let a_deps = json["tasks"][1]["depends_on"].as_array().unwrap();
+        assert_eq!(a_deps.len(), 1);
+        assert_eq!(a_deps[0], "prereq");
+
+        // b should depend on a (from chain)
+        assert_eq!(json["tasks"][2]["depends_on"][0], "a");
+    }
+
+    #[test]
+    fn test_chain_single_task() {
+        let mut p = Pipeline::new();
+        p.task("only").run("echo only");
+
+        p.chain(&["only"]); // Single task - no deps added
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        assert!(json["tasks"][0]["depends_on"].is_null());
+    }
+
+    // =============================================================================
+    // PARALLEL GROUP TESTS
+    // =============================================================================
+
+    #[test]
+    fn test_parallel_as_dependency() {
+        let mut p = Pipeline::new();
+        p.task("lint").run("cargo clippy");
+        p.task("test").run("cargo test");
+
+        // Parallel group: both have no deps themselves
+        // Build depends on the group
+        let checks = &["lint", "test"];
+        p.task("build").run("cargo build").after(checks);
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        // lint and test have no deps
+        assert!(json["tasks"][0]["depends_on"].is_null());
+        assert!(json["tasks"][1]["depends_on"].is_null());
+
+        // build depends on both
+        let build_deps = json["tasks"][2]["depends_on"].as_array().unwrap();
+        assert_eq!(build_deps.len(), 2);
+    }
+
+    #[test]
+    fn test_chain_with_parallel_group() {
+        let mut p = Pipeline::new();
+        // Parallel checks
+        p.task("lint").run("cargo clippy");
+        p.task("test").run("cargo test");
+        let checks = vec!["lint", "test"];
+
+        // Build after checks
+        p.task("build").run("cargo build").after(&checks);
+
+        // Deploy after build
+        p.task("deploy").run("./deploy.sh").after(&["build"]);
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        // lint and test parallel (no deps)
+        assert!(json["tasks"][0]["depends_on"].is_null());
+        assert!(json["tasks"][1]["depends_on"].is_null());
+
+        // build depends on both
+        assert_eq!(json["tasks"][2]["depends_on"].as_array().unwrap().len(), 2);
+
+        // deploy depends on build
+        assert_eq!(json["tasks"][3]["depends_on"][0], "build");
+    }
+
+    // =============================================================================
+    // TASK NAME METHOD TEST
+    // =============================================================================
+
+    #[test]
+    fn test_task_name_method() {
+        let mut p = Pipeline::new();
+        let name = p.task("my-task").run("echo test").name();
+        assert_eq!(name, "my-task");
     }
 }
