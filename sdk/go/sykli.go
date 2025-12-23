@@ -189,6 +189,9 @@ func (t *Template) Container(image string) *Template {
 
 // Workdir sets the working directory for tasks using this template.
 func (t *Template) Workdir(path string) *Template {
+	if path == "" || path[0] != '/' {
+		log.Panic().Str("template", t.name).Str("workdir", path).Msg("workdir must be an absolute, non-empty path")
+	}
 	t.workdir = path
 	return t
 }
