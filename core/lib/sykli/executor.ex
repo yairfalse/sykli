@@ -17,7 +17,8 @@ defmodule Sykli.Executor do
 
     # Execute level by level, collecting results with timing
     # Pass progress state: {completed_count, total_count}
-    result = run_levels(levels, workdir, [], {0, total_tasks})
+    # Also pass graph for resolving task_inputs
+    result = run_levels(levels, workdir, [], {0, total_tasks}, graph)
 
     # Print summary
     total_time = System.monotonic_time(:millisecond) - start_time
@@ -86,9 +87,9 @@ defmodule Sykli.Executor do
 
   # ----- EXECUTING LEVELS -----
 
-  defp run_levels([], _workdir, acc, _progress), do: {:ok, Enum.reverse(acc)}
+  defp run_levels([], _workdir, acc, _progress, _graph), do: {:ok, Enum.reverse(acc)}
 
-  defp run_levels([level | rest], workdir, acc, {completed, total}) do
+  defp run_levels([level | rest], workdir, acc, {completed, total}, graph) do
     level_size = length(level)
     next_tasks = rest |> List.flatten() |> Enum.map(& &1.name)
 
@@ -112,9 +113,17 @@ defmodule Sykli.Executor do
           # Get and increment counter
           task_num = Agent.get_and_update(counter, fn n -> {n + 1, n + 1} end)
           start_time = System.monotonic_time(:millisecond)
-          result = run_single(task, workdir, {task_num, total})
-          duration = System.monotonic_time(:millisecond) - start_time
-          {task.name, result, duration}
+          # Resolve task_inputs before running the task
+          case resolve_task_inputs(task, graph, workdir) do
+            :ok ->
+              result = run_single(task, workdir, {task_num, total})
+              duration = System.monotonic_time(:millisecond) - start_time
+              {task.name, result, duration}
+
+            {:error, reason} ->
+              duration = System.monotonic_time(:millisecond) - start_time
+              {task.name, {:error, reason}, duration}
+          end
         end)
       end)
 
@@ -133,7 +142,7 @@ defmodule Sykli.Executor do
       {:error, Enum.reverse(acc) ++ results}
     else
       # Continue to next level
-      run_levels(rest, workdir, Enum.reverse(results) ++ acc, {new_completed, total})
+      run_levels(rest, workdir, Enum.reverse(results) ++ acc, {new_completed, total}, graph)
     end
   end
 
@@ -216,7 +225,9 @@ defmodule Sykli.Executor do
     end
   end
 
-  defp run_and_cache(%Sykli.Graph.Task{name: name, outputs: outputs, services: services, timeout: timeout} = task, workdir, cache_key, progress) do
+  defp run_and_cache(%Sykli.Graph.Task{name: name, outputs: outputs_raw, services: services, timeout: timeout} = task, workdir, cache_key, progress) do
+    # Convert outputs to list of paths for cache storage (handle both map and list formats)
+    outputs = normalize_outputs_to_list(outputs_raw)
     prefix = progress_prefix(progress)
 
     # Start services if any
@@ -258,16 +269,18 @@ defmodule Sykli.Executor do
           maybe_github_status(name, "success")
           :ok
 
-        {:ok, code, lines, output} ->
+        {:ok, code, _lines, output} ->
           duration_ms = System.monotonic_time(:millisecond) - start_time
-          lines_str = if lines > 0, do: " #{lines}L", else: ""
-          IO.puts("#{IO.ANSI.red()}✗ #{name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{format_duration(duration_ms)}#{lines_str} (exit #{code})#{IO.ANSI.reset()}")
 
-          # Show helpful hints
-          hints = Sykli.ErrorHints.get_hints(code, output)
-          if length(hints) > 0 do
-            IO.puts(Sykli.ErrorHints.format_hints(hints))
-          end
+          # Show structured error with full context
+          error = Sykli.TaskError.new(
+            task: name,
+            command: display_cmd,
+            exit_code: code,
+            output: output,
+            duration_ms: duration_ms
+          )
+          IO.puts(Sykli.TaskError.format(error))
 
           maybe_github_status(name, "failure")
           {:error, {:exit_code, code}}
@@ -540,6 +553,130 @@ defmodule Sykli.Executor do
       :ok
     else
       {:error, missing}
+    end
+  end
+
+  # ----- OUTPUT NORMALIZATION -----
+
+  # Convert outputs to list format (for cache storage)
+  defp normalize_outputs_to_list(nil), do: []
+  defp normalize_outputs_to_list(outputs) when is_list(outputs), do: outputs
+  defp normalize_outputs_to_list(outputs) when is_map(outputs), do: Map.values(outputs)
+
+  # Convert outputs to map format (for artifact lookup by name)
+  defp normalize_outputs_to_map(nil), do: %{}
+  defp normalize_outputs_to_map(outputs) when is_map(outputs), do: outputs
+  defp normalize_outputs_to_map(outputs) when is_list(outputs) do
+    outputs
+    |> Enum.with_index()
+    |> Map.new(fn {path, idx} -> {"output_#{idx}", path} end)
+  end
+
+  # ----- TASK INPUT RESOLUTION -----
+
+  # Resolve and copy task_inputs (artifact passing between tasks)
+  defp resolve_task_inputs(%Sykli.Graph.Task{task_inputs: nil}, _graph, _workdir), do: :ok
+  defp resolve_task_inputs(%Sykli.Graph.Task{task_inputs: []}, _graph, _workdir), do: :ok
+
+  defp resolve_task_inputs(%Sykli.Graph.Task{name: task_name, task_inputs: task_inputs}, graph, workdir) do
+    abs_workdir = Path.expand(workdir)
+
+    results =
+      task_inputs
+      |> Enum.map(fn %Sykli.Graph.TaskInput{from_task: from_task, output: output_name, dest: dest} ->
+        resolve_single_input(task_name, from_task, output_name, dest, graph, abs_workdir)
+      end)
+
+    case Enum.find(results, &match?({:error, _}, &1)) do
+      nil -> :ok
+      error -> error
+    end
+  end
+
+  defp resolve_single_input(task_name, from_task, output_name, dest, graph, workdir) do
+    # Find the source task
+    case Map.get(graph, from_task) do
+      nil ->
+        IO.puts("#{IO.ANSI.red()}✗ #{task_name}: source task '#{from_task}' not found#{IO.ANSI.reset()}")
+        {:error, {:source_task_not_found, from_task}}
+
+      source_task ->
+        # Find the output path by name (normalize to map format)
+        outputs = normalize_outputs_to_map(source_task.outputs)
+
+        case Map.get(outputs, output_name) do
+          nil ->
+            IO.puts("#{IO.ANSI.red()}✗ #{task_name}: output '#{output_name}' not found in task '#{from_task}'#{IO.ANSI.reset()}")
+            {:error, {:output_not_found, from_task, output_name}}
+
+          source_path ->
+            copy_artifact(source_path, dest, workdir, task_name)
+        end
+    end
+  end
+
+  defp copy_artifact(source_path, dest_path, workdir, task_name) do
+    # Resolve paths and validate they stay within workdir (prevent path traversal)
+    abs_source = Path.join(workdir, source_path) |> Path.expand()
+    abs_dest = Path.join(workdir, dest_path) |> Path.expand()
+
+    cond do
+      not String.starts_with?(abs_source, workdir) ->
+        IO.puts("#{IO.ANSI.red()}✗ #{task_name}: source path escapes workdir: #{source_path}#{IO.ANSI.reset()}")
+        {:error, {:path_traversal, source_path}}
+
+      not String.starts_with?(abs_dest, workdir) ->
+        IO.puts("#{IO.ANSI.red()}✗ #{task_name}: dest path escapes workdir: #{dest_path}#{IO.ANSI.reset()}")
+        {:error, {:path_traversal, dest_path}}
+
+      File.regular?(abs_source) ->
+        # Ensure destination directory exists
+        dest_dir = Path.dirname(abs_dest)
+
+        case File.mkdir_p(dest_dir) do
+          :ok ->
+            case File.copy(abs_source, abs_dest) do
+              {:ok, _bytes} ->
+                # Preserve executable permissions
+                case File.stat(abs_source) do
+                  {:ok, %{mode: mode}} -> File.chmod(abs_dest, mode)
+                  _ -> :ok
+                end
+                IO.puts("  #{IO.ANSI.faint()}← #{source_path} → #{dest_path}#{IO.ANSI.reset()}")
+                :ok
+
+              {:error, reason} ->
+                IO.puts("#{IO.ANSI.red()}✗ #{task_name}: failed to copy #{source_path}: #{inspect(reason)}#{IO.ANSI.reset()}")
+                {:error, {:copy_failed, source_path, reason}}
+            end
+
+          {:error, reason} ->
+            IO.puts("#{IO.ANSI.red()}✗ #{task_name}: failed to create directory #{dest_dir}: #{inspect(reason)}#{IO.ANSI.reset()}")
+            {:error, {:mkdir_failed, dest_dir, reason}}
+        end
+
+      File.dir?(abs_source) ->
+        # Copy entire directory
+        case File.mkdir_p(abs_dest) do
+          :ok ->
+            case File.cp_r(abs_source, abs_dest) do
+              {:ok, _} ->
+                IO.puts("  #{IO.ANSI.faint()}← #{source_path}/ → #{dest_path}/#{IO.ANSI.reset()}")
+                :ok
+
+              {:error, reason, _file} ->
+                IO.puts("#{IO.ANSI.red()}✗ #{task_name}: failed to copy directory #{source_path}: #{inspect(reason)}#{IO.ANSI.reset()}")
+                {:error, {:copy_failed, source_path, reason}}
+            end
+
+          {:error, reason} ->
+            IO.puts("#{IO.ANSI.red()}✗ #{task_name}: failed to create directory #{abs_dest}: #{inspect(reason)}#{IO.ANSI.reset()}")
+            {:error, {:mkdir_failed, abs_dest, reason}}
+        end
+
+      true ->
+        IO.puts("#{IO.ANSI.red()}✗ #{task_name}: source file not found: #{source_path}#{IO.ANSI.reset()}")
+        {:error, {:source_not_found, source_path}}
     end
   end
 

@@ -65,17 +65,19 @@ func init() {
 
 // Pipeline represents a CI pipeline with tasks and resources.
 type Pipeline struct {
-	tasks  []*Task
-	dirs   []*Directory
-	caches []*CacheVolume
+	tasks     []*Task
+	dirs      []*Directory
+	caches    []*CacheVolume
+	templates map[string]*Template
 }
 
 // New creates a new pipeline.
 func New() *Pipeline {
 	return &Pipeline{
-		tasks:  make([]*Task, 0),
-		dirs:   make([]*Directory, 0),
-		caches: make([]*CacheVolume, 0),
+		tasks:     make([]*Task, 0),
+		dirs:      make([]*Directory, 0),
+		caches:    make([]*CacheVolume, 0),
+		templates: make(map[string]*Template),
 	}
 }
 
@@ -142,6 +144,101 @@ func (c *CacheVolume) ID() string {
 }
 
 // =============================================================================
+// TEMPLATE
+// =============================================================================
+
+// Template represents a reusable task configuration.
+// Templates allow you to define common settings (container, mounts, env)
+// that can be inherited by multiple tasks via From().
+type Template struct {
+	pipeline  *Pipeline
+	name      string
+	container string
+	workdir   string
+	env       map[string]string
+	mounts    []Mount
+}
+
+// Template creates a new reusable task template.
+func (p *Pipeline) Template(name string) *Template {
+	if name == "" {
+		log.Panic().Msg("template name cannot be empty")
+	}
+	if _, exists := p.templates[name]; exists {
+		log.Panic().Str("template", name).Msg("template already exists")
+	}
+	t := &Template{
+		pipeline: p,
+		name:     name,
+		env:      make(map[string]string),
+		mounts:   make([]Mount, 0),
+	}
+	log.Debug().Str("template", name).Msg("registered template")
+	p.templates[name] = t
+	return t
+}
+
+// Container sets the container image for tasks using this template.
+func (t *Template) Container(image string) *Template {
+	if image == "" {
+		log.Panic().Str("template", t.name).Msg("container image cannot be empty")
+	}
+	t.container = image
+	return t
+}
+
+// Workdir sets the working directory for tasks using this template.
+func (t *Template) Workdir(path string) *Template {
+	if path == "" || path[0] != '/' {
+		log.Panic().Str("template", t.name).Str("workdir", path).Msg("workdir must be an absolute, non-empty path")
+	}
+	t.workdir = path
+	return t
+}
+
+// Env sets an environment variable for tasks using this template.
+func (t *Template) Env(key, value string) *Template {
+	if key == "" {
+		log.Panic().Str("template", t.name).Msg("environment variable key cannot be empty")
+	}
+	t.env[key] = value
+	return t
+}
+
+// Mount adds a directory mount for tasks using this template.
+func (t *Template) Mount(dir *Directory, path string) *Template {
+	if dir == nil {
+		log.Panic().Str("template", t.name).Msg("directory cannot be nil")
+	}
+	if path == "" || path[0] != '/' {
+		log.Panic().Str("template", t.name).Str("path", path).Msg("mount path must be absolute")
+	}
+	t.mounts = append(t.mounts, Mount{
+		resource:   dir.ID(),
+		path:       path,
+		mountType:  "directory",
+		sourcePath: dir.path,
+	})
+	return t
+}
+
+// MountCache adds a cache mount for tasks using this template.
+func (t *Template) MountCache(cache *CacheVolume, path string) *Template {
+	if cache == nil {
+		log.Panic().Str("template", t.name).Msg("cache cannot be nil")
+	}
+	if path == "" || path[0] != '/' {
+		log.Panic().Str("template", t.name).Str("path", path).Msg("mount path must be absolute")
+	}
+	t.mounts = append(t.mounts, Mount{
+		resource:  cache.ID(),
+		path:      path,
+		mountType: "cache",
+	})
+	return t
+}
+
+// =============================================================================
 // TASK
 // =============================================================================
 
@@ -163,24 +260,32 @@ type Service struct {
 	name  string
 }
 
+// TaskInput represents an input artifact from another task's output.
+type TaskInput struct {
+	fromTask   string // Name of the task that produces the output
+	outputName string // Name of the output from that task
+	destPath   string // Path where the artifact should be available
+}
+
 // Task represents a single task in the pipeline.
 type Task struct {
-	pipeline  *Pipeline
-	name      string
-	command   string
-	container string
-	workdir   string
-	env       map[string]string
-	mounts    []Mount
-	inputs    []string
-	outputs   map[string]string
-	dependsOn []string
-	when      string
-	secrets   []string
-	matrix    map[string][]string
-	services  []Service
-	retry     int
-	timeout   int // seconds
+	pipeline   *Pipeline
+	name       string
+	command    string
+	container  string
+	workdir    string
+	env        map[string]string
+	mounts     []Mount
+	inputs     []string      // v1-style input file patterns
+	taskInputs []TaskInput   // v2-style inputs from other tasks
+	outputs    map[string]string
+	dependsOn  []string
+	when       string
+	secrets    []string
+	matrix     map[string][]string
+	services   []Service
+	retry      int
+	timeout    int // seconds
 }
 
 // Task creates a new task with the given name.
@@ -203,6 +308,44 @@ func (p *Pipeline) Task(name string) *Task {
 	log.Debug().Str("task", name).Msg("registered task")
 	p.tasks = append(p.tasks, t)
 	return t
+}
+
+// From applies a template's configuration to this task.
+// Template settings are applied first, then task-specific settings override them.
+func (t *Task) From(tmpl *Template) *Task {
+	if tmpl == nil {
+		log.Panic().Str("task", t.name).Msg("template cannot be nil")
+	}
+
+	// Apply template settings (task settings will override these)
+	if tmpl.container != "" && t.container == "" {
+		t.container = tmpl.container
+	}
+	if tmpl.workdir != "" && t.workdir == "" {
+		t.workdir = tmpl.workdir
+	}
+
+	// Merge env: template first, then task overrides
+	for k, v := range tmpl.env {
+		if _, exists := t.env[k]; !exists {
+			t.env[k] = v
+		}
+	}
+
+	// Prepend template mounts (task mounts come after)
+	if len(tmpl.mounts) > 0 {
+		mounts := make([]Mount, len(tmpl.mounts))
+		copy(mounts, tmpl.mounts)
+		t.mounts = append(mounts, t.mounts...)
+	}
+
+	log.Debug().Str("task", t.name).Str("template", tmpl.name).Msg("applied template")
+	return t
+}
+
+// Name returns the task's name for use in dependencies.
+func (t *Task) Name() string {
+	return t.name
 }
 
 // Run sets the command for this task.
@@ -292,6 +435,51 @@ func (t *Task) Outputs(paths ...string) *Task {
 	for i, path := range paths {
 		t.outputs[fmt.Sprintf("output_%d", i)] = path
 	}
+	return t
+}
+
+// InputFrom declares that this task needs an artifact from another task's output.
+// This automatically adds a dependency on the source task.
+//
+// Parameters:
+//   - fromTask: name of the task that produces the artifact
+//   - outputName: name of the output from that task
+//   - destPath: path where the artifact should be available in this task
+//
+// Example:
+//
+//	p.Task("build").Run("go build -o /out/app").Output("binary", "/out/app")
+//	p.Task("package").InputFrom("build", "binary", "/app").Run("docker build")
+func (t *Task) InputFrom(fromTask, outputName, destPath string) *Task {
+	if fromTask == "" {
+		log.Panic().Str("task", t.name).Msg("InputFrom: fromTask cannot be empty")
+	}
+	if outputName == "" {
+		log.Panic().Str("task", t.name).Msg("InputFrom: outputName cannot be empty")
+	}
+	if destPath == "" {
+		log.Panic().Str("task", t.name).Msg("InputFrom: destPath cannot be empty")
+	}
+
+	// Add the input binding
+	t.taskInputs = append(t.taskInputs, TaskInput{
+		fromTask:   fromTask,
+		outputName: outputName,
+		destPath:   destPath,
+	})
+
+	// Auto-add dependency if not already present
+	hasDep := false
+	for _, dep := range t.dependsOn {
+		if dep == fromTask {
+			hasDep = true
+			break
+		}
+	}
+	if !hasDep {
+		t.dependsOn = append(t.dependsOn, fromTask)
+	}
+
 	return t
 }
 
@@ -421,6 +609,94 @@ func (g *GoPreset) Build(output string) *Task {
 		Run("go build -o " + output).
 		Inputs(GoInputs()...).
 		Outputs(output)
+}
+
+// =============================================================================
+// COMBINATORS
+// =============================================================================
+
+// TaskGroup represents a group of tasks that can be used as a dependency.
+// Created by Parallel() and can be passed to After() or Chain().
+type TaskGroup struct {
+	pipeline *Pipeline
+	name     string
+	tasks    []*Task
+}
+
+// Chain creates a sequential dependency chain: a → b → c
+// Each task depends on the previous one.
+func (p *Pipeline) Chain(items ...interface{}) {
+	var prev interface{}
+	for _, item := range items {
+		if prev != nil {
+			addDependency(item, prev)
+		}
+		prev = item
+	}
+}
+
+// Parallel creates a group of tasks that run concurrently.
+// Returns a TaskGroup that can be used as a dependency with After().
+func (p *Pipeline) Parallel(name string, tasks ...*Task) *TaskGroup {
+	return &TaskGroup{
+		pipeline: p,
+		name:     name,
+		tasks:    tasks,
+	}
+}
+
+// After makes all tasks in this group depend on the given tasks/groups.
+func (g *TaskGroup) After(deps ...interface{}) *TaskGroup {
+	for _, task := range g.tasks {
+		for _, dep := range deps {
+			addDependencyToTask(task, dep)
+		}
+	}
+	return g
+}
+
+// TaskNames returns the names of all tasks in this group.
+// Used internally when this group is used as a dependency.
+func (g *TaskGroup) TaskNames() []string {
+	names := make([]string, len(g.tasks))
+	for i, t := range g.tasks {
+		names[i] = t.name
+	}
+	return names
+}
+
+// addDependency adds a dependency from 'to' to 'from'.
+// Handles both *Task and *TaskGroup.
+func addDependency(to, from interface{}) {
+	switch t := to.(type) {
+	case *Task:
+		addDependencyToTask(t, from)
+	case *TaskGroup:
+		for _, task := range t.tasks {
+			addDependencyToTask(task, from)
+		}
+	}
+}
+
+// addDependencyToTask adds a dependency to a single task.
+func addDependencyToTask(task *Task, from interface{}) {
+	switch f := from.(type) {
+	case *Task:
+		task.dependsOn = append(task.dependsOn, f.name)
+	case *TaskGroup:
+		task.dependsOn = append(task.dependsOn, f.TaskNames()...)
+	case string:
+		task.dependsOn = append(task.dependsOn, f)
+	}
+}
+
+// After for Task now accepts TaskGroup in addition to strings.
+// This extends the existing After method to work with Parallel groups.
+func (t *Task) AfterGroup(groups ...*TaskGroup) *Task {
+	for _, g := range groups {
+		t.dependsOn = append(t.dependsOn, g.TaskNames()...)
+	}
+	return t
 }
 
 // =============================================================================
@@ -579,22 +855,29 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 		Name  string `json:"name"`
 	}
 
+	type jsonTaskInput struct {
+		FromTask   string `json:"from_task"`
+		OutputName string `json:"output"`
+		DestPath   string `json:"dest"`
+	}
+
 	type jsonTask struct {
-		Name      string              `json:"name"`
-		Command   string              `json:"command"`
-		Container string              `json:"container,omitempty"`
-		Workdir   string              `json:"workdir,omitempty"`
-		Env       map[string]string   `json:"env,omitempty"`
-		Mounts    []jsonMount         `json:"mounts,omitempty"`
-		Inputs    []string            `json:"inputs,omitempty"`
-		Outputs   map[string]string   `json:"outputs,omitempty"`
-		DependsOn []string            `json:"depends_on,omitempty"`
-		When      string              `json:"when,omitempty"`
-		Secrets   []string            `json:"secrets,omitempty"`
-		Matrix    map[string][]string `json:"matrix,omitempty"`
-		Services  []jsonService       `json:"services,omitempty"`
-		Retry     int                 `json:"retry,omitempty"`
-		Timeout   int                 `json:"timeout,omitempty"`
+		Name       string              `json:"name"`
+		Command    string              `json:"command"`
+		Container  string              `json:"container,omitempty"`
+		Workdir    string              `json:"workdir,omitempty"`
+		Env        map[string]string   `json:"env,omitempty"`
+		Mounts     []jsonMount         `json:"mounts,omitempty"`
+		Inputs     []string            `json:"inputs,omitempty"`       // v1-style file patterns
+		TaskInputs []jsonTaskInput     `json:"task_inputs,omitempty"`  // v2-style inputs from other tasks
+		Outputs    map[string]string   `json:"outputs,omitempty"`
+		DependsOn  []string            `json:"depends_on,omitempty"`
+		When       string              `json:"when,omitempty"`
+		Secrets    []string            `json:"secrets,omitempty"`
+		Matrix     map[string][]string `json:"matrix,omitempty"`
+		Services   []jsonService       `json:"services,omitempty"`
+		Retry      int                 `json:"retry,omitempty"`
+		Timeout    int                 `json:"timeout,omitempty"`
 	}
 
 	type jsonResource struct {
@@ -654,21 +937,35 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 			outputs = t.outputs
 		}
 
+		// Convert taskInputs to JSON
+		var taskInputs []jsonTaskInput
+		if len(t.taskInputs) > 0 {
+			taskInputs = make([]jsonTaskInput, len(t.taskInputs))
+			for j, ti := range t.taskInputs {
+				taskInputs[j] = jsonTaskInput{
+					FromTask:   ti.fromTask,
+					OutputName: ti.outputName,
+					DestPath:   ti.destPath,
+				}
+			}
+		}
+
 		tasks[i] = jsonTask{
-			Name:      t.name,
-			Command:   t.command,
-			Container: t.container,
-			Workdir:   t.workdir,
-			Env:       env,
-			Mounts:    mounts,
-			Inputs:    t.inputs,
-			Outputs:   outputs,
-			DependsOn: t.dependsOn,
-			When:      t.when,
-			Secrets:   t.secrets,
-			Matrix:    t.matrix,
-			Retry:     t.retry,
-			Timeout:   t.timeout,
+			Name:       t.name,
+			Command:    t.command,
+			Container:  t.container,
+			Workdir:    t.workdir,
+			Env:        env,
+			Mounts:     mounts,
+			Inputs:     t.inputs,     // v1-style file patterns
+			TaskInputs: taskInputs,   // v2-style inputs from other tasks
+			Outputs:    outputs,
+			DependsOn:  t.dependsOn,
+			When:       t.when,
+			Secrets:    t.secrets,
+			Matrix:     t.matrix,
+			Retry:      t.retry,
+			Timeout:    t.timeout,
 			Services: func() []jsonService {
 				if len(t.services) == 0 {
 					return nil

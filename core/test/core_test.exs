@@ -261,4 +261,52 @@ defmodule SykliTest do
     {:ok, order} = Sykli.Graph.topo_sort(graph)
     assert length(order) == 3
   end
+
+  # ----- TASK_INPUTS TESTS (v2 artifact passing) -----
+
+  test "parses task_inputs from JSON" do
+    json = ~s({"tasks":[
+      {"name":"build","command":"go build -o ./app","outputs":{"binary":"./app"}},
+      {"name":"deploy","command":"./deploy.sh","task_inputs":[{"from_task":"build","output":"binary","dest":"./input/app"}],"depends_on":["build"]}
+    ]})
+    {:ok, graph} = Sykli.Graph.parse(json)
+
+    # Check build outputs are parsed as map
+    build = Map.get(graph, "build")
+    assert is_map(build.outputs)
+    assert build.outputs["binary"] == "./app"
+
+    # Check deploy task_inputs are parsed
+    deploy = Map.get(graph, "deploy")
+    assert length(deploy.task_inputs) == 1
+    [input] = deploy.task_inputs
+    assert input.from_task == "build"
+    assert input.output == "binary"
+    assert input.dest == "./input/app"
+  end
+
+  test "task_inputs is empty list when not set" do
+    json = ~s({"tasks":[{"name":"test","command":"go test"}]})
+    {:ok, graph} = Sykli.Graph.parse(json)
+    task = Map.get(graph, "test")
+    assert task.task_inputs == []
+  end
+
+  test "outputs map format is preserved" do
+    json = ~s({"tasks":[{"name":"build","command":"make","outputs":{"binary":"./app","docs":"./docs"}}]})
+    {:ok, graph} = Sykli.Graph.parse(json)
+    task = Map.get(graph, "build")
+    assert is_map(task.outputs)
+    assert task.outputs["binary"] == "./app"
+    assert task.outputs["docs"] == "./docs"
+  end
+
+  test "outputs list format is converted to map" do
+    json = ~s({"tasks":[{"name":"build","command":"make","outputs":["./app","./lib"]}]})
+    {:ok, graph} = Sykli.Graph.parse(json)
+    task = Map.get(graph, "build")
+    assert is_map(task.outputs)
+    assert task.outputs["output_0"] == "./app"
+    assert task.outputs["output_1"] == "./lib"
+  end
 end
