@@ -257,24 +257,32 @@ type Service struct {
 	name  string
 }
 
+// TaskInput represents an input artifact from another task's output.
+type TaskInput struct {
+	fromTask   string // Name of the task that produces the output
+	outputName string // Name of the output from that task
+	destPath   string // Path where the artifact should be available
+}
+
 // Task represents a single task in the pipeline.
 type Task struct {
-	pipeline  *Pipeline
-	name      string
-	command   string
-	container string
-	workdir   string
-	env       map[string]string
-	mounts    []Mount
-	inputs    []string
-	outputs   map[string]string
-	dependsOn []string
-	when      string
-	secrets   []string
-	matrix    map[string][]string
-	services  []Service
-	retry     int
-	timeout   int // seconds
+	pipeline   *Pipeline
+	name       string
+	command    string
+	container  string
+	workdir    string
+	env        map[string]string
+	mounts     []Mount
+	inputs     []string      // v1-style input file patterns
+	taskInputs []TaskInput   // v2-style inputs from other tasks
+	outputs    map[string]string
+	dependsOn  []string
+	when       string
+	secrets    []string
+	matrix     map[string][]string
+	services   []Service
+	retry      int
+	timeout    int // seconds
 }
 
 // Task creates a new task with the given name.
@@ -422,6 +430,51 @@ func (t *Task) Outputs(paths ...string) *Task {
 	for i, path := range paths {
 		t.outputs[fmt.Sprintf("output_%d", i)] = path
 	}
+	return t
+}
+
+// InputFrom declares that this task needs an artifact from another task's output.
+// This automatically adds a dependency on the source task.
+//
+// Parameters:
+//   - fromTask: name of the task that produces the artifact
+//   - outputName: name of the output from that task
+//   - destPath: path where the artifact should be available in this task
+//
+// Example:
+//
+//	p.Task("build").Run("go build -o /out/app").Output("binary", "/out/app")
+//	p.Task("package").InputFrom("build", "binary", "/app").Run("docker build")
+func (t *Task) InputFrom(fromTask, outputName, destPath string) *Task {
+	if fromTask == "" {
+		log.Panic().Str("task", t.name).Msg("InputFrom: fromTask cannot be empty")
+	}
+	if outputName == "" {
+		log.Panic().Str("task", t.name).Msg("InputFrom: outputName cannot be empty")
+	}
+	if destPath == "" {
+		log.Panic().Str("task", t.name).Msg("InputFrom: destPath cannot be empty")
+	}
+
+	// Add the input binding
+	t.taskInputs = append(t.taskInputs, TaskInput{
+		fromTask:   fromTask,
+		outputName: outputName,
+		destPath:   destPath,
+	})
+
+	// Auto-add dependency if not already present
+	hasDep := false
+	for _, dep := range t.dependsOn {
+		if dep == fromTask {
+			hasDep = true
+			break
+		}
+	}
+	if !hasDep {
+		t.dependsOn = append(t.dependsOn, fromTask)
+	}
+
 	return t
 }
 
@@ -797,22 +850,29 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 		Name  string `json:"name"`
 	}
 
+	type jsonTaskInput struct {
+		FromTask   string `json:"from_task"`
+		OutputName string `json:"output"`
+		DestPath   string `json:"dest"`
+	}
+
 	type jsonTask struct {
-		Name      string              `json:"name"`
-		Command   string              `json:"command"`
-		Container string              `json:"container,omitempty"`
-		Workdir   string              `json:"workdir,omitempty"`
-		Env       map[string]string   `json:"env,omitempty"`
-		Mounts    []jsonMount         `json:"mounts,omitempty"`
-		Inputs    []string            `json:"inputs,omitempty"`
-		Outputs   map[string]string   `json:"outputs,omitempty"`
-		DependsOn []string            `json:"depends_on,omitempty"`
-		When      string              `json:"when,omitempty"`
-		Secrets   []string            `json:"secrets,omitempty"`
-		Matrix    map[string][]string `json:"matrix,omitempty"`
-		Services  []jsonService       `json:"services,omitempty"`
-		Retry     int                 `json:"retry,omitempty"`
-		Timeout   int                 `json:"timeout,omitempty"`
+		Name       string              `json:"name"`
+		Command    string              `json:"command"`
+		Container  string              `json:"container,omitempty"`
+		Workdir    string              `json:"workdir,omitempty"`
+		Env        map[string]string   `json:"env,omitempty"`
+		Mounts     []jsonMount         `json:"mounts,omitempty"`
+		Inputs     []string            `json:"inputs,omitempty"`       // v1-style file patterns
+		TaskInputs []jsonTaskInput     `json:"task_inputs,omitempty"`  // v2-style inputs from other tasks
+		Outputs    map[string]string   `json:"outputs,omitempty"`
+		DependsOn  []string            `json:"depends_on,omitempty"`
+		When       string              `json:"when,omitempty"`
+		Secrets    []string            `json:"secrets,omitempty"`
+		Matrix     map[string][]string `json:"matrix,omitempty"`
+		Services   []jsonService       `json:"services,omitempty"`
+		Retry      int                 `json:"retry,omitempty"`
+		Timeout    int                 `json:"timeout,omitempty"`
 	}
 
 	type jsonResource struct {
@@ -872,21 +932,35 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 			outputs = t.outputs
 		}
 
+		// Convert taskInputs to JSON
+		var taskInputs []jsonTaskInput
+		if len(t.taskInputs) > 0 {
+			taskInputs = make([]jsonTaskInput, len(t.taskInputs))
+			for j, ti := range t.taskInputs {
+				taskInputs[j] = jsonTaskInput{
+					FromTask:   ti.fromTask,
+					OutputName: ti.outputName,
+					DestPath:   ti.destPath,
+				}
+			}
+		}
+
 		tasks[i] = jsonTask{
-			Name:      t.name,
-			Command:   t.command,
-			Container: t.container,
-			Workdir:   t.workdir,
-			Env:       env,
-			Mounts:    mounts,
-			Inputs:    t.inputs,
-			Outputs:   outputs,
-			DependsOn: t.dependsOn,
-			When:      t.when,
-			Secrets:   t.secrets,
-			Matrix:    t.matrix,
-			Retry:     t.retry,
-			Timeout:   t.timeout,
+			Name:       t.name,
+			Command:    t.command,
+			Container:  t.container,
+			Workdir:    t.workdir,
+			Env:        env,
+			Mounts:     mounts,
+			Inputs:     t.inputs,     // v1-style file patterns
+			TaskInputs: taskInputs,   // v2-style inputs from other tasks
+			Outputs:    outputs,
+			DependsOn:  t.dependsOn,
+			When:       t.when,
+			Secrets:    t.secrets,
+			Matrix:     t.matrix,
+			Retry:      t.retry,
+			Timeout:    t.timeout,
 			Services: func() []jsonService {
 				if len(t.services) == 0 {
 					return nil

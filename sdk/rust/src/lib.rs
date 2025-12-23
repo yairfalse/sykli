@@ -191,6 +191,14 @@ pub struct Task<'a> {
     index: usize,
 }
 
+/// Represents an input artifact from another task's output.
+#[derive(Clone, Default)]
+struct TaskInput {
+    from_task: String,
+    output_name: String,
+    dest_path: String,
+}
+
 #[derive(Clone, Default)]
 struct TaskData {
     name: String,
@@ -199,7 +207,8 @@ struct TaskData {
     workdir: Option<String>,
     env: HashMap<String, String>,
     mounts: Vec<Mount>,
-    inputs: Vec<String>,
+    inputs: Vec<String>,        // v1-style file patterns
+    task_inputs: Vec<TaskInput>, // v2-style inputs from other tasks
     outputs: HashMap<String, String>,
     depends_on: Vec<String>,
     condition: Option<String>,
@@ -358,6 +367,40 @@ impl<'a> Task<'a> {
         self.pipeline.tasks[self.index]
             .outputs
             .insert(name.to_string(), path.to_string());
+        self
+    }
+
+    /// Declares that this task needs an artifact from another task's output.
+    ///
+    /// This automatically adds a dependency on the source task.
+    ///
+    /// # Arguments
+    /// * `from_task` - Name of the task that produces the artifact
+    /// * `output_name` - Name of the output from that task
+    /// * `dest_path` - Path where the artifact should be available in this task
+    ///
+    /// # Panics
+    /// Panics if any argument is empty.
+    #[must_use]
+    pub fn input_from(self, from_task: &str, output_name: &str, dest_path: &str) -> Self {
+        assert!(!from_task.is_empty(), "input_from: from_task cannot be empty");
+        assert!(!output_name.is_empty(), "input_from: output_name cannot be empty");
+        assert!(!dest_path.is_empty(), "input_from: dest_path cannot be empty");
+
+        let task = &mut self.pipeline.tasks[self.index];
+
+        // Add the task input
+        task.task_inputs.push(TaskInput {
+            from_task: from_task.to_string(),
+            output_name: output_name.to_string(),
+            dest_path: dest_path.to_string(),
+        });
+
+        // Auto-add dependency if not already present
+        if !task.depends_on.contains(&from_task.to_string()) {
+            task.depends_on.push(from_task.to_string());
+        }
+
         self
     }
 
@@ -802,6 +845,20 @@ impl Pipeline {
                     } else {
                         Some(t.inputs.clone())
                     },
+                    task_inputs: if t.task_inputs.is_empty() {
+                        None
+                    } else {
+                        Some(
+                            t.task_inputs
+                                .iter()
+                                .map(|ti| JsonTaskInput {
+                                    from_task: ti.from_task.clone(),
+                                    output: ti.output_name.clone(),
+                                    dest: ti.dest_path.clone(),
+                                })
+                                .collect(),
+                        )
+                    },
                     outputs: if t.outputs.is_empty() {
                         None
                     } else {
@@ -1013,6 +1070,13 @@ struct JsonResource {
 }
 
 #[derive(Serialize)]
+struct JsonTaskInput {
+    from_task: String,
+    output: String,
+    dest: String,
+}
+
+#[derive(Serialize)]
 struct JsonTask {
     name: String,
     command: String,
@@ -1026,6 +1090,8 @@ struct JsonTask {
     mounts: Option<Vec<JsonMount>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     inputs: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    task_inputs: Option<Vec<JsonTaskInput>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     outputs: Option<HashMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2087,5 +2153,94 @@ mod tests {
         let mut p = Pipeline::new();
         let name = p.task("my-task").run("echo test").name();
         assert_eq!(name, "my-task");
+    }
+
+    // =============================================================================
+    // INPUT/OUTPUT BINDING TESTS
+    // =============================================================================
+
+    #[test]
+    fn test_input_from_basic() {
+        let mut p = Pipeline::new();
+
+        // Build produces output
+        p.task("build")
+            .run("cargo build --release")
+            .output("binary", "target/release/app");
+
+        // Package consumes it
+        p.task("package")
+            .input_from("build", "binary", "/app")
+            .run("docker build .");
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        // Check task_inputs
+        let inputs = json["tasks"][1]["task_inputs"].as_array().unwrap();
+        assert_eq!(inputs.len(), 1);
+        assert_eq!(inputs[0]["from_task"], "build");
+        assert_eq!(inputs[0]["output"], "binary");
+        assert_eq!(inputs[0]["dest"], "/app");
+    }
+
+    #[test]
+    fn test_input_from_auto_adds_dep() {
+        let mut p = Pipeline::new();
+
+        p.task("build").run("cargo build").output("binary", "./app");
+        p.task("package").input_from("build", "binary", "/app").run("docker build");
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        // package should depend on build
+        let deps = json["tasks"][1]["depends_on"].as_array().unwrap();
+        assert_eq!(deps.len(), 1);
+        assert_eq!(deps[0], "build");
+    }
+
+    #[test]
+    fn test_input_from_multiple() {
+        let mut p = Pipeline::new();
+
+        p.task("build-linux").run("cargo build").output("binary", "./linux");
+        p.task("build-darwin").run("cargo build").output("binary", "./darwin");
+        p.task("package")
+            .input_from("build-linux", "binary", "/linux")
+            .input_from("build-darwin", "binary", "/darwin")
+            .run("tar czf release.tar.gz /linux /darwin");
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        let inputs = json["tasks"][2]["task_inputs"].as_array().unwrap();
+        assert_eq!(inputs.len(), 2);
+
+        let deps = json["tasks"][2]["depends_on"].as_array().unwrap();
+        assert_eq!(deps.len(), 2);
+    }
+
+    #[test]
+    fn test_input_from_no_duplicate_deps() {
+        let mut p = Pipeline::new();
+
+        p.task("build").run("cargo build").output("binary", "./app");
+        // Explicit after AND input_from - should not duplicate
+        p.task("package")
+            .after(&["build"])
+            .input_from("build", "binary", "/app")
+            .run("docker build");
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        // Should have only one dep, not duplicated
+        let deps = json["tasks"][1]["depends_on"].as_array().unwrap();
+        assert_eq!(deps.len(), 1);
     }
 }

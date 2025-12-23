@@ -443,3 +443,203 @@ func getDeps(task map[string]interface{}) []string {
 	}
 	return result
 }
+
+// =============================================================================
+// INPUT/OUTPUT BINDING TESTS
+// =============================================================================
+
+func TestInputFromBasic(t *testing.T) {
+	p := New()
+
+	// Build task produces an output
+	p.Task("build").
+		Run("go build -o /out/app").
+		Output("binary", "/out/app")
+
+	// Package task consumes the output
+	p.Task("package").
+		InputFrom("build", "binary", "/app").
+		Run("docker build .")
+
+	result, err := emitJSON(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Check package task has task_inputs
+	pkg := getTaskMap(result, "package")
+	inputs := pkg["task_inputs"].([]interface{})
+	if len(inputs) != 1 {
+		t.Fatalf("expected 1 task_input, got %d", len(inputs))
+	}
+
+	input := inputs[0].(map[string]interface{})
+	if input["from_task"] != "build" {
+		t.Errorf("expected from_task='build', got %v", input["from_task"])
+	}
+	if input["output"] != "binary" {
+		t.Errorf("expected output='binary', got %v", input["output"])
+	}
+	if input["dest"] != "/app" {
+		t.Errorf("expected dest='/app', got %v", input["dest"])
+	}
+}
+
+func TestInputFromAutoAddsDependency(t *testing.T) {
+	p := New()
+
+	p.Task("build").Run("go build").Output("binary", "./app")
+	// InputFrom should automatically add dependency on build
+	p.Task("package").InputFrom("build", "binary", "/app").Run("docker build")
+
+	result, err := emitJSON(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pkg := getTaskMap(result, "package")
+	deps := getDeps(pkg)
+
+	// Should have build as dependency
+	if len(deps) != 1 || deps[0] != "build" {
+		t.Errorf("expected deps=['build'], got %v", deps)
+	}
+}
+
+func TestInputFromMultiple(t *testing.T) {
+	p := New()
+
+	// Two build tasks produce outputs
+	p.Task("build-linux").Run("GOOS=linux go build -o app-linux").Output("binary", "./app-linux")
+	p.Task("build-darwin").Run("GOOS=darwin go build -o app-darwin").Output("binary", "./app-darwin")
+
+	// Package consumes both
+	p.Task("package").
+		InputFrom("build-linux", "binary", "/linux/app").
+		InputFrom("build-darwin", "binary", "/darwin/app").
+		Run("tar czf release.tar.gz /linux /darwin")
+
+	result, err := emitJSON(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pkg := getTaskMap(result, "package")
+	inputs := pkg["task_inputs"].([]interface{})
+	if len(inputs) != 2 {
+		t.Fatalf("expected 2 task_inputs, got %d", len(inputs))
+	}
+
+	// Should depend on both
+	deps := getDeps(pkg)
+	if len(deps) != 2 {
+		t.Errorf("expected 2 deps, got %v", deps)
+	}
+}
+
+func TestInputFromWithExistingDeps(t *testing.T) {
+	p := New()
+
+	p.Task("setup").Run("echo setup")
+	p.Task("build").Run("go build").Output("binary", "./app")
+	// Task has explicit dep AND input dep
+	p.Task("package").
+		After("setup").
+		InputFrom("build", "binary", "/app").
+		Run("docker build")
+
+	result, err := emitJSON(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pkg := getTaskMap(result, "package")
+	deps := getDeps(pkg)
+
+	// Should have both setup and build
+	if len(deps) != 2 {
+		t.Errorf("expected 2 deps, got %v", deps)
+	}
+
+	hasSetup := false
+	hasBuild := false
+	for _, d := range deps {
+		if d == "setup" {
+			hasSetup = true
+		}
+		if d == "build" {
+			hasBuild = true
+		}
+	}
+	if !hasSetup || !hasBuild {
+		t.Errorf("expected deps to contain setup and build, got %v", deps)
+	}
+}
+
+func TestInputFromNoDuplicateDeps(t *testing.T) {
+	p := New()
+
+	p.Task("build").Run("go build").Output("binary", "./app")
+	// Explicit dep on build AND InputFrom build - should not duplicate
+	p.Task("package").
+		After("build").
+		InputFrom("build", "binary", "/app").
+		Run("docker build")
+
+	result, err := emitJSON(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pkg := getTaskMap(result, "package")
+	deps := getDeps(pkg)
+
+	// Should have only one "build" dep, not duplicated
+	if len(deps) != 1 {
+		t.Errorf("expected 1 dep (no duplicate), got %v", deps)
+	}
+}
+
+func TestInputFromChainPattern(t *testing.T) {
+	p := New()
+
+	// Common pattern: build → test → package → deploy
+	// Each step passes artifacts to the next
+
+	p.Task("build").
+		Run("go build -o /out/app").
+		Output("binary", "/out/app")
+
+	p.Task("test").
+		InputFrom("build", "binary", "/app").
+		Run("./app --test").
+		Output("report", "/out/report.xml")
+
+	p.Task("package").
+		InputFrom("build", "binary", "/app").
+		InputFrom("test", "report", "/report.xml").
+		Run("docker build")
+
+	result, err := emitJSON(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify chain: build has no deps, test depends on build, package depends on both
+	build := getTaskMap(result, "build")
+	if len(getDeps(build)) != 0 {
+		t.Error("build should have no deps")
+	}
+
+	test := getTaskMap(result, "test")
+	testDeps := getDeps(test)
+	if len(testDeps) != 1 || testDeps[0] != "build" {
+		t.Errorf("test should depend on build, got %v", testDeps)
+	}
+
+	pkg := getTaskMap(result, "package")
+	pkgDeps := getDeps(pkg)
+	if len(pkgDeps) != 2 {
+		t.Errorf("package should depend on build and test, got %v", pkgDeps)
+	}
+}
