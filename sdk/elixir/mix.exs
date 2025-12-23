@@ -1,10 +1,10 @@
-defmodule Sykli.MixProject do
+defmodule SykliSdk.MixProject do
   use Mix.Project
 
   def project do
     [
-      app: :sykli,
-      version: "0.1.0",
+      app: :sykli_sdk,
+      version: "0.1.3",
       elixir: "~> 1.14",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
@@ -28,7 +28,7 @@ defmodule Sykli.MixProject do
 
   defp package do
     [
-      name: "sykli",
+      name: "sykli_sdk",
       licenses: ["MIT"],
       links: %{"GitHub" => "https://github.com/yairfalse/sykli"},
       files: ~w(lib mix.exs README.md)
