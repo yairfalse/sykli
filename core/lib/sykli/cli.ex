@@ -7,10 +7,20 @@ defmodule Sykli.CLI do
 
   def main(args \\ []) do
     case args do
-      [flag] when flag in ["--help", "-h"] -> print_help()
-      [flag] when flag in ["--version", "-v"] -> IO.puts("sykli #{@version}")
-      ["cache" | cache_args] -> handle_cache(cache_args)
-      _ -> run_sykli(args)
+      [flag] when flag in ["--help", "-h"] ->
+        print_help()
+        halt(0)
+
+      [flag] when flag in ["--version", "-v"] ->
+        IO.puts("sykli #{@version}")
+        halt(0)
+
+      ["cache" | cache_args] ->
+        handle_cache(cache_args)
+        halt(0)
+
+      _ ->
+        run_sykli(args)
     end
   end
 
@@ -50,26 +60,28 @@ defmodule Sykli.CLI do
           IO.puts("  ✓ #{name}")
         end)
 
+        halt(0)
+
       {:error, :no_sdk_file} ->
         IO.puts("#{IO.ANSI.red()}No sykli.go, sykli.rs, or sykli.ts found#{IO.ANSI.reset()}")
-        System.halt(1)
+        halt(1)
 
       {:error, results} when is_list(results) ->
         IO.puts("\n#{IO.ANSI.red()}Build failed#{IO.ANSI.reset()}")
-        System.halt(1)
+        halt(1)
 
       {:error, {:cycle_detected, path}} when is_list(path) and length(path) > 0 ->
         cycle_str = Enum.join(path, " -> ")
         IO.puts("#{IO.ANSI.red()}Error: dependency cycle detected: #{cycle_str}#{IO.ANSI.reset()}")
-        System.halt(1)
+        halt(1)
 
       {:error, {:cycle_detected, _}} ->
         IO.puts("#{IO.ANSI.red()}Error: dependency cycle detected#{IO.ANSI.reset()}")
-        System.halt(1)
+        halt(1)
 
       {:error, reason} ->
         IO.puts("#{IO.ANSI.red()}Error: #{inspect(reason)}#{IO.ANSI.reset()}")
-        System.halt(1)
+        halt(1)
     end
   end
 
@@ -103,7 +115,7 @@ defmodule Sykli.CLI do
       {:error, _} ->
         IO.puts("#{IO.ANSI.red()}Invalid duration: #{duration}#{IO.ANSI.reset()}")
         IO.puts("Examples: 7d, 24h, 30m, 60s")
-        System.halt(1)
+        halt(1)
     end
   end
 
@@ -137,5 +149,10 @@ defmodule Sykli.CLI do
   defp format_duration(ms) do
     seconds = ms / 1000
     "#{Float.round(seconds, 1)}s"
+  end
+
+  # Halt with proper stdout flushing (needed for Burrito releases)
+  defp halt(code) do
+    :erlang.halt(code, [flush: true])
   end
 end

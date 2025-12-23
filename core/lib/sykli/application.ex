@@ -44,8 +44,8 @@ defmodule Sykli.Application do
   end
 
   # Check if running as a Burrito-wrapped binary
-  # BURRITO_BIN_PATH is set by Burrito when running the wrapped executable
+  # Uses __BURRITO_BIN_PATH env var set by Burrito's Zig wrapper
   defp burrito? do
-    System.get_env("BURRITO_BIN_PATH") != nil
+    System.get_env("__BURRITO_BIN_PATH") != nil
   end
 end
