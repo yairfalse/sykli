@@ -195,7 +195,7 @@ pub struct Task<'a> {
 #[derive(Clone, Default)]
 struct TaskInput {
     from_task: String,
-    output_name: String,
+    output: String,
     dest_path: String,
 }
 
