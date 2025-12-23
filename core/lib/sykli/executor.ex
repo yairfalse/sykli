@@ -258,16 +258,18 @@ defmodule Sykli.Executor do
           maybe_github_status(name, "success")
           :ok
 
-        {:ok, code, lines, output} ->
+        {:ok, code, _lines, output} ->
           duration_ms = System.monotonic_time(:millisecond) - start_time
-          lines_str = if lines > 0, do: " #{lines}L", else: ""
-          IO.puts("#{IO.ANSI.red()}✗ #{name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{format_duration(duration_ms)}#{lines_str} (exit #{code})#{IO.ANSI.reset()}")
 
-          # Show helpful hints
-          hints = Sykli.ErrorHints.get_hints(code, output)
-          if length(hints) > 0 do
-            IO.puts(Sykli.ErrorHints.format_hints(hints))
-          end
+          # Show structured error with full context
+          error = Sykli.TaskError.new(
+            task: name,
+            command: display_cmd,
+            exit_code: code,
+            output: output,
+            duration_ms: duration_ms
+          )
+          IO.puts(Sykli.TaskError.format(error))
 
           maybe_github_status(name, "failure")
           {:error, {:exit_code, code}}
