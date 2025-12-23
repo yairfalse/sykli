@@ -717,7 +717,11 @@ impl Pipeline {
                 .iter_mut()
                 .find(|t| t.name == curr)
                 .unwrap_or_else(|| panic!("task {:?} not found", curr));
-            task.depends_on.push(prev.to_string());
+
+            // Only add the dependency if it doesn't already exist to avoid duplicates.
+            if !task.depends_on.iter().any(|d| d == prev) {
+                task.depends_on.push(prev.to_string());
+            }
         }
     }
 
