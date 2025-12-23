@@ -25,3 +25,6 @@ core-*.tar
 # Escript binary
 /sykli
 
+# Burrito build output
+/burrito_out/
+
