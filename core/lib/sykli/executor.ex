@@ -622,34 +622,47 @@ defmodule Sykli.Executor do
     cond do
       File.regular?(abs_source) ->
         # Ensure destination directory exists
-        abs_dest |> Path.dirname() |> File.mkdir_p!()
+        dest_dir = Path.dirname(abs_dest)
 
-        case File.copy(abs_source, abs_dest) do
-          {:ok, _bytes} ->
-            # Preserve executable permissions
-            case File.stat(abs_source) do
-              {:ok, %{mode: mode}} -> File.chmod(abs_dest, mode)
-              _ -> :ok
+        case File.mkdir_p(dest_dir) do
+          :ok ->
+            case File.copy(abs_source, abs_dest) do
+              {:ok, _bytes} ->
+                # Preserve executable permissions
+                case File.stat(abs_source) do
+                  {:ok, %{mode: mode}} -> File.chmod(abs_dest, mode)
+                  _ -> :ok
+                end
+                IO.puts("  #{IO.ANSI.faint()}← #{source_path} → #{dest_path}#{IO.ANSI.reset()}")
+                :ok
+
+              {:error, reason} ->
+                IO.puts("#{IO.ANSI.red()}✗ #{task_name}: failed to copy #{source_path}: #{inspect(reason)}#{IO.ANSI.reset()}")
+                {:error, {:copy_failed, source_path, reason}}
             end
-            IO.puts("  #{IO.ANSI.faint()}← #{source_path} → #{dest_path}#{IO.ANSI.reset()}")
-            :ok
 
           {:error, reason} ->
-            IO.puts("#{IO.ANSI.red()}✗ #{task_name}: failed to copy #{source_path}: #{inspect(reason)}#{IO.ANSI.reset()}")
-            {:error, {:copy_failed, source_path, reason}}
+            IO.puts("#{IO.ANSI.red()}✗ #{task_name}: failed to create directory #{dest_dir}: #{inspect(reason)}#{IO.ANSI.reset()}")
+            {:error, {:mkdir_failed, dest_dir, reason}}
         end
 
       File.dir?(abs_source) ->
         # Copy entire directory
-        abs_dest |> File.mkdir_p!()
-        case File.cp_r(abs_source, abs_dest) do
-          {:ok, _} ->
-            IO.puts("  #{IO.ANSI.faint()}← #{source_path}/ → #{dest_path}/#{IO.ANSI.reset()}")
-            :ok
+        case File.mkdir_p(abs_dest) do
+          :ok ->
+            case File.cp_r(abs_source, abs_dest) do
+              {:ok, _} ->
+                IO.puts("  #{IO.ANSI.faint()}← #{source_path}/ → #{dest_path}/#{IO.ANSI.reset()}")
+                :ok
 
-          {:error, reason, _file} ->
-            IO.puts("#{IO.ANSI.red()}✗ #{task_name}: failed to copy directory #{source_path}: #{inspect(reason)}#{IO.ANSI.reset()}")
-            {:error, {:copy_failed, source_path, reason}}
+              {:error, reason, _file} ->
+                IO.puts("#{IO.ANSI.red()}✗ #{task_name}: failed to copy directory #{source_path}: #{inspect(reason)}#{IO.ANSI.reset()}")
+                {:error, {:copy_failed, source_path, reason}}
+            end
+
+          {:error, reason} ->
+            IO.puts("#{IO.ANSI.red()}✗ #{task_name}: failed to create directory #{abs_dest}: #{inspect(reason)}#{IO.ANSI.reset()}")
+            {:error, {:mkdir_failed, abs_dest, reason}}
         end
 
       true ->
