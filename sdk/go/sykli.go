@@ -65,17 +65,19 @@ func init() {
 
 // Pipeline represents a CI pipeline with tasks and resources.
 type Pipeline struct {
-	tasks  []*Task
-	dirs   []*Directory
-	caches []*CacheVolume
+	tasks     []*Task
+	dirs      []*Directory
+	caches    []*CacheVolume
+	templates map[string]*Template
 }
 
 // New creates a new pipeline.
 func New() *Pipeline {
 	return &Pipeline{
-		tasks:  make([]*Task, 0),
-		dirs:   make([]*Directory, 0),
-		caches: make([]*CacheVolume, 0),
+		tasks:     make([]*Task, 0),
+		dirs:      make([]*Directory, 0),
+		caches:    make([]*CacheVolume, 0),
+		templates: make(map[string]*Template),
 	}
 }
 
@@ -142,6 +144,98 @@ func (c *CacheVolume) ID() string {
 }
 
 // =============================================================================
+// TEMPLATE
+// =============================================================================
+
+// Template represents a reusable task configuration.
+// Templates allow you to define common settings (container, mounts, env)
+// that can be inherited by multiple tasks via From().
+type Template struct {
+	pipeline  *Pipeline
+	name      string
+	container string
+	workdir   string
+	env       map[string]string
+	mounts    []Mount
+}
+
+// Template creates a new reusable task template.
+func (p *Pipeline) Template(name string) *Template {
+	if name == "" {
+		log.Panic().Msg("template name cannot be empty")
+	}
+	if _, exists := p.templates[name]; exists {
+		log.Panic().Str("template", name).Msg("template already exists")
+	}
+	t := &Template{
+		pipeline: p,
+		name:     name,
+		env:      make(map[string]string),
+		mounts:   make([]Mount, 0),
+	}
+	log.Debug().Str("template", name).Msg("registered template")
+	p.templates[name] = t
+	return t
+}
+
+// Container sets the container image for tasks using this template.
+func (t *Template) Container(image string) *Template {
+	if image == "" {
+		log.Panic().Str("template", t.name).Msg("container image cannot be empty")
+	}
+	t.container = image
+	return t
+}
+
+// Workdir sets the working directory for tasks using this template.
+func (t *Template) Workdir(path string) *Template {
+	t.workdir = path
+	return t
+}
+
+// Env sets an environment variable for tasks using this template.
+func (t *Template) Env(key, value string) *Template {
+	if key == "" {
+		log.Panic().Str("template", t.name).Msg("environment variable key cannot be empty")
+	}
+	t.env[key] = value
+	return t
+}
+
+// Mount adds a directory mount for tasks using this template.
+func (t *Template) Mount(dir *Directory, path string) *Template {
+	if dir == nil {
+		log.Panic().Str("template", t.name).Msg("directory cannot be nil")
+	}
+	if path == "" || path[0] != '/' {
+		log.Panic().Str("template", t.name).Str("path", path).Msg("mount path must be absolute")
+	}
+	t.mounts = append(t.mounts, Mount{
+		resource:   dir.ID(),
+		path:       path,
+		mountType:  "directory",
+		sourcePath: dir.path,
+	})
+	return t
+}
+
+// MountCache adds a cache mount for tasks using this template.
+func (t *Template) MountCache(cache *CacheVolume, path string) *Template {
+	if cache == nil {
+		log.Panic().Str("template", t.name).Msg("cache cannot be nil")
+	}
+	if path == "" || path[0] != '/' {
+		log.Panic().Str("template", t.name).Str("path", path).Msg("mount path must be absolute")
+	}
+	t.mounts = append(t.mounts, Mount{
+		resource:  cache.ID(),
+		path:      path,
+		mountType: "cache",
+	})
+	return t
+}
+
+// =============================================================================
 // TASK
 // =============================================================================
 
@@ -203,6 +297,42 @@ func (p *Pipeline) Task(name string) *Task {
 	log.Debug().Str("task", name).Msg("registered task")
 	p.tasks = append(p.tasks, t)
 	return t
+}
+
+// From applies a template's configuration to this task.
+// Template settings are applied first, then task-specific settings override them.
+func (t *Task) From(tmpl *Template) *Task {
+	if tmpl == nil {
+		log.Panic().Str("task", t.name).Msg("template cannot be nil")
+	}
+
+	// Apply template settings (task settings will override these)
+	if tmpl.container != "" && t.container == "" {
+		t.container = tmpl.container
+	}
+	if tmpl.workdir != "" && t.workdir == "" {
+		t.workdir = tmpl.workdir
+	}
+
+	// Merge env: template first, then task overrides
+	for k, v := range tmpl.env {
+		if _, exists := t.env[k]; !exists {
+			t.env[k] = v
+		}
+	}
+
+	// Prepend template mounts (task mounts come after)
+	if len(tmpl.mounts) > 0 {
+		t.mounts = append(tmpl.mounts, t.mounts...)
+	}
+
+	log.Debug().Str("task", t.name).Str("template", tmpl.name).Msg("applied template")
+	return t
+}
+
+// Name returns the task's name for use in dependencies.
+func (t *Task) Name() string {
+	return t.name
 }
 
 // Run sets the command for this task.
@@ -421,6 +551,94 @@ func (g *GoPreset) Build(output string) *Task {
 		Run("go build -o " + output).
 		Inputs(GoInputs()...).
 		Outputs(output)
+}
+
+// =============================================================================
+// COMBINATORS
+// =============================================================================
+
+// TaskGroup represents a group of tasks that can be used as a dependency.
+// Created by Parallel() and can be passed to After() or Chain().
+type TaskGroup struct {
+	pipeline *Pipeline
+	name     string
+	tasks    []*Task
+}
+
+// Chain creates a sequential dependency chain: a → b → c
+// Each task depends on the previous one.
+func (p *Pipeline) Chain(items ...interface{}) {
+	var prev interface{}
+	for _, item := range items {
+		if prev != nil {
+			addDependency(item, prev)
+		}
+		prev = item
+	}
+}
+
+// Parallel creates a group of tasks that run concurrently.
+// Returns a TaskGroup that can be used as a dependency with After().
+func (p *Pipeline) Parallel(name string, tasks ...*Task) *TaskGroup {
+	return &TaskGroup{
+		pipeline: p,
+		name:     name,
+		tasks:    tasks,
+	}
+}
+
+// After makes all tasks in this group depend on the given tasks/groups.
+func (g *TaskGroup) After(deps ...interface{}) *TaskGroup {
+	for _, task := range g.tasks {
+		for _, dep := range deps {
+			addDependencyToTask(task, dep)
+		}
+	}
+	return g
+}
+
+// TaskNames returns the names of all tasks in this group.
+// Used internally when this group is used as a dependency.
+func (g *TaskGroup) TaskNames() []string {
+	names := make([]string, len(g.tasks))
+	for i, t := range g.tasks {
+		names[i] = t.name
+	}
+	return names
+}
+
+// addDependency adds a dependency from 'to' to 'from'.
+// Handles both *Task and *TaskGroup.
+func addDependency(to, from interface{}) {
+	switch t := to.(type) {
+	case *Task:
+		addDependencyToTask(t, from)
+	case *TaskGroup:
+		for _, task := range t.tasks {
+			addDependencyToTask(task, from)
+		}
+	}
+}
+
+// addDependencyToTask adds a dependency to a single task.
+func addDependencyToTask(task *Task, from interface{}) {
+	switch f := from.(type) {
+	case *Task:
+		task.dependsOn = append(task.dependsOn, f.name)
+	case *TaskGroup:
+		task.dependsOn = append(task.dependsOn, f.TaskNames()...)
+	case string:
+		task.dependsOn = append(task.dependsOn, f)
+	}
+}
+
+// After for Task now accepts TaskGroup in addition to strings.
+// This extends the existing After method to work with Parallel groups.
+func (t *Task) AfterGroup(groups ...*TaskGroup) *Task {
+	for _, g := range groups {
+		t.dependsOn = append(t.dependsOn, g.TaskNames()...)
+	}
+	return t
 }
 
 // =============================================================================
