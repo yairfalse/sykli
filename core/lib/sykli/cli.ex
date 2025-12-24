@@ -22,6 +22,9 @@ defmodule Sykli.CLI do
       ["graph" | graph_args] ->
         handle_graph(graph_args)
 
+      ["delta" | delta_args] ->
+        handle_delta(delta_args)
+
       _ ->
         run_sykli(args)
     end
@@ -40,6 +43,7 @@ defmodule Sykli.CLI do
 
     Commands:
       sykli [path]     Run pipeline (default: current directory)
+      sykli delta      Run only tasks affected by git changes
       sykli graph      Show task graph (see: sykli graph --help)
       sykli cache      Manage cache (see: sykli cache --help)
 
@@ -92,6 +96,120 @@ defmodule Sykli.CLI do
 
       {:error, reason} ->
         IO.puts("#{IO.ANSI.red()}Error: #{inspect(reason)}#{IO.ANSI.reset()}")
+        halt(1)
+    end
+  end
+
+  # ----- DELTA SUBCOMMAND -----
+
+  defp handle_delta(["--help"]) do
+    IO.puts("""
+    Usage: sykli delta [options] [path]
+
+    Run only tasks affected by git changes.
+
+    Analyzes git diff to find changed files, matches them against task inputs,
+    and runs only affected tasks plus their dependents.
+
+    Options:
+      --from <ref>    Compare against branch/commit (default: HEAD)
+      --dry-run       Show affected tasks without running
+      --help          Show this help
+
+    Examples:
+      sykli delta                  Run affected tasks
+      sykli delta --from=main      Compare against main branch
+      sykli delta --dry-run        Show what would run
+    """)
+    halt(0)
+  end
+
+  defp handle_delta(args) do
+    {opts, path} = parse_delta_args(args)
+    path = path || "."
+    from = Keyword.get(opts, :from, "HEAD")
+    dry_run = Keyword.get(opts, :dry_run, false)
+
+    # Get the task graph
+    case get_task_graph(path) do
+      {:ok, tasks} ->
+        # Find affected tasks
+        case Sykli.Delta.affected_tasks(tasks, from: from, path: path) do
+          {:ok, []} ->
+            IO.puts("#{IO.ANSI.green()}No tasks affected by changes#{IO.ANSI.reset()}")
+            halt(0)
+
+          {:ok, affected_names} ->
+            if dry_run do
+              IO.puts("#{IO.ANSI.cyan()}Affected tasks:#{IO.ANSI.reset()}")
+              Enum.each(affected_names, fn name ->
+                IO.puts("  • #{name}")
+              end)
+              halt(0)
+            else
+              # Run only affected tasks
+              run_affected_tasks(path, affected_names)
+            end
+
+          {:error, reason} ->
+            IO.puts("#{IO.ANSI.red()}Error finding affected tasks: #{inspect(reason)}#{IO.ANSI.reset()}")
+            halt(1)
+        end
+
+      {:error, reason} ->
+        IO.puts("#{IO.ANSI.red()}Error: #{inspect(reason)}#{IO.ANSI.reset()}")
+        halt(1)
+    end
+  end
+
+  defp parse_delta_args(args) do
+    {opts, rest} =
+      Enum.reduce(args, {[], []}, fn arg, {opts, rest} ->
+        cond do
+          String.starts_with?(arg, "--from=") ->
+            from = String.replace_prefix(arg, "--from=", "")
+            {[{:from, from} | opts], rest}
+
+          arg == "--dry-run" ->
+            {[{:dry_run, true} | opts], rest}
+
+          String.starts_with?(arg, "--") ->
+            {opts, rest}
+
+          true ->
+            {opts, rest ++ [arg]}
+        end
+      end)
+
+    {opts, List.first(rest)}
+  end
+
+  defp run_affected_tasks(path, affected_names) do
+    affected_set = MapSet.new(affected_names)
+    count = length(affected_names)
+
+    IO.puts("#{IO.ANSI.cyan()}Running #{count} affected task(s)#{IO.ANSI.reset()}")
+    Enum.each(affected_names, fn name ->
+      IO.puts("  • #{name}")
+    end)
+    IO.puts("")
+
+    # Use Sykli.run with a filter
+    start_time = System.monotonic_time(:millisecond)
+
+    case Sykli.run(path, filter: fn task -> MapSet.member?(affected_set, task.name) end) do
+      {:ok, results} ->
+        duration = System.monotonic_time(:millisecond) - start_time
+        IO.puts("\n#{IO.ANSI.green()}✓ All affected tasks completed in #{format_duration(duration)}#{IO.ANSI.reset()}")
+
+        Enum.each(results, fn {name, _, _} ->
+          IO.puts("  ✓ #{name}")
+        end)
+
+        halt(0)
+
+      {:error, _} ->
+        IO.puts("\n#{IO.ANSI.red()}Build failed#{IO.ANSI.reset()}")
         halt(1)
     end
   end
@@ -168,7 +286,20 @@ defmodule Sykli.CLI do
     |> Enum.map(fn task ->
       %{
         name: task["name"],
-        depends_on: task["depends_on"] || []
+        depends_on: task["depends_on"] || [],
+        mounts: parse_mounts(task["mounts"]),
+        inputs: task["inputs"]
+      }
+    end)
+  end
+
+  defp parse_mounts(nil), do: []
+  defp parse_mounts(mounts) when is_list(mounts) do
+    Enum.map(mounts, fn m ->
+      %{
+        resource: m["resource"],
+        path: m["path"],
+        type: m["type"]
       }
     end)
   end

@@ -7,8 +7,15 @@ defmodule Sykli do
 
   alias Sykli.{Detector, Graph, Executor, Cache}
 
-  def run(path \\ ".") do
+  @doc """
+  Run the sykli pipeline.
+
+  Options:
+    - filter: function to filter tasks (receives task, returns boolean)
+  """
+  def run(path \\ ".", opts \\ []) do
     Cache.init()
+    filter_fn = Keyword.get(opts, :filter)
 
     with {:ok, sdk_file} <- Detector.find(path),
          {:ok, json} <- Detector.emit(sdk_file),
@@ -16,8 +23,15 @@ defmodule Sykli do
       # Expand matrix tasks into individual tasks
       expanded_graph = Graph.expand_matrix(graph)
 
-      case Graph.topo_sort(expanded_graph) do
-        {:ok, order} -> Executor.run(order, expanded_graph, workdir: path)
+      # Apply filter if provided
+      filtered_graph = if filter_fn do
+        filter_graph(expanded_graph, filter_fn)
+      else
+        expanded_graph
+      end
+
+      case Graph.topo_sort(filtered_graph) do
+        {:ok, order} -> Executor.run(order, filtered_graph, workdir: path)
         error -> error
       end
     else
@@ -75,5 +89,44 @@ defmodule Sykli do
         IO.puts(:stderr, "\e[31m✗ Error: #{inspect(error)}\e[0m")
         error
     end
+  end
+
+  # Filter graph (map of name => task) to only include matching tasks + their dependencies
+  defp filter_graph(graph, filter_fn) when is_map(graph) do
+    # Graph is a map: %{name => task}
+    all_tasks = Map.values(graph)
+
+    # Get tasks that match the filter
+    matching_names =
+      all_tasks
+      |> Enum.filter(filter_fn)
+      |> Enum.map(& &1.name)
+      |> MapSet.new()
+
+    # Add all upstream dependencies (transitively)
+    all_needed = add_dependencies(matching_names, graph)
+
+    # Filter to only those needed
+    Map.filter(graph, fn {name, _task} ->
+      MapSet.member?(all_needed, name)
+    end)
+  end
+
+  # Add all dependencies transitively (upstream tasks)
+  # graph is a map of name => task
+  defp add_dependencies(task_names, graph) when is_map(graph) do
+    do_add_deps(MapSet.to_list(task_names), task_names, graph)
+  end
+
+  defp do_add_deps([], result, _task_map), do: result
+
+  defp do_add_deps([name | rest], result, task_map) do
+    task = Map.get(task_map, name)
+    deps = (task && task.depends_on) || []
+
+    new_deps = Enum.reject(deps, &MapSet.member?(result, &1))
+    new_result = Enum.reduce(new_deps, result, &MapSet.put(&2, &1))
+
+    do_add_deps(rest ++ new_deps, new_result, task_map)
   end
 end
