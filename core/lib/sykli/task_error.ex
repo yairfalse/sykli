@@ -7,13 +7,13 @@ defmodule Sykli.TaskError do
   defstruct [:task, :command, :exit_code, :output, :duration_ms, :hints]
 
   @type t :: %__MODULE__{
-    task: String.t(),
-    command: String.t(),
-    exit_code: integer(),
-    output: String.t(),
-    duration_ms: integer(),
-    hints: [String.t()]
-  }
+          task: String.t(),
+          command: String.t(),
+          exit_code: integer(),
+          output: String.t(),
+          duration_ms: integer(),
+          hints: [String.t()]
+        }
 
   @doc """
   Creates a new TaskError with automatic hint generation.
@@ -59,7 +59,9 @@ defmodule Sykli.TaskError do
     sections = []
 
     # Header: task name and exit code
-    header = "#{red}✗ #{error.task}#{reset} #{faint}(exit #{error.exit_code}) #{format_duration(error.duration_ms)}#{reset}"
+    header =
+      "#{red}✗ #{error.task}#{reset} #{faint}(exit #{error.exit_code}) #{format_duration(error.duration_ms)}#{reset}"
+
     sections = [header | sections]
 
     # Command that was run
@@ -67,36 +69,42 @@ defmodule Sykli.TaskError do
     sections = [command_line | sections]
 
     # Last N lines of output
-    sections = if error.output && error.output != "" do
-      output_lines = error.output
-        |> String.trim()
-        |> String.split("\n")
-        |> Enum.take(-max_lines)
+    sections =
+      if error.output && error.output != "" do
+        output_lines =
+          error.output
+          |> String.trim()
+          |> String.split("\n")
+          |> Enum.take(-max_lines)
 
-      if length(output_lines) > 0 do
-        output_section = output_lines
-          |> Enum.map(&"  #{faint}│#{reset} #{&1}")
-          |> Enum.join("\n")
+        if length(output_lines) > 0 do
+          output_section =
+            output_lines
+            |> Enum.map(&"  #{faint}│#{reset} #{&1}")
+            |> Enum.join("\n")
 
-        ["#{faint}  ─────────────────────────────────#{reset}" | sections]
-        |> then(&[output_section | &1])
-        |> then(&["#{faint}  ─────────────────────────────────#{reset}" | &1])
+          ["#{faint}  ─────────────────────────────────#{reset}" | sections]
+          |> then(&[output_section | &1])
+          |> then(&["#{faint}  ─────────────────────────────────#{reset}" | &1])
+        else
+          sections
+        end
       else
         sections
       end
-    else
-      sections
-    end
 
     # Hints
-    sections = if length(error.hints) > 0 do
-      hint_lines = error.hints
-        |> Enum.map(&"  #{yellow}💡 #{&1}#{reset}")
-        |> Enum.join("\n")
-      [hint_lines | sections]
-    else
-      sections
-    end
+    sections =
+      if length(error.hints) > 0 do
+        hint_lines =
+          error.hints
+          |> Enum.map(&"  #{yellow}💡 #{&1}#{reset}")
+          |> Enum.join("\n")
+
+        [hint_lines | sections]
+      else
+        sections
+      end
 
     sections
     |> Enum.reverse()
@@ -104,6 +112,7 @@ defmodule Sykli.TaskError do
   end
 
   defp format_duration(ms) when ms < 1000, do: "#{ms}ms"
+
   defp format_duration(ms) do
     seconds = ms / 1000
     "#{Float.round(seconds, 1)}s"

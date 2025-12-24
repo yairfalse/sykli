@@ -138,8 +138,10 @@ defmodule Sykli.ReporterTest do
 
       # task_output should NOT increase buffer (it's not buffered)
       new_status = Reporter.status()
+
       # Buffer should be same or decreased (if flush happened), with a tiny margin for unrelated events
-      assert new_status.buffered <= initial_buffered + 1  # Allow at most one unrelated event
+      # Allow at most one unrelated event
+      assert new_status.buffered <= initial_buffered + 1
     end
   end
 end

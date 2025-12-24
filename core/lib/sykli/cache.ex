@@ -44,10 +44,13 @@ defmodule Sykli.Cache do
         else
           # Corrupted cache - clean up
           case File.rm(meta_path) do
-            :ok -> :ok
+            :ok ->
+              :ok
+
             {:error, reason} ->
               IO.warn("Failed to remove corrupted cache file #{meta_path}: #{inspect(reason)}")
           end
+
           {:miss, key}
         end
 
@@ -92,7 +95,9 @@ defmodule Sykli.Cache do
 
     # Check if any outputs were expected but missing
     if outputs != [] && output_entries == [] do
-      IO.puts("#{IO.ANSI.yellow()}⚠ Warning: No output files found for task #{task.name}#{IO.ANSI.reset()}")
+      IO.puts(
+        "#{IO.ANSI.yellow()}⚠ Warning: No output files found for task #{task.name}#{IO.ANSI.reset()}"
+      )
     end
 
     meta = %{
@@ -109,8 +114,11 @@ defmodule Sykli.Cache do
     # Atomic write: write to temp file then rename
     tmp_path = meta_path <> ".tmp." <> Integer.to_string(:erlang.unique_integer([:positive]))
     File.write!(tmp_path, Jason.encode!(meta, pretty: true))
+
     case File.rename(tmp_path, meta_path) do
-      :ok -> :ok
+      :ok ->
+        :ok
+
       {:error, _} ->
         File.rm(tmp_path)
         :ok
@@ -179,7 +187,9 @@ defmodule Sykli.Cache do
               {:ok, dt, _} ->
                 if DateTime.compare(dt, cutoff) == :lt do
                   case File.rm(path) do
-                    :ok -> {count + 1, blobs}
+                    :ok ->
+                      {count + 1, blobs}
+
                     {:error, reason} ->
                       IO.warn("Failed to remove cache file #{path}: #{inspect(reason)}")
                       {count, blobs}
@@ -198,7 +208,9 @@ defmodule Sykli.Cache do
               _ ->
                 # Invalid date, delete
                 case File.rm(path) do
-                  :ok -> {count + 1, blobs}
+                  :ok ->
+                    {count + 1, blobs}
+
                   {:error, reason} ->
                     IO.warn("Failed to remove invalid cache file #{path}: #{inspect(reason)}")
                     {count, blobs}
@@ -207,7 +219,9 @@ defmodule Sykli.Cache do
 
           {:error, _} ->
             case File.rm(path) do
-              :ok -> {count + 1, blobs}
+              :ok ->
+                {count + 1, blobs}
+
               {:error, reason} ->
                 IO.warn("Failed to remove unreadable cache file #{path}: #{inspect(reason)}")
                 {count, blobs}
@@ -226,7 +240,9 @@ defmodule Sykli.Cache do
           count
         else
           case File.rm(path) do
-            :ok -> count + 1
+            :ok ->
+              count + 1
+
             {:error, reason} ->
               IO.warn("Failed to remove blob #{path}: #{inspect(reason)}")
               count
@@ -253,16 +269,20 @@ defmodule Sykli.Cache do
     task_env_hash = hash_task_env(task.env || %{})
     mounts_hash = hash_mounts(task.mounts || [])
 
-    data = Enum.join([
-      task.name,
-      task.command,
-      inputs_hash,
-      env_hash,
-      container,
-      task_env_hash,
-      mounts_hash,
-      @version
-    ], "|")
+    data =
+      Enum.join(
+        [
+          task.name,
+          task.command,
+          inputs_hash,
+          env_hash,
+          container,
+          task_env_hash,
+          mounts_hash,
+          @version
+        ],
+        "|"
+      )
 
     :crypto.hash(:sha256, data)
     |> Base.encode16(case: :lower)
@@ -270,6 +290,7 @@ defmodule Sykli.Cache do
 
   # Hash task-specific environment variables
   defp hash_task_env(env) when map_size(env) == 0, do: ""
+
   defp hash_task_env(env) do
     env
     |> Enum.sort()
@@ -280,6 +301,7 @@ defmodule Sykli.Cache do
 
   # Hash mount configuration (resource + path + type)
   defp hash_mounts([]), do: ""
+
   defp hash_mounts(mounts) do
     mounts
     |> Enum.map(fn m -> "#{m[:resource]}:#{m[:path]}:#{m[:type]}" end)
@@ -381,10 +403,13 @@ defmodule Sykli.Cache do
         unless File.exists?(dest) do
           tmp_path = dest <> ".tmp." <> Integer.to_string(:erlang.unique_integer([:positive]))
           File.write!(tmp_path, content)
+
           case File.rename(tmp_path, dest) do
             :ok -> :ok
-            {:error, :eexist} -> File.rm(tmp_path) # Another process won the race
-            {:error, _} -> File.rm(tmp_path)      # Clean up temp file on error
+            # Another process won the race
+            {:error, :eexist} -> File.rm(tmp_path)
+            # Clean up temp file on error
+            {:error, _} -> File.rm(tmp_path)
           end
         end
 

@@ -57,7 +57,10 @@ defmodule Sykli.CLI do
     case Sykli.run(path) do
       {:ok, results} ->
         duration = System.monotonic_time(:millisecond) - start_time
-        IO.puts("\n#{IO.ANSI.green()}✓ All tasks completed in #{format_duration(duration)}#{IO.ANSI.reset()}")
+
+        IO.puts(
+          "\n#{IO.ANSI.green()}✓ All tasks completed in #{format_duration(duration)}#{IO.ANSI.reset()}"
+        )
 
         # Results are {name, result, duration} tuples
         Enum.each(results, fn {name, _, _} ->
@@ -76,7 +79,11 @@ defmodule Sykli.CLI do
 
       {:error, {:cycle_detected, path}} when is_list(path) and length(path) > 0 ->
         cycle_str = Enum.join(path, " -> ")
-        IO.puts("#{IO.ANSI.red()}Error: dependency cycle detected: #{cycle_str}#{IO.ANSI.reset()}")
+
+        IO.puts(
+          "#{IO.ANSI.red()}Error: dependency cycle detected: #{cycle_str}#{IO.ANSI.reset()}"
+        )
+
         halt(1)
 
       {:error, {:cycle_detected, _}} ->
@@ -91,35 +98,24 @@ defmodule Sykli.CLI do
 
   # ----- GRAPH SUBCOMMAND -----
 
-  defp handle_graph(["--help"]) do
-    IO.puts("""
-    Usage: sykli graph [options] [path]
-
-    Show the task dependency graph in various formats.
-
-    Options:
-      --mermaid    Output as Mermaid diagram (default)
-      --dot        Output as DOT (Graphviz) format
-      --help       Show this help
-
-    Examples:
-      sykli graph                  Show graph for current directory
-      sykli graph ./my-project     Show graph for ./my-project
-      sykli graph --dot            Output as DOT format
-      sykli graph --dot | dot -Tpng -o graph.png
-    """)
-    halt(0)
-  end
-
   defp handle_graph(args) do
-    {format, path} = parse_graph_args(args)
+    {opts, rest} = Enum.split_with(args, &String.starts_with?(&1, "-"))
+
+    if "--help" in opts or "-h" in opts do
+      print_graph_help()
+      halt(0)
+    end
+
+    {format, path} = parse_graph_args(opts, rest)
 
     case get_task_graph(path) do
       {:ok, tasks} ->
-        output = case format do
-          :mermaid -> Sykli.GraphViz.to_mermaid(tasks)
-          :dot -> Sykli.GraphViz.to_dot(tasks)
-        end
+        output =
+          case format do
+            :mermaid -> Sykli.GraphViz.to_mermaid(tasks)
+            :dot -> Sykli.GraphViz.to_dot(tasks)
+          end
+
         IO.puts(output)
         halt(0)
 
@@ -133,16 +129,29 @@ defmodule Sykli.CLI do
     end
   end
 
-  defp parse_graph_args(args) do
-    {opts, rest} = Enum.split_with(args, &String.starts_with?(&1, "--"))
-
-    format = cond do
-      "--dot" in opts -> :dot
-      true -> :mermaid
-    end
-
+  defp parse_graph_args(opts, rest) do
+    format = if "--dot" in opts, do: :dot, else: :mermaid
     path = List.first(rest) || "."
     {format, path}
+  end
+
+  defp print_graph_help do
+    IO.puts("""
+    Usage: sykli graph [options] [path]
+
+    Show the task dependency graph in various formats.
+
+    Options:
+      --mermaid    Output as Mermaid diagram (default)
+      --dot        Output as DOT (Graphviz) format
+      -h, --help   Show this help
+
+    Examples:
+      sykli graph                  Show graph for current directory
+      sykli graph ./my-project     Show graph for ./my-project
+      sykli graph --dot            Output as DOT format
+      sykli graph --dot | dot -Tpng -o graph.png
+    """)
   end
 
   defp get_task_graph(path) do
@@ -208,7 +217,11 @@ defmodule Sykli.CLI do
     IO.puts("Commands:")
     IO.puts("  stats                 Show cache statistics")
     IO.puts("  clean                 Delete all cached data")
-    IO.puts("  clean --older-than <duration>  Delete cache older than <duration> (e.g., 7d, 24h, 30m)")
+
+    IO.puts(
+      "  clean --older-than <duration>  Delete cache older than <duration> (e.g., 7d, 24h, 30m)"
+    )
+
     IO.puts("  path                  Print cache directory path")
   end
 
@@ -225,6 +238,7 @@ defmodule Sykli.CLI do
 
   # Format milliseconds as human readable duration
   defp format_duration(ms) when ms < 1000, do: "#{ms}ms"
+
   defp format_duration(ms) do
     seconds = ms / 1000
     "#{Float.round(seconds, 1)}s"
@@ -232,6 +246,6 @@ defmodule Sykli.CLI do
 
   # Halt with proper stdout flushing (needed for Burrito releases)
   defp halt(code) do
-    :erlang.halt(code, [flush: true])
+    :erlang.halt(code, flush: true)
   end
 end

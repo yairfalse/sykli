@@ -131,10 +131,11 @@ defmodule Sykli.Events.Event do
       duration: event.duration_us,
       entities: build_entities(event, cluster),
       relationships: [],
-      labels: Map.merge(opts[:labels] || %{}, %{
-        "sykli.run_id" => event.run_id,
-        "sykli.node" => to_string(event.node)
-      })
+      labels:
+        Map.merge(opts[:labels] || %{}, %{
+          "sykli.run_id" => event.run_id,
+          "sykli.node" => to_string(event.node)
+        })
     }
     |> Map.merge(event_specific_data(event))
     |> remove_nil_values()
@@ -179,9 +180,11 @@ defmodule Sykli.Events.Event do
   defp ahti_severity(_), do: "info"
 
   # Determine outcome
-  defp ahti_outcome(%{data: %{outcome: outcome}}) when outcome in [:success, :failure, :timeout] do
+  defp ahti_outcome(%{data: %{outcome: outcome}})
+       when outcome in [:success, :failure, :timeout] do
     to_string(outcome)
   end
+
   defp ahti_outcome(%{type: :task_started}), do: "unknown"
   defp ahti_outcome(%{type: :run_started}), do: "unknown"
   defp ahti_outcome(_), do: "success"
@@ -203,7 +206,8 @@ defmodule Sykli.Events.Event do
     ]
   end
 
-  defp build_entities(%{type: type} = event, cluster) when type in [:task_started, :task_completed, :task_output] do
+  defp build_entities(%{type: type} = event, cluster)
+       when type in [:task_started, :task_completed, :task_output] do
     [
       %{
         type: "container",

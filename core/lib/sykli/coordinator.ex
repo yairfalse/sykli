@@ -183,11 +183,13 @@ defmodule Sykli.Coordinator do
 
   @impl true
   def handle_call(:stats, _from, state) do
-    stats = Map.merge(state.stats, %{
-      active_runs: map_size(state.active_runs),
-      history_size: state.history_size,
-      connected_nodes: length(Node.list())
-    })
+    stats =
+      Map.merge(state.stats, %{
+        active_runs: map_size(state.active_runs),
+        history_size: state.history_size,
+        connected_nodes: length(Node.list())
+      })
+
     {:reply, stats, state}
   end
 
@@ -244,10 +246,7 @@ defmodule Sykli.Coordinator do
 
       run ->
         status = if result == :ok, do: :completed, else: :failed
-        completed_run = %{run |
-          status: status,
-          completed_at: DateTime.utc_now()
-        }
+        completed_run = %{run | status: status, completed_at: DateTime.utc_now()}
 
         Logger.info("[Coordinator] Run completed: #{run_id} (#{status})")
 
@@ -300,10 +299,7 @@ defmodule Sykli.Coordinator do
 
       run ->
         status = if event.data.outcome == :success, do: :completed, else: :failed
-        completed_run = %{run |
-          status: status,
-          completed_at: event.timestamp
-        }
+        completed_run = %{run | status: status, completed_at: event.timestamp}
 
         Logger.info("[Coordinator] Run completed: #{run_id} (#{status})")
 

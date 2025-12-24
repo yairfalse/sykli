@@ -34,8 +34,10 @@ defmodule Sykli.RunRegistry do
       :id,
       :project_path,
       :tasks,
-      :status,          # :pending | :running | :completed | :failed
-      :result,          # nil | :ok | {:error, reason}
+      # :pending | :running | :completed | :failed
+      :status,
+      # nil | :ok | {:error, reason}
+      :result,
       :started_at,
       :completed_at,
       :node
@@ -151,11 +153,7 @@ defmodule Sykli.RunRegistry do
     case :ets.lookup(@table, run_id) do
       [{^run_id, run}] ->
         status = if result == :ok, do: :completed, else: :failed
-        updated = %{run |
-          status: status,
-          result: result,
-          completed_at: DateTime.utc_now()
-        }
+        updated = %{run | status: status, result: result, completed_at: DateTime.utc_now()}
         :ets.insert(@table, {run_id, updated})
         {:reply, :ok, state}
 

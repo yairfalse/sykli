@@ -22,9 +22,10 @@ defmodule Sykli.ProgressTest do
       tasks = [make_task("test", "echo test"), make_task("build", "echo build")]
       graph = Map.new(tasks, fn t -> {t.name, t} end)
 
-      output = capture_io(fn ->
-        Sykli.Executor.run(tasks, graph, workdir: "/tmp")
-      end)
+      output =
+        capture_io(fn ->
+          Sykli.Executor.run(tasks, graph, workdir: "/tmp")
+        end)
 
       # Should show progress like [1/2] or [2/2]
       assert output =~ ~r/\[\d+\/2\]/
@@ -37,9 +38,10 @@ defmodule Sykli.ProgressTest do
       tasks = [make_task("a", "echo a"), make_task("b", "echo b")]
       graph = Map.new(tasks, fn t -> {t.name, t} end)
 
-      output = capture_io(fn ->
-        Sykli.Executor.run(tasks, graph, workdir: "/tmp")
-      end)
+      output =
+        capture_io(fn ->
+          Sykli.Executor.run(tasks, graph, workdir: "/tmp")
+        end)
 
       # Should indicate parallel execution (e.g., "2 parallel" or similar)
       assert output =~ ~r/parallel|║|simultaneously/i or output =~ "2 task(s)"
@@ -60,9 +62,10 @@ defmodule Sykli.ProgressTest do
       tasks = [make_task("test", "echo #{System.unique_integer()}")]
       graph = Map.new(tasks, fn t -> {t.name, t} end)
 
-      output = capture_io(fn ->
-        Sykli.Executor.run(tasks, graph, workdir: "/tmp")
-      end)
+      output =
+        capture_io(fn ->
+          Sykli.Executor.run(tasks, graph, workdir: "/tmp")
+        end)
 
       # Should show timestamp like HH:MM:SS for non-cached tasks
       assert output =~ ~r/\d{2}:\d{2}:\d{2}/
@@ -76,11 +79,13 @@ defmodule Sykli.ProgressTest do
         make_task("a", "echo a"),
         make_task("b", "echo b", depends_on: ["a"])
       ]
+
       graph = Map.new(tasks, fn t -> {t.name, t} end)
 
-      output = capture_io(fn ->
-        Sykli.Executor.run(tasks, graph, workdir: "/tmp")
-      end)
+      output =
+        capture_io(fn ->
+          Sykli.Executor.run(tasks, graph, workdir: "/tmp")
+        end)
 
       # Should show something about next/pending/upcoming
       assert output =~ ~r/next|pending|→|Level/i
@@ -92,9 +97,10 @@ defmodule Sykli.ProgressTest do
       tasks = [make_task("test", "echo line1 && echo line2")]
       graph = Map.new(tasks, fn t -> {t.name, t} end)
 
-      output = capture_io(fn ->
-        Sykli.Executor.run(tasks, graph, workdir: "/tmp")
-      end)
+      output =
+        capture_io(fn ->
+          Sykli.Executor.run(tasks, graph, workdir: "/tmp")
+        end)
 
       # Should show line count like "2 lines" or similar in output
       assert output =~ ~r/line|output|\d+L/i or String.contains?(output, "passed")
@@ -106,9 +112,10 @@ defmodule Sykli.ProgressTest do
       tasks = [make_task("test", "echo test")]
       graph = Map.new(tasks, fn t -> {t.name, t} end)
 
-      output = capture_io(fn ->
-        Sykli.Executor.run(tasks, graph, workdir: "/tmp")
-      end)
+      output =
+        capture_io(fn ->
+          Sykli.Executor.run(tasks, graph, workdir: "/tmp")
+        end)
 
       # Should show duration in summary
       assert output =~ ~r/\d+(\.\d+)?(ms|s|m)/
@@ -118,9 +125,10 @@ defmodule Sykli.ProgressTest do
       tasks = [make_task("test", "echo test")]
       graph = Map.new(tasks, fn t -> {t.name, t} end)
 
-      output = capture_io(fn ->
-        Sykli.Executor.run(tasks, graph, workdir: "/tmp")
-      end)
+      output =
+        capture_io(fn ->
+          Sykli.Executor.run(tasks, graph, workdir: "/tmp")
+        end)
 
       assert output =~ ~r/\d+ passed/
     end

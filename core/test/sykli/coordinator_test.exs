@@ -7,7 +7,9 @@ defmodule Sykli.CoordinatorTest do
   setup do
     # Stop any existing coordinator first
     case GenServer.whereis(Coordinator) do
-      nil -> :ok
+      nil ->
+        :ok
+
       pid ->
         try do
           GenServer.stop(pid, :normal, 100)
@@ -41,7 +43,11 @@ defmodule Sykli.CoordinatorTest do
       run_id = "coord_test_#{System.unique_integer()}"
 
       # Simulate event from a node
-      GenServer.cast(Coordinator, {:event, {node(), {:run_started, run_id, "/project", ["test"]}}})
+      GenServer.cast(
+        Coordinator,
+        {:event, {node(), {:run_started, run_id, "/project", ["test"]}}}
+      )
+
       sync_coordinator()
 
       runs = Coordinator.active_runs()
@@ -58,7 +64,11 @@ defmodule Sykli.CoordinatorTest do
       run_id = "history_test_#{System.unique_integer()}"
 
       # Start and complete a run
-      GenServer.cast(Coordinator, {:event, {node(), {:run_started, run_id, "/project", ["test"]}}})
+      GenServer.cast(
+        Coordinator,
+        {:event, {node(), {:run_started, run_id, "/project", ["test"]}}}
+      )
+
       sync_coordinator()
       GenServer.cast(Coordinator, {:event, {node(), {:run_completed, run_id, :ok}}})
       sync_coordinator()
@@ -72,7 +82,12 @@ defmodule Sykli.CoordinatorTest do
       # Create several runs
       Enum.each(1..5, fn i ->
         run_id = "limit_test_#{i}_#{System.unique_integer()}"
-        GenServer.cast(Coordinator, {:event, {node(), {:run_started, run_id, "/project", ["test"]}}})
+
+        GenServer.cast(
+          Coordinator,
+          {:event, {node(), {:run_started, run_id, "/project", ["test"]}}}
+        )
+
         GenServer.cast(Coordinator, {:event, {node(), {:run_completed, run_id, :ok}}})
       end)
 
@@ -88,7 +103,11 @@ defmodule Sykli.CoordinatorTest do
     test "returns active run" do
       run_id = "get_active_#{System.unique_integer()}"
 
-      GenServer.cast(Coordinator, {:event, {node(), {:run_started, run_id, "/my/project", ["lint", "test"]}}})
+      GenServer.cast(
+        Coordinator,
+        {:event, {node(), {:run_started, run_id, "/my/project", ["lint", "test"]}}}
+      )
+
       sync_coordinator()
 
       run = Coordinator.get_run(run_id)
@@ -132,7 +151,11 @@ defmodule Sykli.CoordinatorTest do
       run_id = "task_status_#{System.unique_integer()}"
 
       # Start run
-      GenServer.cast(Coordinator, {:event, {node(), {:run_started, run_id, "/project", ["test", "build"]}}})
+      GenServer.cast(
+        Coordinator,
+        {:event, {node(), {:run_started, run_id, "/project", ["test", "build"]}}}
+      )
+
       sync_coordinator()
 
       # Start task
@@ -160,11 +183,12 @@ defmodule Sykli.CoordinatorTest do
     test "handles Event struct format for run_started" do
       run_id = "event_struct_#{System.unique_integer()}"
 
-      event = Event.new(:run_started, run_id, %{
-        project_path: "/event/project",
-        tasks: ["build", "test"],
-        task_count: 2
-      })
+      event =
+        Event.new(:run_started, run_id, %{
+          project_path: "/event/project",
+          tasks: ["build", "test"],
+          task_count: 2
+        })
 
       GenServer.cast(Coordinator, {:event, event})
       sync_coordinator()
@@ -183,11 +207,13 @@ defmodule Sykli.CoordinatorTest do
       run_id = "event_task_#{System.unique_integer()}"
 
       # Start run first
-      run_event = Event.new(:run_started, run_id, %{
-        project_path: "/task/project",
-        tasks: ["my_task"],
-        task_count: 1
-      })
+      run_event =
+        Event.new(:run_started, run_id, %{
+          project_path: "/task/project",
+          tasks: ["my_task"],
+          task_count: 1
+        })
+
       GenServer.cast(Coordinator, {:event, run_event})
       sync_coordinator()
 
@@ -207,11 +233,13 @@ defmodule Sykli.CoordinatorTest do
       run_id = "event_complete_#{System.unique_integer()}"
 
       # Start run
-      run_event = Event.new(:run_started, run_id, %{
-        project_path: "/complete/project",
-        tasks: ["task"],
-        task_count: 1
-      })
+      run_event =
+        Event.new(:run_started, run_id, %{
+          project_path: "/complete/project",
+          tasks: ["task"],
+          task_count: 1
+        })
+
       GenServer.cast(Coordinator, {:event, run_event})
       sync_coordinator()
 
@@ -221,7 +249,8 @@ defmodule Sykli.CoordinatorTest do
       sync_coordinator()
 
       # Should be in history, not active
-      assert Coordinator.get_run(run_id) == nil || Coordinator.get_run(run_id).status == :completed
+      assert Coordinator.get_run(run_id) == nil ||
+               Coordinator.get_run(run_id).status == :completed
 
       history = Coordinator.run_history()
       assert Enum.any?(history, fn r -> r.id == run_id end)

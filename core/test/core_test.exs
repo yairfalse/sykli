@@ -39,7 +39,9 @@ defmodule SykliTest do
   end
 
   test "expand_matrix multi-dimensional" do
-    json = ~s({"tasks":[{"name":"test","command":"go test","matrix":{"os":["linux","macos"],"version":["1.0","2.0"]}}]})
+    json =
+      ~s({"tasks":[{"name":"test","command":"go test","matrix":{"os":["linux","macos"],"version":["1.0","2.0"]}}]})
+
     {:ok, graph} = Sykli.Graph.parse(json)
     expanded = Sykli.Graph.expand_matrix(graph)
 
@@ -97,7 +99,9 @@ defmodule SykliTest do
   # ----- SECRETS PARSING TESTS -----
 
   test "parses secrets from JSON" do
-    json = ~s({"tasks":[{"name":"deploy","command":"./deploy.sh","secrets":["GITHUB_TOKEN","NPM_TOKEN"]}]})
+    json =
+      ~s({"tasks":[{"name":"deploy","command":"./deploy.sh","secrets":["GITHUB_TOKEN","NPM_TOKEN"]}]})
+
     {:ok, graph} = Sykli.Graph.parse(json)
     task = Map.get(graph, "deploy")
     assert task.secrets == ["GITHUB_TOKEN", "NPM_TOKEN"]
@@ -113,7 +117,9 @@ defmodule SykliTest do
   # ----- SERVICES PARSING TESTS -----
 
   test "parses services from JSON" do
-    json = ~s({"tasks":[{"name":"test","command":"go test","services":[{"image":"postgres:15","name":"db"}]}]})
+    json =
+      ~s({"tasks":[{"name":"test","command":"go test","services":[{"image":"postgres:15","name":"db"}]}]})
+
     {:ok, graph} = Sykli.Graph.parse(json)
     task = Map.get(graph, "test")
     assert length(task.services) == 1
@@ -129,7 +135,9 @@ defmodule SykliTest do
   end
 
   test "parses multiple services" do
-    json = ~s({"tasks":[{"name":"test","command":"go test","services":[{"image":"postgres:15","name":"db"},{"image":"redis:7","name":"cache"}]}]})
+    json =
+      ~s({"tasks":[{"name":"test","command":"go test","services":[{"image":"postgres:15","name":"db"},{"image":"redis:7","name":"cache"}]}]})
+
     {:ok, graph} = Sykli.Graph.parse(json)
     task = Map.get(graph, "test")
     assert length(task.services) == 2
@@ -138,7 +146,9 @@ defmodule SykliTest do
   # ----- ADDITIONAL MATRIX TESTS -----
 
   test "expand_matrix preserves matrix_values for expanded tasks" do
-    json = ~s({"tasks":[{"name":"test","command":"go test","matrix":{"os":["linux"],"ver":["1.0"]}}]})
+    json =
+      ~s({"tasks":[{"name":"test","command":"go test","matrix":{"os":["linux"],"ver":["1.0"]}}]})
+
     {:ok, graph} = Sykli.Graph.parse(json)
     expanded = Sykli.Graph.expand_matrix(graph)
 
@@ -161,14 +171,18 @@ defmodule SykliTest do
   # ----- CONDITION EDGE CASES -----
 
   test "parses legacy 'condition' field" do
-    json = ~s({"tasks":[{"name":"deploy","command":"./deploy.sh","condition":"branch == 'main'"}]})
+    json =
+      ~s({"tasks":[{"name":"deploy","command":"./deploy.sh","condition":"branch == 'main'"}]})
+
     {:ok, graph} = Sykli.Graph.parse(json)
     task = Map.get(graph, "deploy")
     assert task.condition == "branch == 'main'"
   end
 
   test "when field takes precedence over condition field" do
-    json = ~s({"tasks":[{"name":"deploy","command":"./deploy.sh","when":"tag != ''","condition":"branch == 'main'"}]})
+    json =
+      ~s({"tasks":[{"name":"deploy","command":"./deploy.sh","when":"tag != ''","condition":"branch == 'main'"}]})
+
     {:ok, graph} = Sykli.Graph.parse(json)
     task = Map.get(graph, "deploy")
     assert task.condition == "tag != ''"
@@ -177,7 +191,9 @@ defmodule SykliTest do
   # ----- SERVICE VALIDATION -----
 
   test "services parses image and name correctly" do
-    json = ~s({"tasks":[{"name":"test","command":"test","services":[{"image":"postgres:15","name":"db"}]}]})
+    json =
+      ~s({"tasks":[{"name":"test","command":"test","services":[{"image":"postgres:15","name":"db"}]}]})
+
     {:ok, graph} = Sykli.Graph.parse(json)
     task = Map.get(graph, "test")
     service = hd(task.services)
@@ -293,7 +309,9 @@ defmodule SykliTest do
   end
 
   test "outputs map format is preserved" do
-    json = ~s({"tasks":[{"name":"build","command":"make","outputs":{"binary":"./app","docs":"./docs"}}]})
+    json =
+      ~s({"tasks":[{"name":"build","command":"make","outputs":{"binary":"./app","docs":"./docs"}}]})
+
     {:ok, graph} = Sykli.Graph.parse(json)
     task = Map.get(graph, "build")
     assert is_map(task.outputs)

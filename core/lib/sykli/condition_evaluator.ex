@@ -33,6 +33,7 @@ defmodule Sykli.ConditionEvaluator do
 
   # Allow variable references (only whitelisted)
   defp validate_ast({var, _meta, nil}) when var in @allowed_vars, do: :ok
+
   defp validate_ast({var, _meta, nil}) when is_atom(var) do
     {:error, "unknown variable: #{var}. Allowed: #{Enum.join(@allowed_vars, ", ")}"}
   end

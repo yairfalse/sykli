@@ -66,9 +66,10 @@ defmodule Sykli.Cluster do
   @impl true
   def init(opts) do
     # Get topology from config or use default
-    topology = Keyword.get(opts, :topology) ||
-               Application.get_env(:sykli, :cluster_topology) ||
-               @default_topology
+    topology =
+      Keyword.get(opts, :topology) ||
+        Application.get_env(:sykli, :cluster_topology) ||
+        @default_topology
 
     children = [
       {Cluster.Supervisor, [topology, [name: Sykli.ClusterSupervisor]]}

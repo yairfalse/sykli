@@ -20,8 +20,10 @@ defmodule Sykli.Executor.Server do
   defstruct [:run_id, :project_path, :status, :tasks, :result, :caller]
 
   # Default timeouts (configurable via Application config)
-  @default_sync_timeout 600_000      # 10 minutes for execute_sync
-  @default_task_timeout 300_000      # 5 minutes per task level
+  # 10 minutes for execute_sync
+  @default_sync_timeout 600_000
+  # 5 minutes per task level
+  @default_task_timeout 300_000
 
   defp sync_timeout do
     Application.get_env(:sykli, :executor_sync_timeout, @default_sync_timeout)
@@ -102,6 +104,7 @@ defmodule Sykli.Executor.Server do
     # Spawn execution in a separate process so we don't block
     # Use spawn (not spawn_link) + try/catch to handle crashes gracefully
     parent = self()
+
     spawn(fn ->
       result =
         try do
@@ -110,6 +113,7 @@ defmodule Sykli.Executor.Server do
           kind, reason ->
             {:error, {:crashed, kind, reason}}
         end
+
       send(parent, {:execution_complete, run_id, result})
     end)
 
@@ -119,6 +123,7 @@ defmodule Sykli.Executor.Server do
       project_path: project_path,
       caller: from
     }
+
     new_state = put_in(state, [:active_runs, run_id], run_state)
 
     {:reply, {:ok, run_id}, new_state}
@@ -127,10 +132,12 @@ defmodule Sykli.Executor.Server do
   @impl true
   def handle_info({:execution_complete, run_id, result}, state) do
     # Update registry
-    completion_result = case result do
-      {:ok, _} -> :ok
-      {:error, _} -> {:error, :task_failed}
-    end
+    completion_result =
+      case result do
+        {:ok, _} -> :ok
+        {:error, _} -> {:error, :task_failed}
+      end
+
     RunRegistry.complete_run(run_id, completion_result)
 
     # Emit completion event
@@ -163,7 +170,9 @@ defmodule Sykli.Executor.Server do
   defp run_levels_with_events(run_id, [level | rest], workdir, acc) do
     level_size = length(level)
 
-    IO.puts("\n#{IO.ANSI.faint()}── Level with #{level_size} task(s)#{if level_size > 1, do: " (parallel)", else: ""} ──#{IO.ANSI.reset()}")
+    IO.puts(
+      "\n#{IO.ANSI.faint()}── Level with #{level_size} task(s)#{if level_size > 1, do: " (parallel)", else: ""} ──#{IO.ANSI.reset()}"
+    )
 
     async_tasks =
       level
@@ -203,12 +212,15 @@ defmodule Sykli.Executor.Server do
     # Full implementation would call into Sykli.Executor private functions
 
     command = task.command
+
     if command do
       now = :calendar.local_time()
       {_, {h, m, s}} = now
       timestamp = :io_lib.format("~2..0B:~2..0B:~2..0B", [h, m, s]) |> to_string()
 
-      IO.puts("#{IO.ANSI.cyan()}▶ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{timestamp} #{command}#{IO.ANSI.reset()}")
+      IO.puts(
+        "#{IO.ANSI.cyan()}▶ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{timestamp} #{command}#{IO.ANSI.reset()}"
+      )
 
       case System.cmd("sh", ["-c", command], cd: workdir, stderr_to_stdout: true) do
         {output, 0} ->
@@ -218,7 +230,11 @@ defmodule Sykli.Executor.Server do
 
         {output, code} ->
           IO.write("  #{IO.ANSI.faint()}#{output}#{IO.ANSI.reset()}")
-          IO.puts("#{IO.ANSI.red()}✗ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(exit #{code})#{IO.ANSI.reset()}")
+
+          IO.puts(
+            "#{IO.ANSI.red()}✗ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(exit #{code})#{IO.ANSI.reset()}"
+          )
+
           {:error, {:exit_code, code}}
       end
     else

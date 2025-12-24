@@ -23,19 +23,30 @@ defmodule Sykli.Graph do
       :depends_on,
       :condition,
       # CI features
-      :secrets,       # List of required secret environment variables
-      :matrix,        # Map of matrix dimensions (key -> [values])
-      :matrix_values, # Specific values for expanded tasks (key -> value)
-      :services,      # List of service containers (image, name)
+      # List of required secret environment variables
+      :secrets,
+      # Map of matrix dimensions (key -> [values])
+      :matrix,
+      # Specific values for expanded tasks (key -> value)
+      :matrix_values,
+      # List of service containers (image, name)
+      :services,
       # Robustness features
-      :retry,         # Number of retries on failure (nil = no retry)
-      :timeout,       # Timeout in seconds (nil = default 5 min)
+      # Number of retries on failure (nil = no retry)
+      :retry,
+      # Timeout in seconds (nil = default 5 min)
+      :timeout,
       # v2 fields
-      :container,     # Docker image to run in
-      :workdir,       # Working directory inside container
-      :env,           # Environment variables (map)
-      :mounts,        # List of mounts (directories and caches)
-      :task_inputs    # List of TaskInput structs (artifact bindings from other tasks)
+      # Docker image to run in
+      :container,
+      # Working directory inside container
+      :workdir,
+      # Environment variables (map)
+      :env,
+      # List of mounts (directories and caches)
+      :mounts,
+      # List of TaskInput structs (artifact bindings from other tasks)
+      :task_inputs
     ]
   end
 
@@ -83,6 +94,7 @@ defmodule Sykli.Graph do
   end
 
   defp parse_task_inputs(nil), do: []
+
   defp parse_task_inputs(task_inputs) when is_list(task_inputs) do
     Enum.map(task_inputs, fn ti ->
       %TaskInput{
@@ -94,6 +106,7 @@ defmodule Sykli.Graph do
   end
 
   defp parse_services(nil), do: []
+
   defp parse_services(services) when is_list(services) do
     Enum.map(services, fn s ->
       image = s["image"]
@@ -102,6 +115,7 @@ defmodule Sykli.Graph do
       if is_nil(image) or image == "" do
         raise "service image cannot be empty"
       end
+
       if is_nil(name) or name == "" do
         raise "service name cannot be empty"
       end
@@ -111,6 +125,7 @@ defmodule Sykli.Graph do
   end
 
   defp parse_mounts(nil), do: []
+
   defp parse_mounts(mounts) when is_list(mounts) do
     Enum.map(mounts, fn m ->
       resource = m["resource"]
@@ -121,9 +136,11 @@ defmodule Sykli.Graph do
       if is_nil(resource) or resource == "" do
         raise "mount resource cannot be empty"
       end
+
       if is_nil(path) or path == "" do
         raise "mount path cannot be empty"
       end
+
       if is_nil(type) or type not in ["directory", "cache"] do
         raise "mount type must be 'directory' or 'cache'"
       end
@@ -135,12 +152,14 @@ defmodule Sykli.Graph do
   # Handle both v1 (list) and v2 (map) output formats
   # v2 keeps outputs as map for named artifact passing
   defp normalize_outputs(nil), do: %{}
+
   defp normalize_outputs(outputs) when is_list(outputs) do
     # v1: list of paths - convert to auto-named map for consistency
     outputs
     |> Enum.with_index()
     |> Map.new(fn {path, idx} -> {"output_#{idx}", path} end)
   end
+
   defp normalize_outputs(outputs) when is_map(outputs), do: outputs
 
   @doc """
@@ -176,12 +195,7 @@ defmodule Sykli.Graph do
                 # Merge matrix values into env
                 new_env = Map.merge(task.env || %{}, combo)
 
-                %{task |
-                  name: new_name,
-                  matrix: nil,
-                  matrix_values: combo,
-                  env: new_env
-                }
+                %{task | name: new_name, matrix: nil, matrix_values: combo, env: new_env}
               end)
               |> Map.new(fn t -> {t.name, t} end)
 
@@ -341,6 +355,7 @@ defmodule Sykli.Graph do
 
           c[dep] == :white ->
             p = Map.put(p, dep, node)
+
             case dfs_detect_cycle(dep, deps, c, p) do
               {:cycle, path} -> {:halt, {:cycle, path}}
               {:ok, new_c, new_p} -> {:cont, {:ok, new_c, new_p}}
@@ -369,5 +384,4 @@ defmodule Sykli.Graph do
       build_cycle_path(Map.get(parent, current, target), target, parent, [current | path])
     end
   end
-
 end

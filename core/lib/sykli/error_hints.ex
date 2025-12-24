@@ -11,17 +11,34 @@ defmodule Sykli.ErrorHints do
   """
   def for_exit_code(code) when is_integer(code) do
     case code do
-      1 -> nil  # Too generic
-      2 -> "Command misuse - check arguments"
-      126 -> "Not executable - try: chmod +x <script>"
-      127 -> "Command not found - check PATH or install missing tool"
-      128 -> "Invalid exit code"
-      137 -> "Process killed (SIGKILL) - likely out of memory (OOM)"
-      143 -> "Process terminated (SIGTERM) - task was cancelled"
+      # Too generic
+      1 ->
+        nil
+
+      2 ->
+        "Command misuse - check arguments"
+
+      126 ->
+        "Not executable - try: chmod +x <script>"
+
+      127 ->
+        "Command not found - check PATH or install missing tool"
+
+      128 ->
+        "Invalid exit code"
+
+      137 ->
+        "Process killed (SIGKILL) - likely out of memory (OOM)"
+
+      143 ->
+        "Process terminated (SIGTERM) - task was cancelled"
+
       code when code > 128 and code < 256 ->
         signal = code - 128
         "Process killed by signal #{signal}"
-      _ -> nil
+
+      _ ->
+        nil
     end
   end
 
@@ -42,7 +59,8 @@ defmodule Sykli.ErrorHints do
     {~r/context deadline exceeded/i, "Request timed out - service may be slow or unresponsive"},
 
     # Docker issues
-    {~r/Unable to find image/i, "Docker image not found - check image name or run: docker pull <image>"},
+    {~r/Unable to find image/i,
+     "Docker image not found - check image name or run: docker pull <image>"},
     {~r/Cannot connect to the Docker daemon/i, "Docker not running - start Docker"},
     {~r/docker: Error response from daemon/i, "Docker error - check container logs"},
 
@@ -68,7 +86,7 @@ defmodule Sykli.ErrorHints do
     # Generic build issues
     {~r/out of memory/i, "Out of memory - reduce parallelism or increase memory"},
     {~r/disk quota exceeded/i, "Disk full - free up space"},
-    {~r/too many open files/i, "File descriptor limit - try: ulimit -n 4096"},
+    {~r/too many open files/i, "File descriptor limit - try: ulimit -n 4096"}
   ]
 
   @doc """
@@ -92,16 +110,18 @@ defmodule Sykli.ErrorHints do
     hints = []
 
     # Add exit code hint
-    hints = case for_exit_code(exit_code) do
-      nil -> hints
-      hint -> [hint | hints]
-    end
+    hints =
+      case for_exit_code(exit_code) do
+        nil -> hints
+        hint -> [hint | hints]
+      end
 
     # Add output pattern hint
-    hints = case for_output(output) do
-      nil -> hints
-      hint -> [hint | hints]
-    end
+    hints =
+      case for_output(output) do
+        nil -> hints
+        hint -> [hint | hints]
+      end
 
     Enum.reverse(hints) |> Enum.uniq()
   end
@@ -110,6 +130,7 @@ defmodule Sykli.ErrorHints do
   Formats hints for display.
   """
   def format_hints([]), do: ""
+
   def format_hints(hints) do
     hints
     |> Enum.map(fn hint -> "  #{IO.ANSI.yellow()}#{hint}#{IO.ANSI.reset()}" end)

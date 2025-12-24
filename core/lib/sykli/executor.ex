@@ -94,9 +94,14 @@ defmodule Sykli.Executor do
     next_tasks = rest |> List.flatten() |> Enum.map(& &1.name)
 
     # Show level header with upcoming tasks
-    IO.puts("\n#{IO.ANSI.faint()}── Level with #{level_size} task(s)#{if level_size > 1, do: " (parallel)", else: ""} ──#{IO.ANSI.reset()}")
+    IO.puts(
+      "\n#{IO.ANSI.faint()}── Level with #{level_size} task(s)#{if level_size > 1, do: " (parallel)", else: ""} ──#{IO.ANSI.reset()}"
+    )
+
     if length(next_tasks) > 0 do
-      IO.puts("#{IO.ANSI.faint()}   next → #{Enum.join(Enum.take(next_tasks, 3), ", ")}#{if length(next_tasks) > 3, do: " +#{length(next_tasks) - 3} more", else: ""}#{IO.ANSI.reset()}")
+      IO.puts(
+        "#{IO.ANSI.faint()}   next → #{Enum.join(Enum.take(next_tasks, 3), ", ")}#{if length(next_tasks) > 3, do: " +#{length(next_tasks) - 3} more", else: ""}#{IO.ANSI.reset()}"
+      )
     end
 
     # THIS IS THE PARALLEL BIT!
@@ -218,6 +223,7 @@ defmodule Sykli.Executor do
           "#{IO.ANSI.yellow()}↻ #{task.name}#{IO.ANSI.reset()} " <>
             "#{IO.ANSI.faint()}(retry #{attempt}/#{max_attempts - 1})#{IO.ANSI.reset()}"
         )
+
         do_run_with_retry(task, workdir, cache_key, attempt + 1, max_attempts, progress)
 
       {:error, reason} ->
@@ -225,7 +231,13 @@ defmodule Sykli.Executor do
     end
   end
 
-  defp run_and_cache(%Sykli.Graph.Task{name: name, outputs: outputs_raw, services: services, timeout: timeout} = task, workdir, cache_key, progress) do
+  defp run_and_cache(
+         %Sykli.Graph.Task{name: name, outputs: outputs_raw, services: services, timeout: timeout} =
+           task,
+         workdir,
+         cache_key,
+         progress
+       ) do
     # Convert outputs to list of paths for cache storage (handle both map and list formats)
     outputs = normalize_outputs_to_list(outputs_raw)
     prefix = progress_prefix(progress)
@@ -246,7 +258,9 @@ defmodule Sykli.Executor do
       cmd_tuple = build_command(task, workdir, network)
       display_cmd = elem(cmd_tuple, 2)
 
-      IO.puts("#{prefix}#{IO.ANSI.cyan()}▶ #{name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{timestamp} #{display_cmd}#{IO.ANSI.reset()}")
+      IO.puts(
+        "#{prefix}#{IO.ANSI.cyan()}▶ #{name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{timestamp} #{display_cmd}#{IO.ANSI.reset()}"
+      )
 
       # Post pending status to GitHub
       maybe_github_status(name, "pending")
@@ -259,7 +273,10 @@ defmodule Sykli.Executor do
         {:ok, 0, lines, _output} ->
           duration_ms = System.monotonic_time(:millisecond) - start_time
           lines_str = if lines > 0, do: " #{lines}L", else: ""
-          IO.puts("#{IO.ANSI.green()}✓ #{name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{format_duration(duration_ms)}#{lines_str}#{IO.ANSI.reset()}")
+
+          IO.puts(
+            "#{IO.ANSI.green()}✓ #{name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{format_duration(duration_ms)}#{lines_str}#{IO.ANSI.reset()}"
+          )
 
           # Store in cache with outputs
           if cache_key do
@@ -273,26 +290,37 @@ defmodule Sykli.Executor do
           duration_ms = System.monotonic_time(:millisecond) - start_time
 
           # Show structured error with full context
-          error = Sykli.TaskError.new(
-            task: name,
-            command: display_cmd,
-            exit_code: code,
-            output: output,
-            duration_ms: duration_ms
-          )
+          error =
+            Sykli.TaskError.new(
+              task: name,
+              command: display_cmd,
+              exit_code: code,
+              output: output,
+              duration_ms: duration_ms
+            )
+
           IO.puts(Sykli.TaskError.format(error))
 
           maybe_github_status(name, "failure")
           {:error, {:exit_code, code}}
 
         {:error, :timeout} ->
-          IO.puts("#{IO.ANSI.red()}✗ #{name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(timeout after #{timeout}s)#{IO.ANSI.reset()}")
-          IO.puts("  #{IO.ANSI.yellow()}Increase timeout or check if task is stuck#{IO.ANSI.reset()}")
+          IO.puts(
+            "#{IO.ANSI.red()}✗ #{name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(timeout after #{timeout}s)#{IO.ANSI.reset()}"
+          )
+
+          IO.puts(
+            "  #{IO.ANSI.yellow()}Increase timeout or check if task is stuck#{IO.ANSI.reset()}"
+          )
+
           maybe_github_status(name, "failure")
           {:error, :timeout}
 
         {:error, reason} ->
-          IO.puts("#{IO.ANSI.red()}✗ #{name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(error: #{inspect(reason)})#{IO.ANSI.reset()}")
+          IO.puts(
+            "#{IO.ANSI.red()}✗ #{name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(error: #{inspect(reason)})#{IO.ANSI.reset()}"
+          )
+
           maybe_github_status(name, "failure")
           {:error, reason}
       end
@@ -307,6 +335,7 @@ defmodule Sykli.Executor do
   # Start service containers and create network
   # Returns {network_name | nil, [container_ids]}
   defp start_services(_task_name, []), do: {nil, []}
+
   defp start_services(task_name, services) do
     docker_path = System.find_executable("docker") || "/usr/bin/docker"
     network_name = "sykli-#{sanitize_volume_name(task_name)}-#{:rand.uniform(100_000)}"
@@ -321,13 +350,22 @@ defmodule Sykli.Executor do
         container_name = "#{network_name}-#{name}"
 
         # Run container detached on the network
-        {output, 0} = System.cmd(docker_path, [
-          "run", "-d",
-          "--name", container_name,
-          "--network", network_name,
-          "--network-alias", name,
-          image
-        ], stderr_to_stdout: true)
+        {output, 0} =
+          System.cmd(
+            docker_path,
+            [
+              "run",
+              "-d",
+              "--name",
+              container_name,
+              "--network",
+              network_name,
+              "--network-alias",
+              name,
+              image
+            ],
+            stderr_to_stdout: true
+          )
 
         container_id = String.trim(output)
         IO.puts("  #{IO.ANSI.faint()}Started service #{name} (#{image})#{IO.ANSI.reset()}")
@@ -344,6 +382,7 @@ defmodule Sykli.Executor do
 
   # Stop service containers and remove network
   defp stop_services(nil, []), do: :ok
+
   defp stop_services(network_name, container_ids) do
     docker_path = System.find_executable("docker") || "/usr/bin/docker"
 
@@ -415,8 +454,13 @@ defmodule Sykli.Executor do
       |> Enum.flat_map(fn {k, v} -> ["-e", "#{k}=#{v}"] end)
 
     # Build args list - each arg passed directly to docker (no shell injection possible)
-    all_args = docker_args ++ network_args ++ mount_args ++ workdir_args ++ env_args ++
-               [task.container, "sh", "-c", task.command]
+    all_args =
+      docker_args ++
+        network_args ++
+        mount_args ++
+        workdir_args ++
+        env_args ++
+        [task.container, "sh", "-c", task.command]
 
     display = "[#{task.container}] #{task.command}"
     {:docker, all_args, display}
@@ -435,11 +479,13 @@ defmodule Sykli.Executor do
     case String.split(resource, ":", parts: 2) do
       ["src", path] ->
         # Expand and normalize the path to prevent traversal
-        full_path = if String.starts_with?(path, "/") do
-          path
-        else
-          Path.join(abs_workdir, path)
-        end
+        full_path =
+          if String.starts_with?(path, "/") do
+            path
+          else
+            Path.join(abs_workdir, path)
+          end
+
         # Expand to resolve .. and normalize
         Path.expand(full_path)
 
@@ -451,16 +497,17 @@ defmodule Sykli.Executor do
   # Run command with streaming output to console
   defp run_streaming({:shell, command, _display}, workdir, timeout_ms) do
     # Shell command - use Port with sh -c
-    port = Port.open(
-      {:spawn_executable, "/bin/sh"},
-      [
-        :binary,
-        :exit_status,
-        :stderr_to_stdout,
-        args: ["-c", command],
-        cd: workdir
-      ]
-    )
+    port =
+      Port.open(
+        {:spawn_executable, "/bin/sh"},
+        [
+          :binary,
+          :exit_status,
+          :stderr_to_stdout,
+          args: ["-c", command],
+          cd: workdir
+        ]
+      )
 
     try do
       stream_output(port, timeout_ms)
@@ -473,16 +520,17 @@ defmodule Sykli.Executor do
     # Docker command - use Port with docker directly (no shell, no escaping needed)
     docker_path = System.find_executable("docker") || "/usr/bin/docker"
 
-    port = Port.open(
-      {:spawn_executable, docker_path},
-      [
-        :binary,
-        :exit_status,
-        :stderr_to_stdout,
-        args: args,
-        cd: workdir
-      ]
-    )
+    port =
+      Port.open(
+        {:spawn_executable, docker_path},
+        [
+          :binary,
+          :exit_status,
+          :stderr_to_stdout,
+          args: args,
+          cd: workdir
+        ]
+      )
 
     try do
       stream_output(port, timeout_ms)
@@ -566,6 +614,7 @@ defmodule Sykli.Executor do
   # Convert outputs to map format (for artifact lookup by name)
   defp normalize_outputs_to_map(nil), do: %{}
   defp normalize_outputs_to_map(outputs) when is_map(outputs), do: outputs
+
   defp normalize_outputs_to_map(outputs) when is_list(outputs) do
     outputs
     |> Enum.with_index()
@@ -578,7 +627,11 @@ defmodule Sykli.Executor do
   defp resolve_task_inputs(%Sykli.Graph.Task{task_inputs: nil}, _graph, _workdir), do: :ok
   defp resolve_task_inputs(%Sykli.Graph.Task{task_inputs: []}, _graph, _workdir), do: :ok
 
-  defp resolve_task_inputs(%Sykli.Graph.Task{name: task_name, task_inputs: task_inputs}, graph, workdir) do
+  defp resolve_task_inputs(
+         %Sykli.Graph.Task{name: task_name, task_inputs: task_inputs},
+         graph,
+         workdir
+       ) do
     abs_workdir = Path.expand(workdir)
 
     results =
@@ -597,7 +650,10 @@ defmodule Sykli.Executor do
     # Find the source task
     case Map.get(graph, from_task) do
       nil ->
-        IO.puts("#{IO.ANSI.red()}✗ #{task_name}: source task '#{from_task}' not found#{IO.ANSI.reset()}")
+        IO.puts(
+          "#{IO.ANSI.red()}✗ #{task_name}: source task '#{from_task}' not found#{IO.ANSI.reset()}"
+        )
+
         {:error, {:source_task_not_found, from_task}}
 
       source_task ->
@@ -606,7 +662,10 @@ defmodule Sykli.Executor do
 
         case Map.get(outputs, output_name) do
           nil ->
-            IO.puts("#{IO.ANSI.red()}✗ #{task_name}: output '#{output_name}' not found in task '#{from_task}'#{IO.ANSI.reset()}")
+            IO.puts(
+              "#{IO.ANSI.red()}✗ #{task_name}: output '#{output_name}' not found in task '#{from_task}'#{IO.ANSI.reset()}"
+            )
+
             {:error, {:output_not_found, from_task, output_name}}
 
           source_path ->
@@ -622,11 +681,17 @@ defmodule Sykli.Executor do
 
     cond do
       not String.starts_with?(abs_source, workdir) ->
-        IO.puts("#{IO.ANSI.red()}✗ #{task_name}: source path escapes workdir: #{source_path}#{IO.ANSI.reset()}")
+        IO.puts(
+          "#{IO.ANSI.red()}✗ #{task_name}: source path escapes workdir: #{source_path}#{IO.ANSI.reset()}"
+        )
+
         {:error, {:path_traversal, source_path}}
 
       not String.starts_with?(abs_dest, workdir) ->
-        IO.puts("#{IO.ANSI.red()}✗ #{task_name}: dest path escapes workdir: #{dest_path}#{IO.ANSI.reset()}")
+        IO.puts(
+          "#{IO.ANSI.red()}✗ #{task_name}: dest path escapes workdir: #{dest_path}#{IO.ANSI.reset()}"
+        )
+
         {:error, {:path_traversal, dest_path}}
 
       File.regular?(abs_source) ->
@@ -642,16 +707,23 @@ defmodule Sykli.Executor do
                   {:ok, %{mode: mode}} -> File.chmod(abs_dest, mode)
                   _ -> :ok
                 end
+
                 IO.puts("  #{IO.ANSI.faint()}← #{source_path} → #{dest_path}#{IO.ANSI.reset()}")
                 :ok
 
               {:error, reason} ->
-                IO.puts("#{IO.ANSI.red()}✗ #{task_name}: failed to copy #{source_path}: #{inspect(reason)}#{IO.ANSI.reset()}")
+                IO.puts(
+                  "#{IO.ANSI.red()}✗ #{task_name}: failed to copy #{source_path}: #{inspect(reason)}#{IO.ANSI.reset()}"
+                )
+
                 {:error, {:copy_failed, source_path, reason}}
             end
 
           {:error, reason} ->
-            IO.puts("#{IO.ANSI.red()}✗ #{task_name}: failed to create directory #{dest_dir}: #{inspect(reason)}#{IO.ANSI.reset()}")
+            IO.puts(
+              "#{IO.ANSI.red()}✗ #{task_name}: failed to create directory #{dest_dir}: #{inspect(reason)}#{IO.ANSI.reset()}"
+            )
+
             {:error, {:mkdir_failed, dest_dir, reason}}
         end
 
@@ -665,17 +737,26 @@ defmodule Sykli.Executor do
                 :ok
 
               {:error, reason, _file} ->
-                IO.puts("#{IO.ANSI.red()}✗ #{task_name}: failed to copy directory #{source_path}: #{inspect(reason)}#{IO.ANSI.reset()}")
+                IO.puts(
+                  "#{IO.ANSI.red()}✗ #{task_name}: failed to copy directory #{source_path}: #{inspect(reason)}#{IO.ANSI.reset()}"
+                )
+
                 {:error, {:copy_failed, source_path, reason}}
             end
 
           {:error, reason} ->
-            IO.puts("#{IO.ANSI.red()}✗ #{task_name}: failed to create directory #{abs_dest}: #{inspect(reason)}#{IO.ANSI.reset()}")
+            IO.puts(
+              "#{IO.ANSI.red()}✗ #{task_name}: failed to create directory #{abs_dest}: #{inspect(reason)}#{IO.ANSI.reset()}"
+            )
+
             {:error, {:mkdir_failed, abs_dest, reason}}
         end
 
       true ->
-        IO.puts("#{IO.ANSI.red()}✗ #{task_name}: source file not found: #{source_path}#{IO.ANSI.reset()}")
+        IO.puts(
+          "#{IO.ANSI.red()}✗ #{task_name}: source file not found: #{source_path}#{IO.ANSI.reset()}"
+        )
+
         {:error, {:source_not_found, source_path}}
     end
   end
@@ -747,6 +828,7 @@ defmodule Sykli.Executor do
         IO.puts(
           "#{IO.ANSI.yellow()}⚠ Invalid condition: #{condition} (#{reason})#{IO.ANSI.reset()}"
         )
+
         # On error, skip the task (safer than running)
         false
     end
@@ -755,6 +837,7 @@ defmodule Sykli.Executor do
   # ----- PROGRESS PREFIX -----
 
   defp progress_prefix(nil), do: ""
+
   defp progress_prefix({current, total}) do
     "#{IO.ANSI.faint()}[#{current}/#{total}]#{IO.ANSI.reset()} "
   end
@@ -768,7 +851,9 @@ defmodule Sykli.Executor do
   # ----- SUMMARY -----
 
   defp print_summary({:ok, results}, total_time), do: do_print_summary(results, total_time, :ok)
-  defp print_summary({:error, results}, total_time), do: do_print_summary(results, total_time, :error)
+
+  defp print_summary({:error, results}, total_time),
+    do: do_print_summary(results, total_time, :error)
 
   defp do_print_summary(results, total_time, status) do
     if Enum.empty?(results) do
@@ -785,9 +870,9 @@ defmodule Sykli.Executor do
 
       IO.puts(
         "#{color}#{icon}#{IO.ANSI.reset()} " <>
-        "#{IO.ANSI.bright()}#{passed} passed#{IO.ANSI.reset()}" <>
-        if(failed > 0, do: ", #{IO.ANSI.red()}#{failed} failed#{IO.ANSI.reset()}", else: "") <>
-        " #{IO.ANSI.faint()}in #{format_duration(total_time)}#{IO.ANSI.reset()}"
+          "#{IO.ANSI.bright()}#{passed} passed#{IO.ANSI.reset()}" <>
+          if(failed > 0, do: ", #{IO.ANSI.red()}#{failed} failed#{IO.ANSI.reset()}", else: "") <>
+          " #{IO.ANSI.faint()}in #{format_duration(total_time)}#{IO.ANSI.reset()}"
       )
 
       # Show slowest tasks if there are more than 3
@@ -801,6 +886,7 @@ defmodule Sykli.Executor do
         if length(slowest) > 0 do
           IO.puts("")
           IO.puts("#{IO.ANSI.faint()}Slowest:#{IO.ANSI.reset()}")
+
           Enum.each(slowest, fn {name, _result, duration} ->
             IO.puts("  #{IO.ANSI.faint()}#{format_duration(duration)}#{IO.ANSI.reset()} #{name}")
           end)

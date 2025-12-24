@@ -13,6 +13,7 @@ defmodule Sykli.Executor.ServerTest do
         command: "echo hello",
         depends_on: []
       }
+
       graph = %{"fast_task" => task}
 
       {:ok, run_id} = Server.execute("/tmp", [task], graph)
@@ -29,15 +30,17 @@ defmodule Sykli.Executor.ServerTest do
         command: "echo test",
         depends_on: []
       }
+
       graph = %{"event_task" => task}
 
       {:ok, run_id} = Server.execute("/tmp", [task], graph)
 
       assert_receive %Event{
-        type: :run_started,
-        run_id: ^run_id,
-        data: %{tasks: ["event_task"]}
-      }, 1000
+                       type: :run_started,
+                       run_id: ^run_id,
+                       data: %{tasks: ["event_task"]}
+                     },
+                     1000
     end
 
     test "emits task_started and task_completed events" do
@@ -48,12 +51,24 @@ defmodule Sykli.Executor.ServerTest do
         command: "echo traced",
         depends_on: []
       }
+
       graph = %{"traced_task" => task}
 
       {:ok, run_id} = Server.execute("/tmp", [task], graph)
 
-      assert_receive %Event{type: :task_started, run_id: ^run_id, data: %{task_name: "traced_task"}}, 1000
-      assert_receive %Event{type: :task_completed, run_id: ^run_id, data: %{task_name: "traced_task"}}, 1000
+      assert_receive %Event{
+                       type: :task_started,
+                       run_id: ^run_id,
+                       data: %{task_name: "traced_task"}
+                     },
+                     1000
+
+      assert_receive %Event{
+                       type: :task_completed,
+                       run_id: ^run_id,
+                       data: %{task_name: "traced_task"}
+                     },
+                     1000
     end
 
     test "emits run_completed event" do
@@ -64,6 +79,7 @@ defmodule Sykli.Executor.ServerTest do
         command: "echo done",
         depends_on: []
       }
+
       graph = %{"complete_task" => task}
 
       {:ok, run_id} = Server.execute("/tmp", [task], graph)
@@ -77,6 +93,7 @@ defmodule Sykli.Executor.ServerTest do
         command: "echo registry",
         depends_on: []
       }
+
       graph = %{"registry_task" => task}
 
       {:ok, run_id} = Server.execute("/tmp", [task], graph)
@@ -97,6 +114,7 @@ defmodule Sykli.Executor.ServerTest do
         command: "echo sync",
         depends_on: []
       }
+
       graph = %{"sync_task" => task}
 
       result = Server.execute_sync("/tmp", [task], graph)
@@ -113,6 +131,7 @@ defmodule Sykli.Executor.ServerTest do
         command: "exit 1",
         depends_on: []
       }
+
       graph = %{"fail_task" => task}
 
       result = Server.execute_sync("/tmp", [task], graph)
@@ -130,6 +149,7 @@ defmodule Sykli.Executor.ServerTest do
         command: "echo quick",
         depends_on: []
       }
+
       graph = %{"quick_task" => task}
 
       result = Server.execute_sync("/tmp", [task], graph)
@@ -147,6 +167,7 @@ defmodule Sykli.Executor.ServerTest do
         command: "echo status",
         depends_on: []
       }
+
       graph = %{"status_task" => task}
 
       {:ok, run_id} = Server.execute("/tmp", [task], graph)
@@ -198,6 +219,7 @@ defmodule Sykli.Executor.ServerTest do
         command: nil,
         depends_on: []
       }
+
       graph = %{"no_command_task" => task}
 
       result = Server.execute_sync("/tmp", [task], graph)
@@ -216,6 +238,7 @@ defmodule Sykli.Executor.ServerTest do
         command: "nonexistent_command_xyz_123",
         depends_on: []
       }
+
       graph = %{"bad_cmd" => task}
 
       {:ok, run_id} = Server.execute("/tmp", [task], graph)

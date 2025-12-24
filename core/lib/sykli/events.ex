@@ -74,11 +74,12 @@ defmodule Sykli.Events do
   Broadcast a run_started event. Returns the Event struct.
   """
   def run_started(run_id, project_path, tasks) do
-    event = Event.new(:run_started, run_id, %{
-      project_path: project_path,
-      tasks: tasks,
-      task_count: length(tasks)
-    })
+    event =
+      Event.new(:run_started, run_id, %{
+        project_path: project_path,
+        tasks: tasks,
+        task_count: length(tasks)
+      })
 
     broadcast(event)
     broadcast_legacy({:run_started, run_id, project_path, tasks}, run_id)
@@ -100,10 +101,11 @@ defmodule Sykli.Events do
   Broadcast task output. Returns the Event struct.
   """
   def task_output(run_id, task_name, output) do
-    event = Event.new(:task_output, run_id, %{
-      task_name: task_name,
-      output: output
-    })
+    event =
+      Event.new(:task_output, run_id, %{
+        task_name: task_name,
+        output: output
+      })
 
     broadcast(event)
     broadcast_legacy({:task_output, run_id, task_name, output}, run_id)
@@ -120,11 +122,12 @@ defmodule Sykli.Events do
         {:error, reason} -> {:failure, reason}
       end
 
-    event = Event.new(:task_completed, run_id, %{
-      task_name: task_name,
-      outcome: outcome,
-      error: error
-    })
+    event =
+      Event.new(:task_completed, run_id, %{
+        task_name: task_name,
+        outcome: outcome,
+        error: error
+      })
 
     broadcast(event)
     broadcast_legacy({:task_completed, run_id, task_name, result}, run_id)
@@ -141,10 +144,11 @@ defmodule Sykli.Events do
         {:error, reason} -> {:failure, reason}
       end
 
-    event = Event.new(:run_completed, run_id, %{
-      outcome: outcome,
-      error: error
-    })
+    event =
+      Event.new(:run_completed, run_id, %{
+        outcome: outcome,
+        error: error
+      })
 
     broadcast(event)
     broadcast_legacy({:run_completed, run_id, result}, run_id)

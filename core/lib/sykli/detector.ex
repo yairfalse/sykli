@@ -65,7 +65,9 @@ defmodule Sykli.Detector do
         if not command_exists?("cargo") do
           {:error, {:missing_tool, "cargo", "Install Rust from https://rustup.rs/"}}
         else
-          case System.cmd("cargo", ["run", "--bin", "sykli", "--features", "sykli", "--", "--emit"],
+          case System.cmd(
+                 "cargo",
+                 ["run", "--bin", "sykli", "--features", "sykli", "--", "--emit"],
                  cd: dir,
                  stderr_to_stdout: true
                ) do
@@ -100,7 +102,8 @@ defmodule Sykli.Detector do
 
   def run_elixir(path) do
     if not command_exists?("elixir") do
-      {:error, {:missing_tool, "elixir", "Install Elixir from https://elixir-lang.org/install.html"}}
+      {:error,
+       {:missing_tool, "elixir", "Install Elixir from https://elixir-lang.org/install.html"}}
     else
       dir = Path.dirname(path)
       file = Path.basename(path)

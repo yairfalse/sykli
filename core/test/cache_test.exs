@@ -118,8 +118,15 @@ defmodule Sykli.CacheTest do
     end
 
     test "changes when mounts change" do
-      task1 = make_task("build", "go build", mounts: [%{resource: "src:.", path: "/src", type: "directory"}])
-      task2 = make_task("build", "go build", mounts: [%{resource: "src:.", path: "/app", type: "directory"}])
+      task1 =
+        make_task("build", "go build",
+          mounts: [%{resource: "src:.", path: "/src", type: "directory"}]
+        )
+
+      task2 =
+        make_task("build", "go build",
+          mounts: [%{resource: "src:.", path: "/app", type: "directory"}]
+        )
 
       key1 = Sykli.Cache.cache_key(task1, @test_workdir)
       key2 = Sykli.Cache.cache_key(task2, @test_workdir)
@@ -128,11 +135,12 @@ defmodule Sykli.CacheTest do
     end
 
     test "same v2 config produces same key" do
-      task = make_task("build", "go build",
-        container: "golang:1.21",
-        env: %{"CGO_ENABLED" => "0"},
-        mounts: [%{resource: "src:.", path: "/src", type: "directory"}]
-      )
+      task =
+        make_task("build", "go build",
+          container: "golang:1.21",
+          env: %{"CGO_ENABLED" => "0"},
+          mounts: [%{resource: "src:.", path: "/src", type: "directory"}]
+        )
 
       key1 = Sykli.Cache.cache_key(task, @test_workdir)
       key2 = Sykli.Cache.cache_key(task, @test_workdir)

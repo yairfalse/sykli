@@ -21,20 +21,21 @@ defmodule Sykli.GitHub do
     prefix = Keyword.get(opts, :prefix, "ci/sykli")
     context = "#{prefix}/#{task_name}"
 
-    body = Jason.encode!(%{
-      state: state,
-      context: context,
-      description: description_for(state, task_name)
-    })
+    body =
+      Jason.encode!(%{
+        state: state,
+        context: context,
+        description: description_for(state, task_name)
+      })
 
     url = "#{@api_url}/repos/#{repo()}/statuses/#{sha()}"
 
     case :httpc.request(
-      :post,
-      {String.to_charlist(url), headers(), ~c"application/json", body},
-      [{:ssl, ssl_opts()}],
-      []
-    ) do
+           :post,
+           {String.to_charlist(url), headers(), ~c"application/json", body},
+           [{:ssl, ssl_opts()}],
+           []
+         ) do
       {:ok, {{_, code, _}, _, _}} when code in 200..299 ->
         :ok
 

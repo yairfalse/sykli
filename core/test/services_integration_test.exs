@@ -14,7 +14,9 @@ defmodule Sykli.ServicesIntegrationTest do
   setup_all do
     # Check if Docker is available
     case System.cmd("docker", ["version"], stderr_to_stdout: true) do
-      {_, 0} -> :ok
+      {_, 0} ->
+        :ok
+
       _ ->
         IO.puts("\nSkipping service tests: Docker not available")
         :skip
@@ -37,6 +39,7 @@ defmodule Sykli.ServicesIntegrationTest do
     test "postgres service is accessible from task" do
       # Create a test script that checks postgres connectivity
       script_path = Path.join(@test_workdir, "test_postgres.sh")
+
       File.write!(script_path, """
       #!/bin/sh
       set -e
@@ -52,20 +55,24 @@ defmodule Sykli.ServicesIntegrationTest do
       echo "Postgres not ready after 30s"
       exit 1
       """)
+
       File.chmod!(script_path, 0o755)
 
       # Create a pipeline with a postgres service
-      json = Jason.encode!(%{
-        "version" => "2",
-        "tasks" => [%{
-          "name" => "test-postgres",
-          "command" => "/test/test_postgres.sh",
-          "container" => "postgres:15",
-          "mounts" => [%{"resource" => "src:.", "path" => "/test", "type" => "directory"}],
-          "services" => [%{"image" => "postgres:15", "name" => "db"}],
-          "env" => %{"PGPASSWORD" => "postgres"}
-        }]
-      })
+      json =
+        Jason.encode!(%{
+          "version" => "2",
+          "tasks" => [
+            %{
+              "name" => "test-postgres",
+              "command" => "/test/test_postgres.sh",
+              "container" => "postgres:15",
+              "mounts" => [%{"resource" => "src:.", "path" => "/test", "type" => "directory"}],
+              "services" => [%{"image" => "postgres:15", "name" => "db"}],
+              "env" => %{"PGPASSWORD" => "postgres"}
+            }
+          ]
+        })
 
       {:ok, graph} = Sykli.Graph.parse(json)
       {:ok, order} = Sykli.Graph.topo_sort(graph)
@@ -79,6 +86,7 @@ defmodule Sykli.ServicesIntegrationTest do
     test "redis service is accessible from task" do
       # Create a test script that checks redis connectivity
       script_path = Path.join(@test_workdir, "test_redis.sh")
+
       File.write!(script_path, """
       #!/bin/sh
       set -e
@@ -94,18 +102,22 @@ defmodule Sykli.ServicesIntegrationTest do
       echo "Redis not ready after 30s"
       exit 1
       """)
+
       File.chmod!(script_path, 0o755)
 
-      json = Jason.encode!(%{
-        "version" => "2",
-        "tasks" => [%{
-          "name" => "test-redis",
-          "command" => "/test/test_redis.sh",
-          "container" => "redis:7",
-          "mounts" => [%{"resource" => "src:.", "path" => "/test", "type" => "directory"}],
-          "services" => [%{"image" => "redis:7", "name" => "cache"}]
-        }]
-      })
+      json =
+        Jason.encode!(%{
+          "version" => "2",
+          "tasks" => [
+            %{
+              "name" => "test-redis",
+              "command" => "/test/test_redis.sh",
+              "container" => "redis:7",
+              "mounts" => [%{"resource" => "src:.", "path" => "/test", "type" => "directory"}],
+              "services" => [%{"image" => "redis:7", "name" => "cache"}]
+            }
+          ]
+        })
 
       {:ok, graph} = Sykli.Graph.parse(json)
       {:ok, order} = Sykli.Graph.topo_sort(graph)
@@ -119,6 +131,7 @@ defmodule Sykli.ServicesIntegrationTest do
     test "multiple services accessible simultaneously" do
       # Create a test script that checks both services
       script_path = Path.join(@test_workdir, "test_multi.sh")
+
       File.write!(script_path, """
       #!/bin/sh
       set -e
@@ -144,22 +157,26 @@ defmodule Sykli.ServicesIntegrationTest do
       echo "Both services are accessible"
       exit 0
       """)
+
       File.chmod!(script_path, 0o755)
 
-      json = Jason.encode!(%{
-        "version" => "2",
-        "tasks" => [%{
-          "name" => "test-multi",
-          "command" => "/test/test_multi.sh",
-          "container" => "postgres:15",
-          "mounts" => [%{"resource" => "src:.", "path" => "/test", "type" => "directory"}],
-          "services" => [
-            %{"image" => "postgres:15", "name" => "db"},
-            %{"image" => "redis:7", "name" => "cache"}
-          ],
-          "env" => %{"PGPASSWORD" => "postgres"}
-        }]
-      })
+      json =
+        Jason.encode!(%{
+          "version" => "2",
+          "tasks" => [
+            %{
+              "name" => "test-multi",
+              "command" => "/test/test_multi.sh",
+              "container" => "postgres:15",
+              "mounts" => [%{"resource" => "src:.", "path" => "/test", "type" => "directory"}],
+              "services" => [
+                %{"image" => "postgres:15", "name" => "db"},
+                %{"image" => "redis:7", "name" => "cache"}
+              ],
+              "env" => %{"PGPASSWORD" => "postgres"}
+            }
+          ]
+        })
 
       {:ok, graph} = Sykli.Graph.parse(json)
       {:ok, order} = Sykli.Graph.topo_sort(graph)
@@ -173,23 +190,28 @@ defmodule Sykli.ServicesIntegrationTest do
     test "service cleanup on task failure" do
       # Create a script that fails after checking service
       script_path = Path.join(@test_workdir, "fail.sh")
+
       File.write!(script_path, """
       #!/bin/sh
       echo "Starting failing task"
       exit 1
       """)
+
       File.chmod!(script_path, 0o755)
 
-      json = Jason.encode!(%{
-        "version" => "2",
-        "tasks" => [%{
-          "name" => "failing-task",
-          "command" => "/test/fail.sh",
-          "container" => "alpine:latest",
-          "mounts" => [%{"resource" => "src:.", "path" => "/test", "type" => "directory"}],
-          "services" => [%{"image" => "redis:7", "name" => "cache"}]
-        }]
-      })
+      json =
+        Jason.encode!(%{
+          "version" => "2",
+          "tasks" => [
+            %{
+              "name" => "failing-task",
+              "command" => "/test/fail.sh",
+              "container" => "alpine:latest",
+              "mounts" => [%{"resource" => "src:.", "path" => "/test", "type" => "directory"}],
+              "services" => [%{"image" => "redis:7", "name" => "cache"}]
+            }
+          ]
+        })
 
       {:ok, graph} = Sykli.Graph.parse(json)
       {:ok, order} = Sykli.Graph.topo_sort(graph)
@@ -199,10 +221,14 @@ defmodule Sykli.ServicesIntegrationTest do
       assert {:error, _} = result
 
       # Verify no orphan containers or networks remain
-      {output, 0} = System.cmd("docker", ["ps", "-a", "--format", "{{.Names}}"], stderr_to_stdout: true)
+      {output, 0} =
+        System.cmd("docker", ["ps", "-a", "--format", "{{.Names}}"], stderr_to_stdout: true)
+
       refute String.contains?(output, "sykli-failing-task")
 
-      {output, 0} = System.cmd("docker", ["network", "ls", "--format", "{{.Name}}"], stderr_to_stdout: true)
+      {output, 0} =
+        System.cmd("docker", ["network", "ls", "--format", "{{.Name}}"], stderr_to_stdout: true)
+
       refute String.contains?(output, "sykli-failing-task")
     end
   end
@@ -211,6 +237,7 @@ defmodule Sykli.ServicesIntegrationTest do
     @tag timeout: 60_000
     test "task container can resolve service by name" do
       script_path = Path.join(@test_workdir, "resolve.sh")
+
       File.write!(script_path, """
       #!/bin/sh
       set -e
@@ -218,18 +245,22 @@ defmodule Sykli.ServicesIntegrationTest do
       getent hosts myservice || nslookup myservice || host myservice
       echo "Service name resolved successfully"
       """)
+
       File.chmod!(script_path, 0o755)
 
-      json = Jason.encode!(%{
-        "version" => "2",
-        "tasks" => [%{
-          "name" => "test-resolve",
-          "command" => "/test/resolve.sh",
-          "container" => "alpine:latest",
-          "mounts" => [%{"resource" => "src:.", "path" => "/test", "type" => "directory"}],
-          "services" => [%{"image" => "alpine:latest", "name" => "myservice"}]
-        }]
-      })
+      json =
+        Jason.encode!(%{
+          "version" => "2",
+          "tasks" => [
+            %{
+              "name" => "test-resolve",
+              "command" => "/test/resolve.sh",
+              "container" => "alpine:latest",
+              "mounts" => [%{"resource" => "src:.", "path" => "/test", "type" => "directory"}],
+              "services" => [%{"image" => "alpine:latest", "name" => "myservice"}]
+            }
+          ]
+        })
 
       {:ok, graph} = Sykli.Graph.parse(json)
       {:ok, order} = Sykli.Graph.topo_sort(graph)
@@ -239,10 +270,14 @@ defmodule Sykli.ServicesIntegrationTest do
       _result = Sykli.Executor.run(order, graph, workdir: @test_workdir)
 
       # Verify cleanup happened regardless of task result
-      {output, 0} = System.cmd("docker", ["ps", "-a", "--format", "{{.Names}}"], stderr_to_stdout: true)
+      {output, 0} =
+        System.cmd("docker", ["ps", "-a", "--format", "{{.Names}}"], stderr_to_stdout: true)
+
       refute String.contains?(output, "sykli-test-resolve")
 
-      {output, 0} = System.cmd("docker", ["network", "ls", "--format", "{{.Name}}"], stderr_to_stdout: true)
+      {output, 0} =
+        System.cmd("docker", ["network", "ls", "--format", "{{.Name}}"], stderr_to_stdout: true)
+
       refute String.contains?(output, "sykli-test-resolve")
     end
   end
