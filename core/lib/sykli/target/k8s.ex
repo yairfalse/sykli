@@ -14,7 +14,7 @@ defmodule Sykli.Target.K8s do
   standard Kubernetes Jobs:
 
   1. Build Job manifest from task spec + K8s options
-  2. Create Job via kubectl/API
+  2. Create Job via K8s API
   3. Wait for completion
   4. Collect logs and exit code
   5. Delete Job
@@ -23,19 +23,18 @@ defmodule Sykli.Target.K8s do
 
   The target can run:
   - **In-cluster**: Uses service account token (automatic in pods)
-  - **Out-of-cluster**: Uses kubeconfig file
+  - **Out-of-cluster**: Uses kubeconfig file (auto-detected)
 
   ## State
 
   - `namespace`: Target namespace for Jobs
-  - `kubeconfig`: Path to kubeconfig (nil for in-cluster)
+  - `auth_config`: K8s API auth configuration
   - `artifact_pvc`: PVC name for artifact storage
 
   ## Example
 
       {:ok, state} = Sykli.Target.K8s.setup(
-        namespace: "sykli-jobs",
-        kubeconfig: "~/.kube/config"
+        namespace: "sykli-jobs"
       )
 
       :ok = Sykli.Target.K8s.run_task(task, state, [])
@@ -44,10 +43,14 @@ defmodule Sykli.Target.K8s do
   @behaviour Sykli.Target.Behaviour
 
   alias Sykli.Target.K8sOptions
+  alias Sykli.K8s.Auth
+  alias Sykli.K8s.Client
+  alias Sykli.K8s.Error
+  alias Sykli.K8s.Resources.Job
 
   defstruct [
     :namespace,
-    :kubeconfig,
+    :auth_config,
     :artifact_pvc,
     :in_cluster
   ]
@@ -61,20 +64,16 @@ defmodule Sykli.Target.K8s do
 
   @impl true
   def available? do
-    cond do
-      # Check for in-cluster config first
-      in_cluster?() ->
-        {:ok, %{mode: :in_cluster}}
+    case Auth.detect() do
+      {:ok, config} ->
+        mode = if Auth.in_cluster?(), do: :in_cluster, else: :kubeconfig
+        {:ok, %{mode: mode, auth_config: config}}
 
-      # Then check for kubeconfig
-      kubeconfig = find_kubeconfig() ->
-        case verify_kubeconfig(kubeconfig) do
-          :ok -> {:ok, %{mode: :kubeconfig, path: kubeconfig}}
-          {:error, reason} -> {:error, reason}
-        end
-
-      true ->
+      {:error, :no_auth} ->
         {:error, :no_kubeconfig}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -85,19 +84,21 @@ defmodule Sykli.Target.K8s do
   @impl true
   def setup(opts) do
     namespace = Keyword.get(opts, :namespace, default_namespace())
-    _kubeconfig = Keyword.get(opts, :kubeconfig)
 
     case available?() do
-      {:ok, %{mode: mode} = info} ->
+      {:ok, %{mode: mode, auth_config: auth_config}} ->
+        # Override namespace from auth config if not specified
+        final_namespace = namespace || auth_config[:namespace] || "default"
+
         state = %__MODULE__{
-          namespace: namespace,
-          kubeconfig: if(mode == :kubeconfig, do: info.path, else: nil),
+          namespace: final_namespace,
+          auth_config: auth_config,
           in_cluster: mode == :in_cluster,
           artifact_pvc: Keyword.get(opts, :artifact_pvc, "sykli-artifacts")
         }
 
         mode_str = if state.in_cluster, do: "in-cluster", else: "kubeconfig"
-        IO.puts("#{IO.ANSI.faint()}Target: k8s (#{mode_str}, namespace: #{namespace})#{IO.ANSI.reset()}")
+        IO.puts("#{IO.ANSI.faint()}Target: k8s (#{mode_str}, namespace: #{final_namespace})#{IO.ANSI.reset()}")
 
         # Ensure namespace exists
         ensure_namespace(state)
@@ -207,44 +208,39 @@ defmodule Sykli.Target.K8s do
     start_time = System.monotonic_time(:millisecond)
 
     # Build and apply Job
-    case build_job_manifest(task, job_name, state, opts) do
-      {:ok, manifest} ->
-        case apply_job(manifest, state) do
-          :ok ->
-            # Wait for completion
-            case wait_for_job(job_name, state, task.timeout || 300) do
-              {:ok, :succeeded} ->
-                duration_ms = System.monotonic_time(:millisecond) - start_time
-                IO.puts("#{IO.ANSI.green()}✓ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{format_duration(duration_ms)}#{IO.ANSI.reset()}")
-                cleanup_job(job_name, state)
-                :ok
+    {:ok, manifest} = build_job_manifest(task, job_name, state, opts)
 
-              {:ok, :failed} ->
-                duration_ms = System.monotonic_time(:millisecond) - start_time
-                logs = get_job_logs(job_name, state)
-                IO.puts("#{IO.ANSI.red()}✗ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{format_duration(duration_ms)}#{IO.ANSI.reset()}")
-                IO.puts("#{IO.ANSI.faint()}#{logs}#{IO.ANSI.reset()}")
-                cleanup_job(job_name, state)
-                {:error, :job_failed}
+    case apply_job(manifest, state) do
+      :ok ->
+        # Wait for completion
+        case wait_for_job(job_name, state, task.timeout || 300) do
+          {:ok, :succeeded} ->
+            duration_ms = System.monotonic_time(:millisecond) - start_time
+            IO.puts("#{IO.ANSI.green()}✓ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{format_duration(duration_ms)}#{IO.ANSI.reset()}")
+            cleanup_job(job_name, state)
+            :ok
 
-              {:error, :timeout} ->
-                IO.puts("#{IO.ANSI.red()}✗ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(timeout)#{IO.ANSI.reset()}")
-                cleanup_job(job_name, state)
-                {:error, :timeout}
+          {:ok, :failed} ->
+            duration_ms = System.monotonic_time(:millisecond) - start_time
+            logs = get_job_logs(job_name, state)
+            IO.puts("#{IO.ANSI.red()}✗ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{format_duration(duration_ms)}#{IO.ANSI.reset()}")
+            IO.puts("#{IO.ANSI.faint()}#{logs}#{IO.ANSI.reset()}")
+            cleanup_job(job_name, state)
+            {:error, :job_failed}
 
-              {:error, reason} ->
-                IO.puts("#{IO.ANSI.red()}✗ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(#{inspect(reason)})#{IO.ANSI.reset()}")
-                cleanup_job(job_name, state)
-                {:error, reason}
-            end
+          {:error, :timeout} ->
+            IO.puts("#{IO.ANSI.red()}✗ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(timeout)#{IO.ANSI.reset()}")
+            cleanup_job(job_name, state)
+            {:error, :timeout}
 
           {:error, reason} ->
-            IO.puts("#{IO.ANSI.red()}✗ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(failed to create job: #{inspect(reason)})#{IO.ANSI.reset()}")
+            IO.puts("#{IO.ANSI.red()}✗ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(#{inspect(reason)})#{IO.ANSI.reset()}")
+            cleanup_job(job_name, state)
             {:error, reason}
         end
 
       {:error, reason} ->
-        IO.puts("#{IO.ANSI.red()}✗ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(invalid manifest: #{inspect(reason)})#{IO.ANSI.reset()}")
+        IO.puts("#{IO.ANSI.red()}✗ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(failed to create job: #{inspect(reason)})#{IO.ANSI.reset()}")
         {:error, reason}
     end
   end
@@ -527,124 +523,75 @@ defmodule Sykli.Target.K8s do
   defp maybe_add(map, key, value), do: Map.put(map, key, value)
 
   # ─────────────────────────────────────────────────────────────────────────────
-  # KUBECTL OPERATIONS
+  # K8S API OPERATIONS
   # ─────────────────────────────────────────────────────────────────────────────
 
   defp apply_job(manifest, state) do
-    json = Jason.encode!(manifest)
-    kubectl_path = System.find_executable("kubectl") || "kubectl"
-
-    # Write manifest to temp file and apply from there
-    # This avoids stdin piping issues with System.cmd (no :input option)
-    tmp_path = Path.join(System.tmp_dir!(), "sykli-job-#{:erlang.unique_integer([:positive])}.json")
-
-    try do
-      File.write!(tmp_path, json)
-      args = kubectl_args(state) ++ ["apply", "-f", tmp_path]
-
-      case System.cmd(kubectl_path, args, stderr_to_stdout: true) do
-        {_, 0} -> :ok
-        {error, _} -> {:error, error}
-      end
-    after
-      File.rm(tmp_path)
+    case Job.create(manifest, state.auth_config) do
+      {:ok, _job} -> :ok
+      {:error, %Error{type: :conflict}} -> :ok  # Job already exists, that's fine
+      {:error, error} -> {:error, format_error(error)}
     end
   end
 
   defp wait_for_job(job_name, state, timeout_seconds) do
-    args = kubectl_args(state) ++ [
-      "wait", "job/#{job_name}",
-      "--for=condition=Complete",
-      "--timeout=#{timeout_seconds}s"
-    ]
+    timeout_ms = timeout_seconds * 1000
 
-    case System.cmd("kubectl", args, stderr_to_stdout: true) do
-      {_, 0} ->
-        {:ok, :succeeded}
-
-      {output, _} ->
-        if String.contains?(output, "timed out") do
-          {:error, :timeout}
-        else
-          # Check if job failed
-          {:ok, get_job_status(job_name, state)}
-        end
-    end
-  end
-
-  defp get_job_status(job_name, state) do
-    args = kubectl_args(state) ++ [
-      "get", "job/#{job_name}",
-      "-o", "jsonpath={.status.conditions[?(@.type==\"Failed\")].status}"
-    ]
-
-    case System.cmd("kubectl", args, stderr_to_stdout: true) do
-      {"True" <> _, 0} -> :failed
-      _ -> :unknown
+    case Job.wait_complete(job_name, state.namespace, state.auth_config, timeout: timeout_ms) do
+      {:ok, :succeeded} -> {:ok, :succeeded}
+      {:ok, :failed} -> {:ok, :failed}
+      {:error, %Error{type: :timeout}} -> {:error, :timeout}
+      {:error, error} -> {:error, format_error(error)}
     end
   end
 
   defp get_job_logs(job_name, state) do
-    args = kubectl_args(state) ++ ["logs", "job/#{job_name}", "--tail=50"]
-
-    case System.cmd("kubectl", args, stderr_to_stdout: true) do
-      {logs, 0} -> logs
-      {error, _} -> "Failed to get logs: #{error}"
+    case Job.logs(job_name, state.namespace, state.auth_config) do
+      {:ok, logs} -> logs
+      {:error, :no_pods} -> "(no pods found for job)"
+      {:error, error} -> "Failed to get logs: #{format_error(error)}"
     end
   end
 
   defp cleanup_job(job_name, state) do
-    args = kubectl_args(state) ++ ["delete", "job/#{job_name}", "--ignore-not-found"]
-    System.cmd("kubectl", args, stderr_to_stdout: true)
+    # Best effort cleanup - ignore errors
+    Job.delete(job_name, state.namespace, state.auth_config)
     :ok
   end
 
   defp ensure_namespace(state) do
-    args = kubectl_args(state) ++ ["get", "namespace", state.namespace]
+    path = "/api/v1/namespaces/#{state.namespace}"
 
-    case System.cmd("kubectl", args, stderr_to_stdout: true) do
-      {_, 0} ->
+    case Client.request(:get, path, nil, state.auth_config) do
+      {:ok, _} ->
         :ok
 
-      _ ->
+      {:error, %Error{type: :not_found}} ->
         # Create namespace
-        create_args = kubectl_args(state) ++ ["create", "namespace", state.namespace]
-        System.cmd("kubectl", create_args, stderr_to_stdout: true)
-        :ok
+        manifest = %{
+          "apiVersion" => "v1",
+          "kind" => "Namespace",
+          "metadata" => %{"name" => state.namespace}
+        }
+
+        case Client.request(:post, "/api/v1/namespaces", manifest, state.auth_config) do
+          {:ok, _} -> :ok
+          {:error, %Error{type: :conflict}} -> :ok  # Already exists
+          {:error, _} -> :ok  # Best effort
+        end
+
+      {:error, _} ->
+        :ok  # Best effort
     end
   end
 
-  defp kubectl_args(%{kubeconfig: nil}), do: []
-  defp kubectl_args(%{kubeconfig: path}), do: ["--kubeconfig", path]
+  defp format_error(%Error{message: msg}) when is_binary(msg), do: msg
+  defp format_error(%Error{type: type}), do: to_string(type)
+  defp format_error(other), do: inspect(other)
 
   # ─────────────────────────────────────────────────────────────────────────────
   # HELPERS
   # ─────────────────────────────────────────────────────────────────────────────
-
-  defp in_cluster? do
-    File.exists?("/var/run/secrets/kubernetes.io/serviceaccount/token")
-  end
-
-  defp find_kubeconfig do
-    cond do
-      path = System.get_env("KUBECONFIG") ->
-        if File.exists?(path), do: path, else: nil
-
-      home = System.get_env("HOME") ->
-        path = Path.join([home, ".kube", "config"])
-        if File.exists?(path), do: path, else: nil
-
-      true ->
-        nil
-    end
-  end
-
-  defp verify_kubeconfig(path) do
-    case System.cmd("kubectl", ["--kubeconfig", path, "cluster-info"], stderr_to_stdout: true) do
-      {_, 0} -> :ok
-      {error, _} -> {:error, {:kubeconfig_invalid, error}}
-    end
-  end
 
   defp default_namespace do
     System.get_env("SYKLI_K8S_NAMESPACE") || "sykli"
