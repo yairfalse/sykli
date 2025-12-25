@@ -34,6 +34,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -65,20 +66,48 @@ func init() {
 
 // Pipeline represents a CI pipeline with tasks and resources.
 type Pipeline struct {
-	tasks     []*Task
-	dirs      []*Directory
-	caches    []*CacheVolume
-	templates map[string]*Template
+	tasks       []*Task
+	dirs        []*Directory
+	caches      []*CacheVolume
+	templates   map[string]*Template
+	k8sDefaults *K8sTaskOptions // Pipeline-level K8s defaults
 }
 
-// New creates a new pipeline.
-func New() *Pipeline {
-	return &Pipeline{
+// PipelineOption configures a Pipeline.
+type PipelineOption func(*Pipeline)
+
+// WithK8sDefaults sets pipeline-level Kubernetes defaults.
+// All tasks inherit these settings unless they override them.
+//
+// Example:
+//
+//	s := sykli.New(sykli.WithK8sDefaults(sykli.K8sTaskOptions{
+//	    Namespace: "ci-jobs",
+//	    Resources: sykli.K8sResources{Memory: "2Gi"},
+//	}))
+//
+//	s.Task("test").Run("go test")           // inherits defaults
+//	s.Task("heavy").K8s(sykli.K8sTaskOptions{  // overrides memory
+//	    Resources: sykli.K8sResources{Memory: "32Gi"},
+//	})
+func WithK8sDefaults(opts K8sTaskOptions) PipelineOption {
+	return func(p *Pipeline) {
+		p.k8sDefaults = &opts
+	}
+}
+
+// New creates a new pipeline with optional configuration.
+func New(opts ...PipelineOption) *Pipeline {
+	p := &Pipeline{
 		tasks:     make([]*Task, 0),
 		dirs:      make([]*Directory, 0),
 		caches:    make([]*CacheVolume, 0),
 		templates: make(map[string]*Template),
 	}
+	for _, opt := range opts {
+		opt(p)
+	}
+	return p
 }
 
 // =============================================================================
@@ -254,6 +283,175 @@ type Mount struct {
 	sourcePath string
 }
 
+// =============================================================================
+// TYPED SECRET REFERENCES
+// =============================================================================
+
+// SecretSource identifies where a secret comes from.
+type SecretSource int
+
+const (
+	// SecretFromEnv reads the secret from an environment variable.
+	SecretFromEnv SecretSource = iota
+	// SecretFromFile reads the secret from a file.
+	SecretFromFile
+	// SecretFromVault reads the secret from HashiCorp Vault.
+	SecretFromVault
+)
+
+// SecretRef is a typed reference to a secret with its source.
+//
+// Example:
+//
+//	s.Task("deploy").
+//	    SecretFrom("GITHUB_TOKEN", FromEnv("GH_TOKEN")).
+//	    SecretFrom("DB_PASSWORD", FromVault("secret/db#password"))
+type SecretRef struct {
+	// Name is the environment variable name in the task
+	Name string
+	// Source indicates where the secret comes from
+	Source SecretSource
+	// Key is the source-specific key (env var name, file path, or vault path)
+	Key string
+}
+
+// FromEnv creates a secret reference that reads from an environment variable.
+//
+// Example:
+//
+//	s.Task("deploy").SecretFrom("TOKEN", FromEnv("GITHUB_TOKEN"))
+func FromEnv(envVar string) SecretRef {
+	return SecretRef{Source: SecretFromEnv, Key: envVar}
+}
+
+// FromFile creates a secret reference that reads from a file.
+//
+// Example:
+//
+//	s.Task("deploy").SecretFrom("KEY", FromFile("/run/secrets/api-key"))
+func FromFile(path string) SecretRef {
+	return SecretRef{Source: SecretFromFile, Key: path}
+}
+
+// FromVault creates a secret reference that reads from HashiCorp Vault.
+// The path format is "path/to/secret#field".
+//
+// Example:
+//
+//	s.Task("deploy").SecretFrom("DB_PASS", FromVault("secret/data/db#password"))
+func FromVault(path string) SecretRef {
+	return SecretRef{Source: SecretFromVault, Key: path}
+}
+
+// =============================================================================
+// CONDITION BUILDER (Type-safe conditions)
+// =============================================================================
+
+// Condition represents a type-safe condition for when a task should run.
+// Use the builder functions (Branch, Tag, Event, etc.) to create conditions.
+//
+// Example:
+//
+//	s.Task("deploy").
+//	    WhenCond(Branch("main").Or(Tag("v*")))
+//
+//	s.Task("test").
+//	    WhenCond(Not(Branch("wip/*")))
+type Condition struct {
+	expr string
+}
+
+// String returns the condition expression string.
+func (c Condition) String() string {
+	return c.expr
+}
+
+// Or combines conditions with OR logic.
+//
+// Example:
+//
+//	Branch("main").Or(Tag("v*"))  // branch == 'main' || tag matches 'v*'
+func (c Condition) Or(other Condition) Condition {
+	return Condition{expr: fmt.Sprintf("(%s) || (%s)", c.expr, other.expr)}
+}
+
+// And combines conditions with AND logic.
+//
+// Example:
+//
+//	Branch("main").And(Event("push"))  // branch == 'main' && event == 'push'
+func (c Condition) And(other Condition) Condition {
+	return Condition{expr: fmt.Sprintf("(%s) && (%s)", c.expr, other.expr)}
+}
+
+// Branch creates a condition that matches a branch name or pattern.
+// Supports glob patterns like "feature/*".
+//
+// Example:
+//
+//	Branch("main")           // branch == 'main'
+//	Branch("release/*")      // branch matches 'release/*'
+func Branch(pattern string) Condition {
+	if strings.Contains(pattern, "*") {
+		return Condition{expr: fmt.Sprintf("branch matches '%s'", pattern)}
+	}
+	return Condition{expr: fmt.Sprintf("branch == '%s'", pattern)}
+}
+
+// Tag creates a condition that matches a tag name or pattern.
+// Supports glob patterns like "v*".
+//
+// Example:
+//
+//	Tag("v*")        // tag matches 'v*'
+//	Tag("v1.0.0")    // tag == 'v1.0.0'
+func Tag(pattern string) Condition {
+	if pattern == "" {
+		return Condition{expr: "tag != ''"}
+	}
+	if strings.Contains(pattern, "*") {
+		return Condition{expr: fmt.Sprintf("tag matches '%s'", pattern)}
+	}
+	return Condition{expr: fmt.Sprintf("tag == '%s'", pattern)}
+}
+
+// HasTag creates a condition that matches when any tag is present.
+//
+// Example:
+//
+//	HasTag()  // tag != ''
+func HasTag() Condition {
+	return Condition{expr: "tag != ''"}
+}
+
+// Event creates a condition that matches a CI event type.
+//
+// Example:
+//
+//	Event("push")           // event == 'push'
+//	Event("pull_request")   // event == 'pull_request'
+func Event(eventType string) Condition {
+	return Condition{expr: fmt.Sprintf("event == '%s'", eventType)}
+}
+
+// InCI creates a condition that matches when running in CI.
+//
+// Example:
+//
+//	InCI()  // ci == true
+func InCI() Condition {
+	return Condition{expr: "ci == true"}
+}
+
+// Not negates a condition.
+//
+// Example:
+//
+//	Not(Branch("wip/*"))  // !(branch matches 'wip/*')
+func Not(c Condition) Condition {
+	return Condition{expr: fmt.Sprintf("!(%s)", c.expr)}
+}
+
 // Service represents a service container that runs alongside a task.
 type Service struct {
 	image string
@@ -269,23 +467,27 @@ type TaskInput struct {
 
 // Task represents a single task in the pipeline.
 type Task struct {
-	pipeline   *Pipeline
-	name       string
-	command    string
-	container  string
-	workdir    string
-	env        map[string]string
-	mounts     []Mount
-	inputs     []string      // v1-style input file patterns
-	taskInputs []TaskInput   // v2-style inputs from other tasks
-	outputs    map[string]string
-	dependsOn  []string
-	when       string
-	secrets    []string
-	matrix     map[string][]string
-	services   []Service
-	retry      int
-	timeout    int // seconds
+	pipeline     *Pipeline
+	name         string
+	command      string
+	container    string
+	workdir      string
+	env          map[string]string
+	mounts       []Mount
+	inputs       []string      // v1-style input file patterns
+	taskInputs   []TaskInput   // v2-style inputs from other tasks
+	outputs      map[string]string
+	dependsOn    []string
+	when         string
+	whenCond     Condition              // Type-safe condition (alternative to string)
+	secrets      []string               // v1-style secret names
+	secretRefs   []SecretRef            // v2-style typed secret references
+	matrix       map[string][]string
+	services     []Service
+	retry        int
+	timeout      int                    // seconds
+	k8sOptions   *K8sTaskOptions        // Target-specific K8s options
+	targetName   string                 // Per-task target override
 }
 
 // Task creates a new task with the given name.
@@ -522,6 +724,57 @@ func (t *Task) Secrets(names ...string) *Task {
 		}
 	}
 	t.secrets = append(t.secrets, names...)
+	return t
+}
+
+// SecretFrom declares a typed secret reference with explicit source.
+// This provides better DX than plain secret names by making the source explicit.
+//
+// Example:
+//
+//	s.Task("deploy").
+//	    SecretFrom("GITHUB_TOKEN", FromEnv("GH_TOKEN")).
+//	    SecretFrom("DB_PASSWORD", FromVault("secret/data/db#password")).
+//	    SecretFrom("API_KEY", FromFile("/run/secrets/api-key"))
+func (t *Task) SecretFrom(name string, ref SecretRef) *Task {
+	if name == "" {
+		log.Panic().Str("task", t.name).Msg("secret name cannot be empty")
+	}
+	if ref.Key == "" {
+		log.Panic().Str("task", t.name).Str("secret", name).Msg("secret key cannot be empty")
+	}
+	ref.Name = name
+	t.secretRefs = append(t.secretRefs, ref)
+	return t
+}
+
+// WhenCond sets a type-safe condition for when this task should run.
+// This is an alternative to When() that catches errors at compile time.
+//
+// Example:
+//
+//	s.Task("deploy").
+//	    WhenCond(Branch("main").Or(Tag("v*")))
+//
+//	s.Task("test").
+//	    WhenCond(Not(Branch("wip/*")).And(Event("push")))
+func (t *Task) WhenCond(c Condition) *Task {
+	t.whenCond = c
+	return t
+}
+
+// Target sets the target for this specific task, overriding the pipeline default.
+// This enables hybrid pipelines where different tasks run on different targets.
+//
+// Example:
+//
+//	s.Task("test").Run("go test").Target("local")
+//	s.Task("deploy").Run("kubectl apply").Target("k8s")
+func (t *Task) Target(name string) *Task {
+	if name == "" {
+		log.Panic().Str("task", t.name).Msg("target name cannot be empty")
+	}
+	t.targetName = name
 	return t
 }
 
@@ -786,6 +1039,215 @@ func formatCyclePath(cycle []string) string {
 }
 
 // =============================================================================
+// EXPLAIN (Dry-run mode)
+// =============================================================================
+
+// ExplainContext provides runtime context for evaluating conditions.
+// Pass nil to use default (empty) context.
+type ExplainContext struct {
+	Branch string
+	Tag    string
+	Event  string
+	CI     bool
+}
+
+// Explain prints a human-readable execution plan without running anything.
+// This is useful for debugging pipelines and understanding what will run.
+//
+// The output shows:
+//   - Task execution order (topologically sorted)
+//   - Dependencies between tasks
+//   - Conditions and whether they would be skipped
+//   - Target overrides
+//
+// Example:
+//
+//	s := sykli.New()
+//	s.Task("test").Run("go test")
+//	s.Task("build").Run("go build").After("test")
+//	s.Task("deploy").Run("kubectl apply").After("build").WhenCond(Branch("main"))
+//
+//	s.Explain(&sykli.ExplainContext{Branch: "feature/foo"})
+//	// Output:
+//	// Pipeline Execution Plan
+//	// =======================
+//	// 1. test
+//	//    Command: go test
+//	//
+//	// 2. build (after: test)
+//	//    Command: go build
+//	//
+//	// 3. deploy (after: build) [SKIPPED: branch != 'main']
+//	//    Command: kubectl apply
+//	//    Condition: branch == 'main'
+func (p *Pipeline) Explain(ctx *ExplainContext) {
+	p.ExplainTo(os.Stdout, ctx)
+}
+
+// ExplainTo writes the execution plan to the given writer.
+func (p *Pipeline) ExplainTo(w io.Writer, ctx *ExplainContext) {
+	if ctx == nil {
+		ctx = &ExplainContext{}
+	}
+
+	// Topological sort
+	sorted := p.topologicalSort()
+
+	fmt.Fprintln(w, "Pipeline Execution Plan")
+	fmt.Fprintln(w, "=======================")
+
+	for i, t := range sorted {
+		// Build task header
+		header := fmt.Sprintf("%d. %s", i+1, t.name)
+
+		// Add dependencies
+		if len(t.dependsOn) > 0 {
+			header += fmt.Sprintf(" (after: %s)", strings.Join(t.dependsOn, ", "))
+		}
+
+		// Add target override
+		if t.targetName != "" {
+			header += fmt.Sprintf(" [target: %s]", t.targetName)
+		}
+
+		// Check if task would be skipped
+		condition := t.getEffectiveCondition()
+		skipped, skipReason := p.wouldSkip(t, ctx)
+		if skipped {
+			header += fmt.Sprintf(" [SKIPPED: %s]", skipReason)
+		}
+
+		fmt.Fprintln(w, header)
+		fmt.Fprintf(w, "   Command: %s\n", t.command)
+
+		if condition != "" {
+			fmt.Fprintf(w, "   Condition: %s\n", condition)
+		}
+
+		if len(t.secretRefs) > 0 {
+			fmt.Fprint(w, "   Secrets: ")
+			for i, ref := range t.secretRefs {
+				if i > 0 {
+					fmt.Fprint(w, ", ")
+				}
+				switch ref.Source {
+				case SecretFromEnv:
+					fmt.Fprintf(w, "%s (env:%s)", ref.Name, ref.Key)
+				case SecretFromFile:
+					fmt.Fprintf(w, "%s (file:%s)", ref.Name, ref.Key)
+				case SecretFromVault:
+					fmt.Fprintf(w, "%s (vault:%s)", ref.Name, ref.Key)
+				}
+			}
+			fmt.Fprintln(w)
+		} else if len(t.secrets) > 0 {
+			fmt.Fprintf(w, "   Secrets: %s\n", strings.Join(t.secrets, ", "))
+		}
+
+		fmt.Fprintln(w)
+	}
+}
+
+// getEffectiveCondition returns the condition string (from whenCond or when).
+func (t *Task) getEffectiveCondition() string {
+	if t.whenCond.expr != "" {
+		return t.whenCond.expr
+	}
+	return t.when
+}
+
+// wouldSkip checks if a task would be skipped given the context.
+func (p *Pipeline) wouldSkip(t *Task, ctx *ExplainContext) (bool, string) {
+	condition := t.getEffectiveCondition()
+	if condition == "" {
+		return false, ""
+	}
+
+	// Simple condition evaluation (handles common cases)
+	// More complex conditions would need a proper expression parser
+	condition = strings.TrimSpace(condition)
+
+	// branch == 'value'
+	if strings.HasPrefix(condition, "branch == '") {
+		expected := strings.TrimPrefix(condition, "branch == '")
+		expected = strings.TrimSuffix(expected, "'")
+		if ctx.Branch != expected {
+			return true, fmt.Sprintf("branch is '%s', not '%s'", ctx.Branch, expected)
+		}
+	}
+
+	// branch != 'value'
+	if strings.HasPrefix(condition, "branch != '") {
+		excluded := strings.TrimPrefix(condition, "branch != '")
+		excluded = strings.TrimSuffix(excluded, "'")
+		if ctx.Branch == excluded {
+			return true, fmt.Sprintf("branch is '%s'", ctx.Branch)
+		}
+	}
+
+	// tag != '' (has tag)
+	if condition == "tag != ''" && ctx.Tag == "" {
+		return true, "no tag present"
+	}
+
+	// ci == true
+	if condition == "ci == true" && !ctx.CI {
+		return true, "not running in CI"
+	}
+
+	return false, ""
+}
+
+// topologicalSort returns tasks in dependency order.
+func (p *Pipeline) topologicalSort() []*Task {
+	// Build task map and dependency graph
+	taskMap := make(map[string]*Task)
+	inDegree := make(map[string]int)
+	for _, t := range p.tasks {
+		taskMap[t.name] = t
+		inDegree[t.name] = 0
+	}
+
+	// Count incoming edges
+	for _, t := range p.tasks {
+		for _, dep := range t.dependsOn {
+			inDegree[t.name]++
+			_ = dep // just counting
+		}
+	}
+
+	// Kahn's algorithm
+	var queue []string
+	for name, degree := range inDegree {
+		if degree == 0 {
+			queue = append(queue, name)
+		}
+	}
+
+	var sorted []*Task
+	for len(queue) > 0 {
+		// Pop from queue
+		name := queue[0]
+		queue = queue[1:]
+		sorted = append(sorted, taskMap[name])
+
+		// Decrease in-degree of dependents
+		for _, t := range p.tasks {
+			for _, dep := range t.dependsOn {
+				if dep == name {
+					inDegree[t.name]--
+					if inDegree[t.name] == 0 {
+						queue = append(queue, t.name)
+					}
+				}
+			}
+		}
+	}
+
+	return sorted
+}
+
+// =============================================================================
 // EMIT
 // =============================================================================
 
@@ -818,6 +1280,10 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 		for _, dep := range t.dependsOn {
 			if !taskNames[dep] {
 				log.Error().Str("task", t.name).Str("dependency", dep).Msg("unknown dependency")
+				suggestion := suggestTaskName(dep, taskNames)
+				if suggestion != "" {
+					return fmt.Errorf("task %q depends on unknown task %q (did you mean %q?)", t.name, dep, suggestion)
+				}
 				return fmt.Errorf("task %q depends on unknown task %q", t.name, dep)
 			}
 		}
@@ -828,6 +1294,17 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 		cyclePath := formatCyclePath(cycle)
 		log.Error().Strs("cycle", cycle).Msg("dependency cycle detected")
 		return fmt.Errorf("dependency cycle detected: %s", cyclePath)
+	}
+
+	// Validate K8s options (merge defaults first, then validate)
+	for _, t := range p.tasks {
+		merged := MergeK8sOptions(p.k8sDefaults, t.k8sOptions)
+		if errs := ValidateK8sOptions(merged); len(errs) > 0 {
+			for _, err := range errs {
+				log.Error().Str("task", t.name).Err(err).Msg("K8s validation failed")
+			}
+			return fmt.Errorf("task %q: %v", t.name, errs[0])
+		}
 	}
 
 	// Detect version based on usage
@@ -861,6 +1338,104 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 		DestPath   string `json:"dest"`
 	}
 
+	type jsonSecretRef struct {
+		Name   string `json:"name"`
+		Source string `json:"source"` // "env", "file", "vault"
+		Key    string `json:"key"`
+	}
+
+	// K8s options JSON types
+	type jsonK8sResources struct {
+		RequestCPU    string `json:"request_cpu,omitempty"`
+		RequestMemory string `json:"request_memory,omitempty"`
+		LimitCPU      string `json:"limit_cpu,omitempty"`
+		LimitMemory   string `json:"limit_memory,omitempty"`
+		CPU           string `json:"cpu,omitempty"`
+		Memory        string `json:"memory,omitempty"`
+	}
+
+	type jsonK8sToleration struct {
+		Key      string `json:"key,omitempty"`
+		Operator string `json:"operator,omitempty"`
+		Value    string `json:"value,omitempty"`
+		Effect   string `json:"effect,omitempty"`
+	}
+
+	type jsonK8sNodeAffinity struct {
+		RequiredLabels  map[string]string `json:"required_labels,omitempty"`
+		PreferredLabels map[string]string `json:"preferred_labels,omitempty"`
+	}
+
+	type jsonK8sPodAffinity struct {
+		RequiredLabels map[string]string `json:"required_labels,omitempty"`
+		TopologyKey    string            `json:"topology_key,omitempty"`
+	}
+
+	type jsonK8sAffinity struct {
+		NodeAffinity    *jsonK8sNodeAffinity `json:"node_affinity,omitempty"`
+		PodAffinity     *jsonK8sPodAffinity  `json:"pod_affinity,omitempty"`
+		PodAntiAffinity *jsonK8sPodAffinity  `json:"pod_anti_affinity,omitempty"`
+	}
+
+	type jsonK8sSecurityContext struct {
+		RunAsUser            *int64   `json:"run_as_user,omitempty"`
+		RunAsGroup           *int64   `json:"run_as_group,omitempty"`
+		RunAsNonRoot         bool     `json:"run_as_non_root,omitempty"`
+		Privileged           bool     `json:"privileged,omitempty"`
+		ReadOnlyRootFilesystem bool   `json:"read_only_root_filesystem,omitempty"`
+		AddCapabilities      []string `json:"add_capabilities,omitempty"`
+		DropCapabilities     []string `json:"drop_capabilities,omitempty"`
+	}
+
+	type jsonK8sConfigMap struct {
+		Name string `json:"name"`
+	}
+
+	type jsonK8sSecret struct {
+		Name string `json:"name"`
+	}
+
+	type jsonK8sEmptyDir struct {
+		Medium    string `json:"medium,omitempty"`
+		SizeLimit string `json:"size_limit,omitempty"`
+	}
+
+	type jsonK8sHostPath struct {
+		Path string `json:"path"`
+		Type string `json:"type,omitempty"`
+	}
+
+	type jsonK8sPVC struct {
+		ClaimName string `json:"claim_name"`
+	}
+
+	type jsonK8sVolume struct {
+		Name      string           `json:"name"`
+		MountPath string           `json:"mount_path"`
+		ConfigMap *jsonK8sConfigMap `json:"config_map,omitempty"`
+		Secret    *jsonK8sSecret    `json:"secret,omitempty"`
+		EmptyDir  *jsonK8sEmptyDir  `json:"empty_dir,omitempty"`
+		HostPath  *jsonK8sHostPath  `json:"host_path,omitempty"`
+		PVC       *jsonK8sPVC       `json:"pvc,omitempty"`
+	}
+
+	type jsonK8sOptions struct {
+		NodeSelector      map[string]string       `json:"node_selector,omitempty"`
+		Tolerations       []jsonK8sToleration     `json:"tolerations,omitempty"`
+		Affinity          *jsonK8sAffinity        `json:"affinity,omitempty"`
+		PriorityClassName string                  `json:"priority_class_name,omitempty"`
+		Resources         *jsonK8sResources       `json:"resources,omitempty"`
+		GPU               int                     `json:"gpu,omitempty"`
+		ServiceAccount    string                  `json:"service_account,omitempty"`
+		SecurityContext   *jsonK8sSecurityContext `json:"security_context,omitempty"`
+		HostNetwork       bool                    `json:"host_network,omitempty"`
+		DNSPolicy         string                  `json:"dns_policy,omitempty"`
+		Volumes           []jsonK8sVolume         `json:"volumes,omitempty"`
+		Labels            map[string]string       `json:"labels,omitempty"`
+		Annotations       map[string]string       `json:"annotations,omitempty"`
+		Namespace         string                  `json:"namespace,omitempty"`
+	}
+
 	type jsonTask struct {
 		Name       string              `json:"name"`
 		Command    string              `json:"command"`
@@ -874,10 +1449,13 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 		DependsOn  []string            `json:"depends_on,omitempty"`
 		When       string              `json:"when,omitempty"`
 		Secrets    []string            `json:"secrets,omitempty"`
+		SecretRefs []jsonSecretRef     `json:"secret_refs,omitempty"`  // v2-style typed secrets
 		Matrix     map[string][]string `json:"matrix,omitempty"`
 		Services   []jsonService       `json:"services,omitempty"`
 		Retry      int                 `json:"retry,omitempty"`
 		Timeout    int                 `json:"timeout,omitempty"`
+		Target     string              `json:"target,omitempty"`       // Per-task target override
+		K8s        *jsonK8sOptions     `json:"k8s,omitempty"`          // K8s-specific options
 	}
 
 	type jsonResource struct {
@@ -909,6 +1487,120 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 				Type: "cache",
 				Name: c.name,
 			}
+		}
+	}
+
+	// convertK8sOptions converts K8sTaskOptions to JSON format
+	convertK8sOptions := func(opts *K8sTaskOptions) *jsonK8sOptions {
+		if opts == nil {
+			return nil
+		}
+
+		var tolerations []jsonK8sToleration
+		for _, t := range opts.Tolerations {
+			tolerations = append(tolerations, jsonK8sToleration{
+				Key:      t.Key,
+				Operator: t.Operator,
+				Value:    t.Value,
+				Effect:   t.Effect,
+			})
+		}
+
+		var affinity *jsonK8sAffinity
+		if opts.Affinity != nil {
+			affinity = &jsonK8sAffinity{}
+			if opts.Affinity.NodeAffinity != nil {
+				affinity.NodeAffinity = &jsonK8sNodeAffinity{
+					RequiredLabels:  opts.Affinity.NodeAffinity.RequiredLabels,
+					PreferredLabels: opts.Affinity.NodeAffinity.PreferredLabels,
+				}
+			}
+			if opts.Affinity.PodAffinity != nil {
+				affinity.PodAffinity = &jsonK8sPodAffinity{
+					RequiredLabels: opts.Affinity.PodAffinity.RequiredLabels,
+					TopologyKey:    opts.Affinity.PodAffinity.TopologyKey,
+				}
+			}
+			if opts.Affinity.PodAntiAffinity != nil {
+				affinity.PodAntiAffinity = &jsonK8sPodAffinity{
+					RequiredLabels: opts.Affinity.PodAntiAffinity.RequiredLabels,
+					TopologyKey:    opts.Affinity.PodAntiAffinity.TopologyKey,
+				}
+			}
+		}
+
+		var resources *jsonK8sResources
+		if opts.Resources.CPU != "" || opts.Resources.Memory != "" ||
+			opts.Resources.RequestCPU != "" || opts.Resources.RequestMemory != "" ||
+			opts.Resources.LimitCPU != "" || opts.Resources.LimitMemory != "" {
+			resources = &jsonK8sResources{
+				RequestCPU:    opts.Resources.RequestCPU,
+				RequestMemory: opts.Resources.RequestMemory,
+				LimitCPU:      opts.Resources.LimitCPU,
+				LimitMemory:   opts.Resources.LimitMemory,
+				CPU:           opts.Resources.CPU,
+				Memory:        opts.Resources.Memory,
+			}
+		}
+
+		var securityContext *jsonK8sSecurityContext
+		if opts.SecurityContext != nil {
+			securityContext = &jsonK8sSecurityContext{
+				RunAsUser:              opts.SecurityContext.RunAsUser,
+				RunAsGroup:             opts.SecurityContext.RunAsGroup,
+				RunAsNonRoot:           opts.SecurityContext.RunAsNonRoot,
+				Privileged:             opts.SecurityContext.Privileged,
+				ReadOnlyRootFilesystem: opts.SecurityContext.ReadOnlyRootFilesystem,
+				AddCapabilities:        opts.SecurityContext.AddCapabilities,
+				DropCapabilities:       opts.SecurityContext.DropCapabilities,
+			}
+		}
+
+		var volumes []jsonK8sVolume
+		for _, v := range opts.Volumes {
+			vol := jsonK8sVolume{
+				Name:      v.Name,
+				MountPath: v.MountPath,
+			}
+			if v.ConfigMap != nil {
+				vol.ConfigMap = &jsonK8sConfigMap{Name: v.ConfigMap.Name}
+			}
+			if v.Secret != nil {
+				vol.Secret = &jsonK8sSecret{Name: v.Secret.Name}
+			}
+			if v.EmptyDir != nil {
+				vol.EmptyDir = &jsonK8sEmptyDir{
+					Medium:    v.EmptyDir.Medium,
+					SizeLimit: v.EmptyDir.SizeLimit,
+				}
+			}
+			if v.HostPath != nil {
+				vol.HostPath = &jsonK8sHostPath{
+					Path: v.HostPath.Path,
+					Type: v.HostPath.Type,
+				}
+			}
+			if v.PVC != nil {
+				vol.PVC = &jsonK8sPVC{ClaimName: v.PVC.ClaimName}
+			}
+			volumes = append(volumes, vol)
+		}
+
+		return &jsonK8sOptions{
+			NodeSelector:      opts.NodeSelector,
+			Tolerations:       tolerations,
+			Affinity:          affinity,
+			PriorityClassName: opts.PriorityClassName,
+			Resources:         resources,
+			GPU:               opts.GPU,
+			ServiceAccount:    opts.ServiceAccount,
+			SecurityContext:   securityContext,
+			HostNetwork:       opts.HostNetwork,
+			DNSPolicy:         opts.DNSPolicy,
+			Volumes:           volumes,
+			Labels:            opts.Labels,
+			Annotations:       opts.Annotations,
+			Namespace:         opts.Namespace,
 		}
 	}
 
@@ -950,6 +1642,34 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 			}
 		}
 
+		// Convert secretRefs to JSON
+		var secretRefs []jsonSecretRef
+		if len(t.secretRefs) > 0 {
+			secretRefs = make([]jsonSecretRef, len(t.secretRefs))
+			for j, sr := range t.secretRefs {
+				var source string
+				switch sr.Source {
+				case SecretFromEnv:
+					source = "env"
+				case SecretFromFile:
+					source = "file"
+				case SecretFromVault:
+					source = "vault"
+				}
+				secretRefs[j] = jsonSecretRef{
+					Name:   sr.Name,
+					Source: source,
+					Key:    sr.Key,
+				}
+			}
+		}
+
+		// Use whenCond if set, otherwise use when string
+		when := t.when
+		if t.whenCond.expr != "" {
+			when = t.whenCond.expr
+		}
+
 		tasks[i] = jsonTask{
 			Name:       t.name,
 			Command:    t.command,
@@ -957,15 +1677,17 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 			Workdir:    t.workdir,
 			Env:        env,
 			Mounts:     mounts,
-			Inputs:     t.inputs,     // v1-style file patterns
-			TaskInputs: taskInputs,   // v2-style inputs from other tasks
+			Inputs:     t.inputs,      // v1-style file patterns
+			TaskInputs: taskInputs,    // v2-style inputs from other tasks
 			Outputs:    outputs,
 			DependsOn:  t.dependsOn,
-			When:       t.when,
+			When:       when,
 			Secrets:    t.secrets,
+			SecretRefs: secretRefs,    // v2-style typed secrets
 			Matrix:     t.matrix,
 			Retry:      t.retry,
 			Timeout:    t.timeout,
+			Target:     t.targetName,  // Per-task target override
 			Services: func() []jsonService {
 				if len(t.services) == 0 {
 					return nil
@@ -976,6 +1698,7 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 				}
 				return svcs
 			}(),
+			K8s: convertK8sOptions(MergeK8sOptions(p.k8sDefaults, t.k8sOptions)),
 		}
 	}
 
@@ -986,4 +1709,91 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 	}
 
 	return json.NewEncoder(w).Encode(out)
+}
+
+// suggestTaskName finds the most similar task name using Levenshtein distance.
+// Returns empty string if no good match is found.
+func suggestTaskName(unknown string, known map[string]bool) string {
+	var best string
+	bestScore := 0.0
+
+	for name := range known {
+		score := jaroWinkler(unknown, name)
+		if score > bestScore && score >= 0.8 {
+			bestScore = score
+			best = name
+		}
+	}
+	return best
+}
+
+// jaroWinkler computes the Jaro-Winkler similarity between two strings (0-1).
+func jaroWinkler(s1, s2 string) float64 {
+	if s1 == s2 {
+		return 1.0
+	}
+	if len(s1) == 0 || len(s2) == 0 {
+		return 0.0
+	}
+
+	// Compute Jaro similarity
+	matchWindow := max(len(s1), len(s2))/2 - 1
+	if matchWindow < 0 {
+		matchWindow = 0
+	}
+
+	s1Matches := make([]bool, len(s1))
+	s2Matches := make([]bool, len(s2))
+
+	matches := 0
+	transpositions := 0
+
+	for i := 0; i < len(s1); i++ {
+		start := max(0, i-matchWindow)
+		end := min(len(s2), i+matchWindow+1)
+
+		for j := start; j < end; j++ {
+			if s2Matches[j] || s1[i] != s2[j] {
+				continue
+			}
+			s1Matches[i] = true
+			s2Matches[j] = true
+			matches++
+			break
+		}
+	}
+
+	if matches == 0 {
+		return 0.0
+	}
+
+	k := 0
+	for i := 0; i < len(s1); i++ {
+		if !s1Matches[i] {
+			continue
+		}
+		for !s2Matches[k] {
+			k++
+		}
+		if s1[i] != s2[k] {
+			transpositions++
+		}
+		k++
+	}
+
+	jaro := (float64(matches)/float64(len(s1)) +
+		float64(matches)/float64(len(s2)) +
+		float64(matches-transpositions/2)/float64(matches)) / 3.0
+
+	// Apply Winkler prefix bonus
+	prefix := 0
+	for i := 0; i < min(4, min(len(s1), len(s2))); i++ {
+		if s1[i] == s2[i] {
+			prefix++
+		} else {
+			break
+		}
+	}
+
+	return jaro + float64(prefix)*0.1*(1-jaro)
 }

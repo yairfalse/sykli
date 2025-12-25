@@ -27,12 +27,15 @@ defmodule Sykli.Emitter do
       end
     end)
 
-    # Check dependencies exist
+    # Check dependencies exist with suggestions
     Enum.each(pipeline.tasks, fn task ->
       Enum.each(task.depends_on, fn dep ->
         unless MapSet.member?(task_names, dep) do
+          suggestion = suggest_task_name(dep, MapSet.to_list(task_names))
+          message = "task #{inspect(task.name)} depends on unknown task #{inspect(dep)}"
+          message = if suggestion, do: message <> " (did you mean #{inspect(suggestion)}?)", else: message
           Logger.error("unknown dependency", task: task.name, dependency: dep)
-          raise "task #{inspect(task.name)} depends on unknown task #{inspect(dep)}"
+          raise message
         end
       end)
     end)
@@ -47,8 +50,49 @@ defmodule Sykli.Emitter do
         raise "dependency cycle detected: #{Enum.join(cycle, " -> ")}"
     end
 
+    # Validate K8s options
+    Enum.each(pipeline.tasks, fn task ->
+      if task.k8s do
+        case Sykli.K8s.validate(task.k8s) do
+          {:ok, _} -> :ok
+          {:error, [first | _]} -> raise first
+        end
+      end
+    end)
+
+    # Validate Vault secret paths
+    Enum.each(pipeline.tasks, fn task ->
+      Enum.each(task.secret_refs, fn ref ->
+        if ref.source == :vault do
+          validate_vault_path!(task.name, ref.key)
+        end
+      end)
+    end)
+
     Logger.debug("pipeline validated", tasks: length(pipeline.tasks))
     pipeline
+  end
+
+  # Suggest similar task names using Jaro-Winkler distance
+  defp suggest_task_name(unknown, known_names) do
+    known_names
+    |> Enum.map(fn name -> {name, String.jaro_distance(unknown, name)} end)
+    |> Enum.filter(fn {_, score} -> score >= 0.8 end)
+    |> Enum.max_by(fn {_, score} -> score end, fn -> nil end)
+    |> case do
+      {name, _score} -> name
+      nil -> nil
+    end
+  end
+
+  # Validate Vault path format: path/to/secret#field
+  defp validate_vault_path!(task_name, path) do
+    unless String.contains?(path, "#") do
+      raise """
+      task #{inspect(task_name)}: invalid Vault path #{inspect(path)}
+      Expected format: "path/to/secret#field" (e.g., "secret/data/db#password")
+      """
+    end
   end
 
   # ============================================================================
@@ -129,6 +173,12 @@ defmodule Sykli.Emitter do
   end
 
   defp task_to_json(task) do
+    # Use when_cond if set, otherwise use condition string
+    condition = case task.when_cond do
+      %Sykli.Condition{expr: expr} when expr != "" -> expr
+      _ -> task.condition
+    end
+
     %{name: task.name, command: task.command}
     |> maybe_put(:container, task.container)
     |> maybe_put(:workdir, task.workdir)
@@ -138,12 +188,24 @@ defmodule Sykli.Emitter do
     |> maybe_put(:outputs, non_empty_map(task.outputs))
     |> maybe_put(:depends_on, non_empty(task.depends_on))
     |> maybe_put(:task_inputs, non_empty_list(task.task_inputs, &task_input_to_json/1))
-    |> maybe_put(:when, task.condition)
+    |> maybe_put(:when, condition)
     |> maybe_put(:secrets, non_empty(task.secrets))
+    |> maybe_put(:secret_refs, non_empty_list(task.secret_refs, &secret_ref_to_json/1))
     |> maybe_put(:matrix, non_empty_map(task.matrix))
     |> maybe_put(:services, non_empty_list(task.services, &service_to_json/1))
     |> maybe_put(:retry, task.retry)
     |> maybe_put(:timeout, task.timeout)
+    |> maybe_put(:target, task.target_name)
+    |> maybe_put(:k8s, if(task.k8s, do: Sykli.K8s.to_json(task.k8s), else: nil))
+  end
+
+  defp secret_ref_to_json(ref) do
+    source = case ref.source do
+      :env -> "env"
+      :file -> "file"
+      :vault -> "vault"
+    end
+    %{name: ref.name, source: source, key: ref.key}
   end
 
   defp mount_to_json(mount) do

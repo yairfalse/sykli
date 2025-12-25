@@ -133,6 +133,24 @@ defmodule Sykli.DSL do
     update_current_task(fn t -> %{t | condition: condition} end)
   end
 
+  @doc """
+  Sets a type-safe condition for when this task runs.
+
+  This is an alternative to `when_/1` that catches errors at compile time.
+
+  ## Examples
+
+      alias Sykli.Condition
+
+      task "deploy" do
+        run "kubectl apply"
+        when_cond Condition.branch("main") |> Condition.or_cond(Condition.tag("v*"))
+      end
+  """
+  def when_cond(%Sykli.Condition{} = condition) do
+    update_current_task(fn t -> %{t | when_cond: condition} end)
+  end
+
   @doc "Declares a required secret."
   def secret(name) when is_binary(name) do
     update_current_task(fn t -> %{t | secrets: t.secrets ++ [name]} end)
@@ -141,6 +159,45 @@ defmodule Sykli.DSL do
   @doc "Declares multiple required secrets."
   def secrets(names) when is_list(names) do
     update_current_task(fn t -> %{t | secrets: t.secrets ++ names} end)
+  end
+
+  @doc """
+  Declares a typed secret reference with explicit source.
+
+  ## Examples
+
+      alias Sykli.SecretRef
+
+      task "deploy" do
+        run "./deploy.sh"
+        secret_from "GITHUB_TOKEN", SecretRef.from_env("GH_TOKEN")
+        secret_from "DB_PASSWORD", SecretRef.from_vault("secret/data/db#password")
+      end
+  """
+  def secret_from(name, %Sykli.SecretRef{} = ref) when is_binary(name) do
+    secret_ref = %{ref | name: name}
+    update_current_task(fn t -> %{t | secret_refs: t.secret_refs ++ [secret_ref]} end)
+  end
+
+  @doc """
+  Sets the target for this specific task, overriding the pipeline default.
+
+  This enables hybrid pipelines where different tasks run on different targets.
+
+  ## Examples
+
+      task "test" do
+        run "mix test"
+        target "local"
+      end
+
+      task "deploy" do
+        run "kubectl apply"
+        target "k8s"
+      end
+  """
+  def target(name) when is_binary(name) do
+    update_current_task(fn t -> %{t | target_name: name} end)
   end
 
   @doc "Adds a matrix dimension."
@@ -167,6 +224,30 @@ defmodule Sykli.DSL do
     update_current_task(fn t ->
       Logger.debug("setting timeout", task: t.name, timeout: seconds)
       %{t | timeout: seconds}
+    end)
+  end
+
+  @doc """
+  Sets Kubernetes-specific options for this task.
+
+  Use the builder API from `Sykli.K8s` to create options.
+
+  ## Examples
+
+      alias Sykli.K8s
+
+      task "build" do
+        run "cargo build"
+        k8s K8s.options()
+             |> K8s.memory("4Gi")
+             |> K8s.cpu("2")
+             |> K8s.gpu(1)
+      end
+  """
+  def k8s(%Sykli.K8s{} = opts) do
+    update_current_task(fn t ->
+      Logger.debug("setting k8s options", task: t.name)
+      %{t | k8s: opts}
     end)
   end
 

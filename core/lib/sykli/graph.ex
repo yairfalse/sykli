@@ -37,16 +37,13 @@ defmodule Sykli.Graph do
       # Timeout in seconds (nil = default 5 min)
       :timeout,
       # v2 fields
-      # Docker image to run in
-      :container,
-      # Working directory inside container
-      :workdir,
-      # Environment variables (map)
-      :env,
-      # List of mounts (directories and caches)
-      :mounts,
-      # List of TaskInput structs (artifact bindings from other tasks)
-      :task_inputs
+      :container,     # Docker image to run in
+      :workdir,       # Working directory inside container
+      :env,           # Environment variables (map)
+      :mounts,        # List of mounts (directories and caches)
+      :task_inputs,   # List of TaskInput structs (artifact bindings from other tasks)
+      # Target-specific options
+      :k8s            # Sykli.Target.K8sOptions - only used with K8s target
     ]
   end
 
@@ -89,7 +86,9 @@ defmodule Sykli.Graph do
       workdir: map["workdir"],
       env: map["env"] || %{},
       mounts: parse_mounts(map["mounts"]),
-      task_inputs: parse_task_inputs(map["task_inputs"])
+      task_inputs: parse_task_inputs(map["task_inputs"]),
+      # Target-specific options
+      k8s: Sykli.Target.K8sOptions.parse(map["k8s"])
     }
   end
 

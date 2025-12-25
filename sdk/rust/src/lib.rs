@@ -29,12 +29,41 @@
 //!
 //! p.emit();
 //! ```
+//!
+//! # Custom Targets
+//!
+//! For implementing custom execution targets, see the [`target`] module.
+//!
+//! ```rust,ignore
+//! use sykli::target::{Target, TaskSpec, Result};
+//!
+//! struct MyTarget;
+//!
+//! impl Target for MyTarget {
+//!     fn run_task(&self, task: &TaskSpec) -> Result {
+//!         // Execute tasks your way
+//!         Result::success()
+//!     }
+//! }
+//! ```
 
+pub mod target;
+
+use regex::Regex;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::env;
 use std::io::{self, Write};
+use std::sync::LazyLock;
 use tracing::debug;
+
+// K8s resource validation patterns
+static K8S_MEMORY_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^[0-9]+(\.[0-9]+)?(Ki|Mi|Gi|Ti|Pi|Ei|k|M|G|T|P|E)?$").unwrap()
+});
+static K8S_CPU_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^[0-9]+(\.[0-9]+)?m?$").unwrap()
+});
 
 // =============================================================================
 // RESOURCES
@@ -88,6 +117,491 @@ struct Mount {
 struct Service {
     image: String,
     name: String,
+}
+
+// =============================================================================
+// K8S OPTIONS
+// =============================================================================
+
+/// Kubernetes-specific configuration for a task.
+///
+/// These options are only used when running with a K8s target.
+///
+/// # Example
+/// ```rust,ignore
+/// use sykli::{Pipeline, K8sOptions, K8sResources};
+///
+/// let mut p = Pipeline::new();
+/// p.task("build")
+///     .run("cargo build")
+///     .k8s(K8sOptions {
+///         resources: K8sResources {
+///             memory: Some("4Gi".into()),
+///             cpu: Some("2".into()),
+///             ..Default::default()
+///         },
+///         ..Default::default()
+///     });
+/// ```
+#[derive(Clone, Default, Debug)]
+pub struct K8sOptions {
+    /// Kubernetes namespace.
+    pub namespace: Option<String>,
+    /// Node selector labels.
+    pub node_selector: HashMap<String, String>,
+    /// Pod tolerations.
+    pub tolerations: Vec<K8sToleration>,
+    /// Affinity rules.
+    pub affinity: Option<K8sAffinity>,
+    /// Priority class name.
+    pub priority_class_name: Option<String>,
+    /// Resource requests and limits.
+    pub resources: K8sResources,
+    /// Number of GPUs to request.
+    pub gpu: Option<u32>,
+    /// Service account name.
+    pub service_account: Option<String>,
+    /// Security context.
+    pub security_context: Option<K8sSecurityContext>,
+    /// Use host network.
+    pub host_network: bool,
+    /// DNS policy.
+    pub dns_policy: Option<String>,
+    /// Additional volumes.
+    pub volumes: Vec<K8sVolume>,
+    /// Pod labels.
+    pub labels: HashMap<String, String>,
+    /// Pod annotations.
+    pub annotations: HashMap<String, String>,
+}
+
+/// Kubernetes resource requests and limits.
+#[derive(Clone, Default, Debug)]
+pub struct K8sResources {
+    pub request_cpu: Option<String>,
+    pub request_memory: Option<String>,
+    pub limit_cpu: Option<String>,
+    pub limit_memory: Option<String>,
+    /// Shorthand: sets both request and limit.
+    pub cpu: Option<String>,
+    /// Shorthand: sets both request and limit.
+    pub memory: Option<String>,
+}
+
+/// Kubernetes toleration.
+#[derive(Clone, Debug)]
+pub struct K8sToleration {
+    pub key: String,
+    pub operator: String,
+    pub value: Option<String>,
+    pub effect: String,
+}
+
+/// Kubernetes affinity rules.
+#[derive(Clone, Debug)]
+pub struct K8sAffinity {
+    pub node_affinity: Option<K8sNodeAffinity>,
+    pub pod_affinity: Option<K8sPodAffinity>,
+    pub pod_anti_affinity: Option<K8sPodAffinity>,
+}
+
+/// Kubernetes node affinity.
+#[derive(Clone, Debug)]
+pub struct K8sNodeAffinity {
+    pub required_labels: HashMap<String, String>,
+    pub preferred_labels: HashMap<String, String>,
+}
+
+/// Kubernetes pod affinity.
+#[derive(Clone, Debug)]
+pub struct K8sPodAffinity {
+    pub required_labels: HashMap<String, String>,
+    pub topology_key: String,
+}
+
+/// Kubernetes security context.
+#[derive(Clone, Debug, Default)]
+pub struct K8sSecurityContext {
+    pub run_as_user: Option<i64>,
+    pub run_as_group: Option<i64>,
+    pub run_as_non_root: bool,
+    pub privileged: bool,
+    pub read_only_root_filesystem: bool,
+    pub add_capabilities: Vec<String>,
+    pub drop_capabilities: Vec<String>,
+}
+
+/// Kubernetes volume mount.
+#[derive(Clone, Debug)]
+pub struct K8sVolume {
+    pub name: String,
+    pub mount_path: String,
+    pub config_map: Option<String>,
+    pub secret: Option<String>,
+    pub empty_dir: Option<K8sEmptyDir>,
+    pub host_path: Option<K8sHostPath>,
+    pub pvc: Option<String>,
+}
+
+/// Kubernetes EmptyDir volume options.
+#[derive(Clone, Debug)]
+pub struct K8sEmptyDir {
+    pub medium: Option<String>,
+    pub size_limit: Option<String>,
+}
+
+/// Kubernetes HostPath volume options.
+#[derive(Clone, Debug)]
+pub struct K8sHostPath {
+    pub path: String,
+    pub type_: Option<String>,
+}
+
+impl K8sOptions {
+    /// Merges defaults with task-specific options.
+    /// Task options override defaults. For maps, values are merged with task winning.
+    pub fn merge(defaults: &K8sOptions, task: &K8sOptions) -> K8sOptions {
+        let mut result = defaults.clone();
+
+        // Scalars: task wins if Some
+        if task.namespace.is_some() {
+            result.namespace = task.namespace.clone();
+        }
+        if task.priority_class_name.is_some() {
+            result.priority_class_name = task.priority_class_name.clone();
+        }
+        if task.service_account.is_some() {
+            result.service_account = task.service_account.clone();
+        }
+        if task.dns_policy.is_some() {
+            result.dns_policy = task.dns_policy.clone();
+        }
+        if task.gpu.is_some() {
+            result.gpu = task.gpu;
+        }
+        if task.host_network {
+            result.host_network = true;
+        }
+
+        // Resources: task wins for each Some field
+        if task.resources.cpu.is_some() {
+            result.resources.cpu = task.resources.cpu.clone();
+        }
+        if task.resources.memory.is_some() {
+            result.resources.memory = task.resources.memory.clone();
+        }
+        if task.resources.request_cpu.is_some() {
+            result.resources.request_cpu = task.resources.request_cpu.clone();
+        }
+        if task.resources.request_memory.is_some() {
+            result.resources.request_memory = task.resources.request_memory.clone();
+        }
+        if task.resources.limit_cpu.is_some() {
+            result.resources.limit_cpu = task.resources.limit_cpu.clone();
+        }
+        if task.resources.limit_memory.is_some() {
+            result.resources.limit_memory = task.resources.limit_memory.clone();
+        }
+
+        // Maps: merge with task values winning
+        for (k, v) in &task.node_selector {
+            result.node_selector.insert(k.clone(), v.clone());
+        }
+        for (k, v) in &task.labels {
+            result.labels.insert(k.clone(), v.clone());
+        }
+        for (k, v) in &task.annotations {
+            result.annotations.insert(k.clone(), v.clone());
+        }
+
+        // Slices/structs: task replaces if non-empty
+        if !task.tolerations.is_empty() {
+            result.tolerations = task.tolerations.clone();
+        }
+        if !task.volumes.is_empty() {
+            result.volumes = task.volumes.clone();
+        }
+        if task.affinity.is_some() {
+            result.affinity = task.affinity.clone();
+        }
+        if task.security_context.is_some() {
+            result.security_context = task.security_context.clone();
+        }
+
+        result
+    }
+
+    /// Returns true if no options are set.
+    pub fn is_empty(&self) -> bool {
+        self.namespace.is_none()
+            && self.node_selector.is_empty()
+            && self.tolerations.is_empty()
+            && self.affinity.is_none()
+            && self.priority_class_name.is_none()
+            && self.resources.cpu.is_none()
+            && self.resources.memory.is_none()
+            && self.resources.request_cpu.is_none()
+            && self.resources.request_memory.is_none()
+            && self.resources.limit_cpu.is_none()
+            && self.resources.limit_memory.is_none()
+            && self.gpu.is_none()
+            && self.service_account.is_none()
+            && self.security_context.is_none()
+            && !self.host_network
+            && self.dns_policy.is_none()
+            && self.volumes.is_empty()
+            && self.labels.is_empty()
+            && self.annotations.is_empty()
+    }
+
+    /// Validates K8s options and returns a list of errors.
+    ///
+    /// Checks for:
+    /// - Memory format (Ki/Mi/Gi/Ti, e.g., '512Mi', '4Gi')
+    /// - CPU format (cores or millicores, e.g., '500m', '0.5', '2')
+    /// - Toleration operators (Exists, Equal)
+    /// - Toleration effects (NoSchedule, PreferNoSchedule, NoExecute)
+    /// - DNS policy (ClusterFirst, ClusterFirstWithHostNet, Default, None)
+    /// - Volume mount paths (must be absolute)
+    pub fn validate(&self) -> Vec<K8sValidationError> {
+        let mut errors = Vec::new();
+
+        // Validate memory fields
+        for (field, value) in [
+            ("resources.memory", &self.resources.memory),
+            ("resources.request_memory", &self.resources.request_memory),
+            ("resources.limit_memory", &self.resources.limit_memory),
+        ] {
+            if let Some(v) = value {
+                if let Some(err) = validate_k8s_memory(field, v) {
+                    errors.push(err);
+                }
+            }
+        }
+
+        // Validate CPU fields
+        for (field, value) in [
+            ("resources.cpu", &self.resources.cpu),
+            ("resources.request_cpu", &self.resources.request_cpu),
+            ("resources.limit_cpu", &self.resources.limit_cpu),
+        ] {
+            if let Some(v) = value {
+                if let Some(err) = validate_k8s_cpu(field, v) {
+                    errors.push(err);
+                }
+            }
+        }
+
+        // Validate tolerations
+        for (i, t) in self.tolerations.iter().enumerate() {
+            if !t.operator.is_empty() && t.operator != "Exists" && t.operator != "Equal" {
+                errors.push(K8sValidationError {
+                    field: format!("tolerations[{}].operator", i),
+                    value: t.operator.clone(),
+                    message: "must be 'Exists' or 'Equal'".to_string(),
+                });
+            }
+            if !t.effect.is_empty()
+                && t.effect != "NoSchedule"
+                && t.effect != "PreferNoSchedule"
+                && t.effect != "NoExecute"
+            {
+                errors.push(K8sValidationError {
+                    field: format!("tolerations[{}].effect", i),
+                    value: t.effect.clone(),
+                    message: "must be 'NoSchedule', 'PreferNoSchedule', or 'NoExecute'".to_string(),
+                });
+            }
+        }
+
+        // Validate DNS policy
+        if let Some(ref policy) = self.dns_policy {
+            let valid = ["ClusterFirst", "ClusterFirstWithHostNet", "Default", "None"];
+            if !valid.contains(&policy.as_str()) {
+                errors.push(K8sValidationError {
+                    field: "dns_policy".to_string(),
+                    value: policy.clone(),
+                    message: "must be one of: ClusterFirst, ClusterFirstWithHostNet, Default, None"
+                        .to_string(),
+                });
+            }
+        }
+
+        // Validate volumes
+        for (i, v) in self.volumes.iter().enumerate() {
+            if v.name.is_empty() {
+                errors.push(K8sValidationError {
+                    field: format!("volumes[{}].name", i),
+                    value: String::new(),
+                    message: "volume name is required".to_string(),
+                });
+            }
+            if v.mount_path.is_empty() {
+                errors.push(K8sValidationError {
+                    field: format!("volumes[{}].mount_path", i),
+                    value: String::new(),
+                    message: "mount path is required".to_string(),
+                });
+            } else if !v.mount_path.starts_with('/') {
+                errors.push(K8sValidationError {
+                    field: format!("volumes[{}].mount_path", i),
+                    value: v.mount_path.clone(),
+                    message: "mount path must be absolute (start with /)".to_string(),
+                });
+            }
+        }
+
+        errors
+    }
+}
+
+/// Error from K8s options validation.
+#[derive(Debug, Clone)]
+pub struct K8sValidationError {
+    /// Field that failed validation (e.g., "resources.memory").
+    pub field: String,
+    /// The invalid value.
+    pub value: String,
+    /// Description of what's wrong.
+    pub message: String,
+}
+
+impl std::fmt::Display for K8sValidationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "k8s.{}: {} (got {:?})", self.field, self.message, self.value)
+    }
+}
+
+impl std::error::Error for K8sValidationError {}
+
+fn validate_k8s_memory(field: &str, value: &str) -> Option<K8sValidationError> {
+    if K8S_MEMORY_PATTERN.is_match(value) {
+        return None;
+    }
+
+    // Provide helpful suggestions for common mistakes
+    let lower = value.to_lowercase();
+    let suggestion = if lower.ends_with("gb") {
+        " (did you mean 'Gi'?)"
+    } else if lower.ends_with("mb") {
+        " (did you mean 'Mi'?)"
+    } else if lower.ends_with("kb") {
+        " (did you mean 'Ki'?)"
+    } else {
+        ""
+    };
+
+    Some(K8sValidationError {
+        field: field.to_string(),
+        value: value.to_string(),
+        message: format!(
+            "invalid memory format, use Ki/Mi/Gi/Ti (e.g., '512Mi', '4Gi'){}",
+            suggestion
+        ),
+    })
+}
+
+fn validate_k8s_cpu(field: &str, value: &str) -> Option<K8sValidationError> {
+    if K8S_CPU_PATTERN.is_match(value) {
+        return None;
+    }
+
+    Some(K8sValidationError {
+        field: field.to_string(),
+        value: value.to_string(),
+        message: "invalid CPU format, use cores or millicores (e.g., '500m', '0.5', '2')"
+            .to_string(),
+    })
+}
+
+// =============================================================================
+// STRING SIMILARITY
+// =============================================================================
+
+/// Finds the most similar task name using Jaro-Winkler distance.
+fn suggest_task_name<'a>(unknown: &str, known: &[&'a str]) -> Option<&'a str> {
+    let mut best: Option<&str> = None;
+    let mut best_score = 0.0;
+
+    for &name in known {
+        let score = jaro_winkler(unknown, name);
+        if score > best_score && score >= 0.8 {
+            best_score = score;
+            best = Some(name);
+        }
+    }
+    best
+}
+
+/// Computes the Jaro-Winkler similarity between two strings (0-1).
+fn jaro_winkler(s1: &str, s2: &str) -> f64 {
+    if s1 == s2 {
+        return 1.0;
+    }
+    if s1.is_empty() || s2.is_empty() {
+        return 0.0;
+    }
+
+    let s1_chars: Vec<char> = s1.chars().collect();
+    let s2_chars: Vec<char> = s2.chars().collect();
+
+    let match_window = (s1_chars.len().max(s2_chars.len()) / 2).saturating_sub(1);
+
+    let mut s1_matches = vec![false; s1_chars.len()];
+    let mut s2_matches = vec![false; s2_chars.len()];
+
+    let mut matches = 0usize;
+    let mut transpositions = 0usize;
+
+    for i in 0..s1_chars.len() {
+        let start = i.saturating_sub(match_window);
+        let end = (i + match_window + 1).min(s2_chars.len());
+
+        for j in start..end {
+            if s2_matches[j] || s1_chars[i] != s2_chars[j] {
+                continue;
+            }
+            s1_matches[i] = true;
+            s2_matches[j] = true;
+            matches += 1;
+            break;
+        }
+    }
+
+    if matches == 0 {
+        return 0.0;
+    }
+
+    let mut k = 0;
+    for i in 0..s1_chars.len() {
+        if !s1_matches[i] {
+            continue;
+        }
+        while !s2_matches[k] {
+            k += 1;
+        }
+        if s1_chars[i] != s2_chars[k] {
+            transpositions += 1;
+        }
+        k += 1;
+    }
+
+    let jaro = (matches as f64 / s1_chars.len() as f64
+        + matches as f64 / s2_chars.len() as f64
+        + (matches as f64 - transpositions as f64 / 2.0) / matches as f64)
+        / 3.0;
+
+    // Apply Winkler prefix bonus
+    let mut prefix = 0;
+    for i in 0..4.min(s1_chars.len()).min(s2_chars.len()) {
+        if s1_chars[i] == s2_chars[i] {
+            prefix += 1;
+        } else {
+            break;
+        }
+    }
+
+    jaro + prefix as f64 * 0.1 * (1.0 - jaro)
 }
 
 // =============================================================================
@@ -199,6 +713,180 @@ struct TaskInput {
     dest_path: String,
 }
 
+// =============================================================================
+// TYPED SECRET REFERENCES
+// =============================================================================
+
+/// Source of a secret value.
+#[derive(Clone, Debug)]
+pub enum SecretSource {
+    /// Read from environment variable
+    Env,
+    /// Read from file
+    File,
+    /// Read from HashiCorp Vault
+    Vault,
+}
+
+/// A typed reference to a secret with its source.
+///
+/// # Example
+/// ```rust,ignore
+/// use sykli::{Pipeline, SecretRef};
+///
+/// let mut p = Pipeline::new();
+/// p.task("deploy")
+///     .run("./deploy.sh")
+///     .secret_from("TOKEN", SecretRef::from_env("GITHUB_TOKEN"))
+///     .secret_from("DB_PASS", SecretRef::from_vault("secret/data/db#password"));
+/// ```
+#[derive(Clone, Debug)]
+pub struct SecretRef {
+    /// Environment variable name in the task
+    pub name: String,
+    /// Where the secret comes from
+    pub source: SecretSource,
+    /// Source-specific key (env var name, file path, or vault path)
+    pub key: String,
+}
+
+impl SecretRef {
+    /// Creates a secret reference that reads from an environment variable.
+    pub fn from_env(env_var: &str) -> Self {
+        SecretRef {
+            name: String::new(),
+            source: SecretSource::Env,
+            key: env_var.to_string(),
+        }
+    }
+
+    /// Creates a secret reference that reads from a file.
+    pub fn from_file(path: &str) -> Self {
+        SecretRef {
+            name: String::new(),
+            source: SecretSource::File,
+            key: path.to_string(),
+        }
+    }
+
+    /// Creates a secret reference that reads from HashiCorp Vault.
+    /// The path format is "path/to/secret#field".
+    pub fn from_vault(path: &str) -> Self {
+        SecretRef {
+            name: String::new(),
+            source: SecretSource::Vault,
+            key: path.to_string(),
+        }
+    }
+}
+
+// =============================================================================
+// CONDITION BUILDER (Type-safe conditions)
+// =============================================================================
+
+/// A type-safe condition for when a task should run.
+///
+/// Use the builder functions to create conditions:
+///
+/// # Example
+/// ```rust,ignore
+/// use sykli::{Pipeline, Condition};
+///
+/// let mut p = Pipeline::new();
+/// p.task("deploy")
+///     .run("kubectl apply")
+///     .when_cond(Condition::branch("main").or(Condition::tag("v*")));
+///
+/// p.task("test")
+///     .run("cargo test")
+///     .when_cond(Condition::not(Condition::branch("wip/*")));
+/// ```
+#[derive(Clone, Default, Debug)]
+pub struct Condition {
+    expr: String,
+}
+
+impl Condition {
+    /// Creates a condition that matches a branch name or pattern.
+    /// Supports glob patterns like "feature/*".
+    pub fn branch(pattern: &str) -> Self {
+        if pattern.contains('*') {
+            Condition {
+                expr: format!("branch matches '{}'", pattern),
+            }
+        } else {
+            Condition {
+                expr: format!("branch == '{}'", pattern),
+            }
+        }
+    }
+
+    /// Creates a condition that matches a tag name or pattern.
+    /// Supports glob patterns like "v*".
+    pub fn tag(pattern: &str) -> Self {
+        if pattern.is_empty() {
+            Condition {
+                expr: "tag != ''".to_string(),
+            }
+        } else if pattern.contains('*') {
+            Condition {
+                expr: format!("tag matches '{}'", pattern),
+            }
+        } else {
+            Condition {
+                expr: format!("tag == '{}'", pattern),
+            }
+        }
+    }
+
+    /// Creates a condition that matches when any tag is present.
+    pub fn has_tag() -> Self {
+        Condition {
+            expr: "tag != ''".to_string(),
+        }
+    }
+
+    /// Creates a condition that matches a CI event type.
+    pub fn event(event_type: &str) -> Self {
+        Condition {
+            expr: format!("event == '{}'", event_type),
+        }
+    }
+
+    /// Creates a condition that matches when running in CI.
+    pub fn in_ci() -> Self {
+        Condition {
+            expr: "ci == true".to_string(),
+        }
+    }
+
+    /// Negates a condition.
+    pub fn not(c: Condition) -> Self {
+        Condition {
+            expr: format!("!({})", c.expr),
+        }
+    }
+
+    /// Combines conditions with OR logic.
+    pub fn or(self, other: Condition) -> Self {
+        Condition {
+            expr: format!("({}) || ({})", self.expr, other.expr),
+        }
+    }
+
+    /// Combines conditions with AND logic.
+    pub fn and(self, other: Condition) -> Self {
+        Condition {
+            expr: format!("({}) && ({})", self.expr, other.expr),
+        }
+    }
+
+    /// Returns the condition expression string.
+    pub fn to_string(&self) -> String {
+        self.expr.clone()
+    }
+}
+
 #[derive(Clone, Default)]
 struct TaskData {
     name: String,
@@ -207,17 +895,23 @@ struct TaskData {
     workdir: Option<String>,
     env: HashMap<String, String>,
     mounts: Vec<Mount>,
-    inputs: Vec<String>,        // v1-style file patterns
-    task_inputs: Vec<TaskInput>, // v2-style inputs from other tasks
+    inputs: Vec<String>,          // v1-style file patterns
+    task_inputs: Vec<TaskInput>,  // v2-style inputs from other tasks
     outputs: HashMap<String, String>,
     depends_on: Vec<String>,
     condition: Option<String>,
-    secrets: Vec<String>,
+    when_cond: Option<Condition>,  // Type-safe condition (alternative to string)
+    secrets: Vec<String>,          // v1-style secret names
+    secret_refs: Vec<SecretRef>,   // v2-style typed secret references
     matrix: HashMap<String, Vec<String>>,
     services: Vec<Service>,
     // Robustness features
-    retry: Option<u32>,   // Number of retries on failure
-    timeout: Option<u32>, // Timeout in seconds
+    retry: Option<u32>,            // Number of retries on failure
+    timeout: Option<u32>,          // Timeout in seconds
+    // K8s options
+    k8s_options: Option<K8sOptions>,
+    // Per-task target override
+    target_name: Option<String>,
 }
 
 impl<'a> Task<'a> {
@@ -392,7 +1086,7 @@ impl<'a> Task<'a> {
         // Add the task input
         task.task_inputs.push(TaskInput {
             from_task: from_task.to_string(),
-            output_name: output_name.to_string(),
+            output: output_name.to_string(),
             dest_path: dest_path.to_string(),
         });
 
@@ -508,6 +1202,74 @@ impl<'a> Task<'a> {
         self
     }
 
+    /// Declares a typed secret reference with explicit source.
+    ///
+    /// This provides better DX than plain secret names by making the source explicit.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// use sykli::{Pipeline, SecretRef};
+    ///
+    /// let mut p = Pipeline::new();
+    /// p.task("deploy")
+    ///     .run("./deploy.sh")
+    ///     .secret_from("GITHUB_TOKEN", SecretRef::from_env("GH_TOKEN"))
+    ///     .secret_from("DB_PASSWORD", SecretRef::from_vault("secret/data/db#password"));
+    /// ```
+    ///
+    /// # Panics
+    /// Panics if `name` or `ref.key` is empty.
+    #[must_use]
+    pub fn secret_from(self, name: &str, secret_ref: SecretRef) -> Self {
+        assert!(!name.is_empty(), "secret name cannot be empty");
+        assert!(!secret_ref.key.is_empty(), "secret key cannot be empty");
+        let mut sr = secret_ref;
+        sr.name = name.to_string();
+        self.pipeline.tasks[self.index].secret_refs.push(sr);
+        self
+    }
+
+    /// Sets a type-safe condition for when this task should run.
+    ///
+    /// This is an alternative to `when()` that catches errors at compile time.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// use sykli::{Pipeline, Condition};
+    ///
+    /// let mut p = Pipeline::new();
+    /// p.task("deploy")
+    ///     .run("kubectl apply")
+    ///     .when_cond(Condition::branch("main").or(Condition::tag("v*")));
+    /// ```
+    #[must_use]
+    pub fn when_cond(self, c: Condition) -> Self {
+        self.pipeline.tasks[self.index].when_cond = Some(c);
+        self
+    }
+
+    /// Sets the target for this specific task, overriding the pipeline default.
+    ///
+    /// This enables hybrid pipelines where different tasks run on different targets.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// use sykli::Pipeline;
+    ///
+    /// let mut p = Pipeline::new();
+    /// p.task("test").run("cargo test").target("local");
+    /// p.task("deploy").run("kubectl apply").target("k8s");
+    /// ```
+    ///
+    /// # Panics
+    /// Panics if `name` is empty.
+    #[must_use]
+    pub fn target(self, name: &str) -> Self {
+        assert!(!name.is_empty(), "target name cannot be empty");
+        self.pipeline.tasks[self.index].target_name = Some(name.to_string());
+        self
+    }
+
     /// Adds a matrix dimension for this task.
     ///
     /// Matrix builds run the task multiple times with different parameter combinations.
@@ -612,6 +1374,52 @@ impl<'a> Task<'a> {
         self.pipeline.tasks[self.index].timeout = Some(seconds);
         self
     }
+
+    /// Sets Kubernetes-specific options for this task.
+    ///
+    /// These options are only used when running with a K8s target.
+    /// If pipeline-level K8s defaults are set, task options will be merged
+    /// with task values overriding defaults.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// use sykli::{Pipeline, K8sOptions, K8sResources};
+    ///
+    /// let mut p = Pipeline::new();
+    /// p.task("build")
+    ///     .run("cargo build")
+    ///     .k8s(K8sOptions {
+    ///         resources: K8sResources {
+    ///             memory: Some("4Gi".into()),
+    ///             cpu: Some("2".into()),
+    ///             ..Default::default()
+    ///         },
+    ///         ..Default::default()
+    ///     });
+    /// ```
+    #[must_use]
+    pub fn k8s(self, opts: K8sOptions) -> Self {
+        debug!(task = %self.pipeline.tasks[self.index].name, "setting k8s options");
+        self.pipeline.tasks[self.index].k8s_options = Some(opts);
+        self
+    }
+}
+
+// =============================================================================
+// EXPLAIN CONTEXT
+// =============================================================================
+
+/// Context for evaluating conditions during explain/dry-run.
+#[derive(Default)]
+pub struct ExplainContext {
+    /// Current branch name
+    pub branch: String,
+    /// Current tag (empty if none)
+    pub tag: String,
+    /// CI event type (push, pull_request, etc.)
+    pub event: String,
+    /// Whether running in CI environment
+    pub ci: bool,
 }
 
 // =============================================================================
@@ -623,6 +1431,7 @@ pub struct Pipeline {
     tasks: Vec<TaskData>,
     dirs: Vec<Directory>,
     caches: Vec<CacheVolume>,
+    k8s_defaults: Option<K8sOptions>,
 }
 
 impl Pipeline {
@@ -633,6 +1442,40 @@ impl Pipeline {
             tasks: Vec::new(),
             dirs: Vec::new(),
             caches: Vec::new(),
+            k8s_defaults: None,
+        }
+    }
+
+    /// Creates a new pipeline with K8s defaults.
+    ///
+    /// All tasks inherit these settings unless they override them.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// use sykli::{Pipeline, K8sOptions, K8sResources};
+    ///
+    /// let mut p = Pipeline::with_k8s_defaults(K8sOptions {
+    ///     namespace: Some("ci-jobs".into()),
+    ///     resources: K8sResources {
+    ///         memory: Some("2Gi".into()),
+    ///         ..Default::default()
+    ///     },
+    ///     ..Default::default()
+    /// });
+    ///
+    /// p.task("test").run("go test");     // inherits defaults
+    /// p.task("heavy").k8s(K8sOptions {   // overrides memory
+    ///     resources: K8sResources { memory: Some("32Gi".into()), ..Default::default() },
+    ///     ..Default::default()
+    /// }).run("heavy-job");
+    /// ```
+    #[must_use]
+    pub fn with_k8s_defaults(k8s_defaults: K8sOptions) -> Self {
+        Pipeline {
+            tasks: Vec::new(),
+            dirs: Vec::new(),
+            caches: Vec::new(),
+            k8s_defaults: Some(k8s_defaults),
         }
     }
 
@@ -725,6 +1568,157 @@ impl Pipeline {
         }
     }
 
+    // =========================================================================
+    // EXPLAIN (Dry-run mode)
+    // =========================================================================
+
+    /// Context for evaluating conditions during explain.
+    /// Pass None to use empty defaults.
+    pub fn explain(&self, ctx: Option<&ExplainContext>) {
+        self.explain_to(&mut io::stdout(), ctx);
+    }
+
+    /// Writes the execution plan to the given writer.
+    pub fn explain_to<W: Write>(&self, w: &mut W, ctx: Option<&ExplainContext>) {
+        let default_ctx = ExplainContext::default();
+        let ctx = ctx.unwrap_or(&default_ctx);
+
+        // Topological sort
+        let sorted = self.topological_sort();
+
+        writeln!(w, "Pipeline Execution Plan").ok();
+        writeln!(w, "=======================").ok();
+
+        for (i, t) in sorted.iter().enumerate() {
+            // Build task header
+            let mut header = format!("{}. {}", i + 1, t.name);
+
+            // Add dependencies
+            if !t.depends_on.is_empty() {
+                header.push_str(&format!(" (after: {})", t.depends_on.join(", ")));
+            }
+
+            // Add target override
+            if let Some(ref target) = t.target_name {
+                header.push_str(&format!(" [target: {}]", target));
+            }
+
+            // Check if task would be skipped
+            let condition = t.when_cond.as_ref().map(|c| c.to_string()).or_else(|| t.condition.clone());
+            if let Some(ref cond) = condition {
+                if let Some(reason) = self.would_skip(cond, ctx) {
+                    header.push_str(&format!(" [SKIPPED: {}]", reason));
+                }
+            }
+
+            writeln!(w, "{}", header).ok();
+            writeln!(w, "   Command: {}", t.command).ok();
+
+            if let Some(ref cond) = condition {
+                writeln!(w, "   Condition: {}", cond).ok();
+            }
+
+            if !t.secret_refs.is_empty() {
+                let secrets: Vec<_> = t.secret_refs.iter().map(|sr| {
+                    let source = match sr.source {
+                        SecretSource::Env => "env",
+                        SecretSource::File => "file",
+                        SecretSource::Vault => "vault",
+                    };
+                    format!("{} ({}:{})", sr.name, source, sr.key)
+                }).collect();
+                writeln!(w, "   Secrets: {}", secrets.join(", ")).ok();
+            } else if !t.secrets.is_empty() {
+                writeln!(w, "   Secrets: {}", t.secrets.join(", ")).ok();
+            }
+
+            writeln!(w).ok();
+        }
+    }
+
+    /// Check if a task would be skipped given the context.
+    fn would_skip(&self, condition: &str, ctx: &ExplainContext) -> Option<String> {
+        let condition = condition.trim();
+
+        // branch == 'value'
+        if condition.starts_with("branch == '") {
+            let expected = condition
+                .strip_prefix("branch == '")
+                .and_then(|s| s.strip_suffix("'"))
+                .unwrap_or("");
+            if ctx.branch != expected {
+                return Some(format!("branch is '{}', not '{}'", ctx.branch, expected));
+            }
+        }
+
+        // branch != 'value'
+        if condition.starts_with("branch != '") {
+            let excluded = condition
+                .strip_prefix("branch != '")
+                .and_then(|s| s.strip_suffix("'"))
+                .unwrap_or("");
+            if ctx.branch == excluded {
+                return Some(format!("branch is '{}'", ctx.branch));
+            }
+        }
+
+        // tag != '' (has tag)
+        if condition == "tag != ''" && ctx.tag.is_empty() {
+            return Some("no tag present".to_string());
+        }
+
+        // ci == true
+        if condition == "ci == true" && !ctx.ci {
+            return Some("not running in CI".to_string());
+        }
+
+        None
+    }
+
+    /// Topological sort of tasks.
+    fn topological_sort(&self) -> Vec<&TaskData> {
+        // Build in-degree map
+        let mut in_degree: HashMap<&str, usize> = HashMap::new();
+        for t in &self.tasks {
+            in_degree.entry(&t.name).or_insert(0);
+            for _ in &t.depends_on {
+                *in_degree.entry(&t.name).or_insert(0) += 1;
+            }
+        }
+
+        // Kahn's algorithm
+        let mut queue: Vec<&str> = in_degree
+            .iter()
+            .filter(|(_, &d)| d == 0)
+            .map(|(n, _)| *n)
+            .collect();
+
+        let task_map: HashMap<&str, &TaskData> = self.tasks.iter().map(|t| (t.name.as_str(), t)).collect();
+        let mut sorted = Vec::new();
+
+        while let Some(name) = queue.pop() {
+            if let Some(t) = task_map.get(name) {
+                sorted.push(*t);
+
+                // Decrease in-degree of dependents
+                for other in &self.tasks {
+                    for dep in &other.depends_on {
+                        if dep == name {
+                            if let Some(d) = in_degree.get_mut(other.name.as_str()) {
+                                *d -= 1;
+                                if *d == 0 {
+                                    queue.push(&other.name);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        sorted
+    }
+
     /// Emits the pipeline as JSON to stdout if `--emit` flag is present.
     ///
     /// This method checks for `--emit` in command line arguments and if found,
@@ -756,10 +1750,16 @@ impl Pipeline {
             }
             for dep in &t.depends_on {
                 if !task_names.contains(&dep.as_str()) {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        format!("task {:?} depends on unknown task {:?}", t.name, dep),
-                    ));
+                    let suggestion = suggest_task_name(dep, &task_names);
+                    let msg = if let Some(suggested) = suggestion {
+                        format!(
+                            "task {:?} depends on unknown task {:?} (did you mean {:?}?)",
+                            t.name, dep, suggested
+                        )
+                    } else {
+                        format!("task {:?} depends on unknown task {:?}", t.name, dep)
+                    };
+                    return Err(io::Error::new(io::ErrorKind::InvalidData, msg));
                 }
             }
         }
@@ -770,6 +1770,26 @@ impl Pipeline {
                 io::ErrorKind::InvalidData,
                 format!("dependency cycle detected: {}", cycle.join(" -> ")),
             ));
+        }
+
+        // Validate K8s options (merge defaults first, then validate)
+        for t in &self.tasks {
+            let merged = match (&self.k8s_defaults, &t.k8s_options) {
+                (None, None) => None,
+                (Some(defaults), None) => Some(defaults.clone()),
+                (None, Some(task)) => Some(task.clone()),
+                (Some(defaults), Some(task)) => Some(K8sOptions::merge(defaults, task)),
+            };
+            if let Some(ref opts) = merged {
+                let errors = opts.validate();
+                if !errors.is_empty() {
+                    tracing::error!(task = %t.name, error = %errors[0], "K8s validation failed");
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("task {:?}: {}", t.name, errors[0]),
+                    ));
+                }
+            }
         }
 
         // Detect version based on usage
@@ -857,7 +1877,7 @@ impl Pipeline {
                                 .iter()
                                 .map(|ti| JsonTaskInput {
                                     from_task: ti.from_task.clone(),
-                                    output: ti.output_name.clone(),
+                                    output: ti.output.clone(),
                                     dest: ti.dest_path.clone(),
                                 })
                                 .collect(),
@@ -873,11 +1893,29 @@ impl Pipeline {
                     } else {
                         Some(t.depends_on.clone())
                     },
-                    condition: t.condition.clone(),
+                    condition: t.when_cond.as_ref().map(|c| c.to_string()).or_else(|| t.condition.clone()),
                     secrets: if t.secrets.is_empty() {
                         None
                     } else {
                         Some(t.secrets.clone())
+                    },
+                    secret_refs: if t.secret_refs.is_empty() {
+                        None
+                    } else {
+                        Some(
+                            t.secret_refs
+                                .iter()
+                                .map(|sr| JsonSecretRef {
+                                    name: sr.name.clone(),
+                                    source: match sr.source {
+                                        SecretSource::Env => "env".to_string(),
+                                        SecretSource::File => "file".to_string(),
+                                        SecretSource::Vault => "vault".to_string(),
+                                    },
+                                    key: sr.key.clone(),
+                                })
+                                .collect(),
+                        )
                     },
                     matrix: if t.matrix.is_empty() {
                         None
@@ -899,6 +1937,17 @@ impl Pipeline {
                     },
                     retry: t.retry,
                     timeout: t.timeout,
+                    target: t.target_name.clone(),
+                    k8s: {
+                        // Merge pipeline defaults with task options
+                        let merged = match (&self.k8s_defaults, &t.k8s_options) {
+                            (None, None) => None,
+                            (Some(defaults), None) => Some(defaults.clone()),
+                            (None, Some(task)) => Some(task.clone()),
+                            (Some(defaults), Some(task)) => Some(K8sOptions::merge(defaults, task)),
+                        };
+                        merged.filter(|o| !o.is_empty()).map(|o| convert_k8s_options(&o))
+                    },
                 })
                 .collect(),
         };
@@ -1081,6 +2130,13 @@ struct JsonTaskInput {
 }
 
 #[derive(Serialize)]
+struct JsonSecretRef {
+    name: String,
+    source: String,
+    key: String,
+}
+
+#[derive(Serialize)]
 struct JsonTask {
     name: String,
     command: String,
@@ -1105,6 +2161,8 @@ struct JsonTask {
     #[serde(skip_serializing_if = "Option::is_none")]
     secrets: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    secret_refs: Option<Vec<JsonSecretRef>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     matrix: Option<HashMap<String, Vec<String>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     services: Option<Vec<JsonService>>,
@@ -1112,6 +2170,213 @@ struct JsonTask {
     retry: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     timeout: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    k8s: Option<JsonK8sOptions>,
+}
+
+#[derive(Serialize)]
+struct JsonK8sOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    namespace: Option<String>,
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    node_selector: HashMap<String, String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    tolerations: Vec<JsonK8sToleration>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    affinity: Option<JsonK8sAffinity>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    priority_class_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    resources: Option<JsonK8sResources>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    gpu: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    service_account: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    security_context: Option<JsonK8sSecurityContext>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    host_network: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dns_policy: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    volumes: Vec<JsonK8sVolume>,
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    labels: HashMap<String, String>,
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    annotations: HashMap<String, String>,
+}
+
+#[derive(Serialize)]
+struct JsonK8sResources {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    request_cpu: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    request_memory: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    limit_cpu: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    limit_memory: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cpu: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    memory: Option<String>,
+}
+
+#[derive(Serialize)]
+struct JsonK8sToleration {
+    key: String,
+    operator: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    value: Option<String>,
+    effect: String,
+}
+
+#[derive(Serialize)]
+struct JsonK8sAffinity {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    node_affinity: Option<JsonK8sNodeAffinity>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pod_affinity: Option<JsonK8sPodAffinity>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pod_anti_affinity: Option<JsonK8sPodAffinity>,
+}
+
+#[derive(Serialize)]
+struct JsonK8sNodeAffinity {
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    required_labels: HashMap<String, String>,
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    preferred_labels: HashMap<String, String>,
+}
+
+#[derive(Serialize)]
+struct JsonK8sPodAffinity {
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    required_labels: HashMap<String, String>,
+    topology_key: String,
+}
+
+#[derive(Serialize)]
+struct JsonK8sSecurityContext {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    run_as_user: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    run_as_group: Option<i64>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    run_as_non_root: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    privileged: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    read_only_root_filesystem: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    add_capabilities: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    drop_capabilities: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct JsonK8sVolume {
+    name: String,
+    mount_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    config_map: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    secret: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    empty_dir: Option<JsonK8sEmptyDir>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    host_path: Option<JsonK8sHostPath>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pvc: Option<String>,
+}
+
+#[derive(Serialize)]
+struct JsonK8sEmptyDir {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    medium: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    size_limit: Option<String>,
+}
+
+#[derive(Serialize)]
+struct JsonK8sHostPath {
+    path: String,
+    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    type_: Option<String>,
+}
+
+fn convert_k8s_options(opts: &K8sOptions) -> JsonK8sOptions {
+    JsonK8sOptions {
+        namespace: opts.namespace.clone(),
+        node_selector: opts.node_selector.clone(),
+        tolerations: opts.tolerations.iter().map(|t| JsonK8sToleration {
+            key: t.key.clone(),
+            operator: t.operator.clone(),
+            value: t.value.clone(),
+            effect: t.effect.clone(),
+        }).collect(),
+        affinity: opts.affinity.as_ref().map(|a| JsonK8sAffinity {
+            node_affinity: a.node_affinity.as_ref().map(|n| JsonK8sNodeAffinity {
+                required_labels: n.required_labels.clone(),
+                preferred_labels: n.preferred_labels.clone(),
+            }),
+            pod_affinity: a.pod_affinity.as_ref().map(|p| JsonK8sPodAffinity {
+                required_labels: p.required_labels.clone(),
+                topology_key: p.topology_key.clone(),
+            }),
+            pod_anti_affinity: a.pod_anti_affinity.as_ref().map(|p| JsonK8sPodAffinity {
+                required_labels: p.required_labels.clone(),
+                topology_key: p.topology_key.clone(),
+            }),
+        }),
+        priority_class_name: opts.priority_class_name.clone(),
+        resources: if opts.resources.cpu.is_some() || opts.resources.memory.is_some()
+            || opts.resources.request_cpu.is_some() || opts.resources.request_memory.is_some()
+            || opts.resources.limit_cpu.is_some() || opts.resources.limit_memory.is_some() {
+            Some(JsonK8sResources {
+                request_cpu: opts.resources.request_cpu.clone(),
+                request_memory: opts.resources.request_memory.clone(),
+                limit_cpu: opts.resources.limit_cpu.clone(),
+                limit_memory: opts.resources.limit_memory.clone(),
+                cpu: opts.resources.cpu.clone(),
+                memory: opts.resources.memory.clone(),
+            })
+        } else {
+            None
+        },
+        gpu: opts.gpu,
+        service_account: opts.service_account.clone(),
+        security_context: opts.security_context.as_ref().map(|s| JsonK8sSecurityContext {
+            run_as_user: s.run_as_user,
+            run_as_group: s.run_as_group,
+            run_as_non_root: s.run_as_non_root,
+            privileged: s.privileged,
+            read_only_root_filesystem: s.read_only_root_filesystem,
+            add_capabilities: s.add_capabilities.clone(),
+            drop_capabilities: s.drop_capabilities.clone(),
+        }),
+        host_network: opts.host_network,
+        dns_policy: opts.dns_policy.clone(),
+        volumes: opts.volumes.iter().map(|v| JsonK8sVolume {
+            name: v.name.clone(),
+            mount_path: v.mount_path.clone(),
+            config_map: v.config_map.clone(),
+            secret: v.secret.clone(),
+            empty_dir: v.empty_dir.as_ref().map(|e| JsonK8sEmptyDir {
+                medium: e.medium.clone(),
+                size_limit: e.size_limit.clone(),
+            }),
+            host_path: v.host_path.as_ref().map(|h| JsonK8sHostPath {
+                path: h.path.clone(),
+                type_: h.type_.clone(),
+            }),
+            pvc: v.pvc.clone(),
+        }).collect(),
+        labels: opts.labels.clone(),
+        annotations: opts.annotations.clone(),
+    }
 }
 
 #[derive(Serialize)]
@@ -2246,5 +3511,244 @@ mod tests {
         // Should have only one dep, not duplicated
         let deps = json["tasks"][1]["depends_on"].as_array().unwrap();
         assert_eq!(deps.len(), 1);
+    }
+
+    // =============================================================================
+    // K8S VALIDATION TESTS
+    // =============================================================================
+
+    #[test]
+    fn test_k8s_validation_valid_memory_formats() {
+        let valid = ["512Mi", "4Gi", "1Ti", "256Ki", "1G", "500M", "100"];
+        for mem in valid {
+            let opts = K8sOptions {
+                resources: K8sResources {
+                    memory: Some(mem.to_string()),
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            let errors = opts.validate();
+            assert!(errors.is_empty(), "expected {} to be valid", mem);
+        }
+    }
+
+    #[test]
+    fn test_k8s_validation_invalid_memory_formats() {
+        let cases = [
+            ("32gb", "did you mean 'Gi'"),
+            ("512mb", "did you mean 'Mi'"),
+            ("1kb", "did you mean 'Ki'"),
+            ("4GB", "did you mean 'Gi'"),
+            ("lots", "invalid memory format"),
+        ];
+        for (mem, expected_hint) in cases {
+            let mut p = Pipeline::new();
+            p.task("test")
+                .run("echo test")
+                .k8s(K8sOptions {
+                    resources: K8sResources {
+                        memory: Some(mem.to_string()),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                });
+            let mut buf = Vec::new();
+            let result = p.emit_to(&mut buf);
+            assert!(result.is_err(), "expected {} to fail", mem);
+            let err_msg = result.unwrap_err().to_string();
+            assert!(
+                err_msg.contains(expected_hint),
+                "expected error for {} to contain '{}', got: {}",
+                mem,
+                expected_hint,
+                err_msg
+            );
+        }
+    }
+
+    #[test]
+    fn test_k8s_validation_valid_cpu_formats() {
+        let valid = ["100m", "500m", "1", "2", "0.5", "1.5"];
+        for cpu in valid {
+            let opts = K8sOptions {
+                resources: K8sResources {
+                    cpu: Some(cpu.to_string()),
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            let errors = opts.validate();
+            assert!(errors.is_empty(), "expected {} to be valid", cpu);
+        }
+    }
+
+    #[test]
+    fn test_k8s_validation_invalid_cpu_formats() {
+        let cases = ["100cores", "2 cores", "fast"];
+        for cpu in cases {
+            let mut p = Pipeline::new();
+            p.task("test")
+                .run("echo test")
+                .k8s(K8sOptions {
+                    resources: K8sResources {
+                        cpu: Some(cpu.to_string()),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                });
+            let mut buf = Vec::new();
+            let result = p.emit_to(&mut buf);
+            assert!(result.is_err(), "expected {} to fail", cpu);
+        }
+    }
+
+    #[test]
+    fn test_k8s_validation_toleration_operator() {
+        // Valid operators
+        for op in ["Exists", "Equal"] {
+            let opts = K8sOptions {
+                tolerations: vec![K8sToleration {
+                    key: "key".to_string(),
+                    operator: op.to_string(),
+                    value: None,
+                    effect: "NoSchedule".to_string(),
+                }],
+                ..Default::default()
+            };
+            assert!(opts.validate().is_empty());
+        }
+
+        // Invalid operator
+        let mut p = Pipeline::new();
+        p.task("test")
+            .run("echo test")
+            .k8s(K8sOptions {
+                tolerations: vec![K8sToleration {
+                    key: "key".to_string(),
+                    operator: "Invalid".to_string(),
+                    value: None,
+                    effect: "NoSchedule".to_string(),
+                }],
+                ..Default::default()
+            });
+        let mut buf = Vec::new();
+        let result = p.emit_to(&mut buf);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("'Exists' or 'Equal'"));
+    }
+
+    #[test]
+    fn test_k8s_validation_toleration_effect() {
+        // Valid effects
+        for effect in ["NoSchedule", "PreferNoSchedule", "NoExecute"] {
+            let opts = K8sOptions {
+                tolerations: vec![K8sToleration {
+                    key: "key".to_string(),
+                    operator: "Exists".to_string(),
+                    value: None,
+                    effect: effect.to_string(),
+                }],
+                ..Default::default()
+            };
+            assert!(opts.validate().is_empty());
+        }
+
+        // Invalid effect
+        let mut p = Pipeline::new();
+        p.task("test")
+            .run("echo test")
+            .k8s(K8sOptions {
+                tolerations: vec![K8sToleration {
+                    key: "key".to_string(),
+                    operator: "Exists".to_string(),
+                    value: None,
+                    effect: "Invalid".to_string(),
+                }],
+                ..Default::default()
+            });
+        let mut buf = Vec::new();
+        let result = p.emit_to(&mut buf);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_k8s_validation_volume_mount_path() {
+        // Empty mount path
+        let opts = K8sOptions {
+            volumes: vec![K8sVolume {
+                name: "vol".to_string(),
+                mount_path: String::new(),
+                config_map: None,
+                secret: None,
+                empty_dir: None,
+                host_path: None,
+                pvc: None,
+            }],
+            ..Default::default()
+        };
+        let errors = opts.validate();
+        assert!(!errors.is_empty());
+        assert!(errors[0].message.contains("mount path is required"));
+
+        // Relative mount path
+        let opts = K8sOptions {
+            volumes: vec![K8sVolume {
+                name: "vol".to_string(),
+                mount_path: "relative/path".to_string(),
+                config_map: None,
+                secret: None,
+                empty_dir: None,
+                host_path: None,
+                pvc: None,
+            }],
+            ..Default::default()
+        };
+        let errors = opts.validate();
+        assert!(!errors.is_empty());
+        assert!(errors[0].message.contains("must be absolute"));
+    }
+
+    #[test]
+    fn test_k8s_validation_dns_policy() {
+        // Valid policies
+        for policy in ["ClusterFirst", "ClusterFirstWithHostNet", "Default", "None"] {
+            let opts = K8sOptions {
+                dns_policy: Some(policy.to_string()),
+                ..Default::default()
+            };
+            assert!(opts.validate().is_empty());
+        }
+
+        // Invalid policy
+        let mut p = Pipeline::new();
+        p.task("test")
+            .run("echo test")
+            .k8s(K8sOptions {
+                dns_policy: Some("InvalidPolicy".to_string()),
+                ..Default::default()
+            });
+        let mut buf = Vec::new();
+        let result = p.emit_to(&mut buf);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("ClusterFirst"));
+    }
+
+    #[test]
+    fn test_k8s_validation_with_defaults() {
+        // Validation should happen after merging with defaults
+        let mut p = Pipeline::with_k8s_defaults(K8sOptions {
+            resources: K8sResources {
+                memory: Some("invalid_memory".to_string()),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        p.task("test").run("echo test");
+
+        let mut buf = Vec::new();
+        let result = p.emit_to(&mut buf);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("invalid memory format"));
     }
 }

@@ -154,6 +154,144 @@ defmodule SykliTest do
         |> Sykli.Emitter.validate!()
       end
     end
+
+    test "suggests similar task name on typo" do
+      use Sykli
+
+      assert_raise RuntimeError, ~r/did you mean "build"/, fn ->
+        pipeline do
+          task "build" do
+            run "mix compile"
+          end
+
+          task "deploy" do
+            run "mix deploy"
+            after_ ["buld"]  # typo
+          end
+        end
+        |> Sykli.Emitter.validate!()
+      end
+    end
+  end
+
+  describe "K8s validation" do
+    alias Sykli.K8s
+
+    test "accepts valid memory formats" do
+      assert {:ok, _} = K8s.validate(K8s.options() |> K8s.memory("512Mi"))
+      assert {:ok, _} = K8s.validate(K8s.options() |> K8s.memory("4Gi"))
+      assert {:ok, _} = K8s.validate(K8s.options() |> K8s.memory("1Ti"))
+    end
+
+    test "rejects invalid memory with suggestion" do
+      {:error, [error]} = K8s.validate(K8s.options() |> K8s.memory("4gb"))
+      assert error.message =~ "did you mean 'Gi'?"
+
+      {:error, [error]} = K8s.validate(K8s.options() |> K8s.memory("512mb"))
+      assert error.message =~ "did you mean 'Mi'?"
+
+      {:error, [error]} = K8s.validate(K8s.options() |> K8s.memory("1kb"))
+      assert error.message =~ "did you mean 'Ki'?"
+    end
+
+    test "accepts valid CPU formats" do
+      assert {:ok, _} = K8s.validate(K8s.options() |> K8s.cpu("500m"))
+      assert {:ok, _} = K8s.validate(K8s.options() |> K8s.cpu("0.5"))
+      assert {:ok, _} = K8s.validate(K8s.options() |> K8s.cpu("2"))
+    end
+
+    test "rejects invalid CPU formats" do
+      {:error, [error]} = K8s.validate(K8s.options() |> K8s.cpu("2cores"))
+      assert error.message =~ "invalid CPU format"
+    end
+
+    test "validates tolerations" do
+      {:error, [error]} = K8s.validate(
+        K8s.options() |> K8s.toleration("key", "Invalid", "NoSchedule")
+      )
+      assert error.message =~ "must be 'Exists' or 'Equal'"
+
+      {:error, [error]} = K8s.validate(
+        K8s.options() |> K8s.toleration("key", "Equal", "InvalidEffect")
+      )
+      assert error.message =~ "must be 'NoSchedule'"
+    end
+
+    test "validates DNS policy" do
+      {:error, [error]} = K8s.validate(K8s.options() |> K8s.dns_policy("Invalid"))
+      assert error.message =~ "must be one of"
+    end
+
+    test "validates volume mount paths" do
+      {:error, errors} = K8s.validate(K8s.options() |> K8s.mount_config_map("config", "relative/path"))
+      assert Enum.any?(errors, &(&1.message =~ "must be absolute"))
+    end
+
+    test "k8s options in task emits correctly" do
+      use Sykli
+
+      result = pipeline do
+        task "build" do
+          run "cargo build"
+          k8s K8s.options()
+               |> K8s.memory("4Gi")
+               |> K8s.cpu("2")
+               |> K8s.gpu(1)
+        end
+      end
+
+      json = Sykli.Emitter.to_json(result)
+      decoded = Jason.decode!(json)
+
+      task = hd(decoded["tasks"])
+      assert task["k8s"]["resources"]["memory"] == "4Gi"
+      assert task["k8s"]["resources"]["cpu"] == "2"
+      assert task["k8s"]["gpu"] == 1
+    end
+
+    test "raises on invalid k8s in pipeline validation" do
+      use Sykli
+
+      assert_raise Sykli.K8s.ValidationError, ~r/did you mean 'Gi'/, fn ->
+        pipeline do
+          task "build" do
+            run "cargo build"
+            k8s K8s.options() |> K8s.memory("4gb")
+          end
+        end
+        |> Sykli.Emitter.validate!()
+      end
+    end
+  end
+
+  describe "Vault path validation" do
+    test "rejects invalid vault path" do
+      use Sykli
+
+      assert_raise RuntimeError, ~r/Expected format.*secret#field/, fn ->
+        pipeline do
+          task "deploy" do
+            run "./deploy.sh"
+            secret_from "DB_PASS", Sykli.SecretRef.from_vault("secret/data/db")  # missing #field
+          end
+        end
+        |> Sykli.Emitter.validate!()
+      end
+    end
+
+    test "accepts valid vault path" do
+      use Sykli
+
+      result = pipeline do
+        task "deploy" do
+          run "./deploy.sh"
+          secret_from "DB_PASS", Sykli.SecretRef.from_vault("secret/data/db#password")
+        end
+      end
+
+      # Should not raise
+      Sykli.Emitter.validate!(result)
+    end
   end
 
   describe "presets" do
