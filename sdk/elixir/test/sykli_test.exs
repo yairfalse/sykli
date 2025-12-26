@@ -268,7 +268,7 @@ defmodule SykliTest do
     test "rejects invalid vault path" do
       use Sykli
 
-      assert_raise RuntimeError, ~r/Expected format.*secret#field/, fn ->
+      assert_raise ArgumentError, ~r/SecretRef.from_vault\(\) requires 'path#field' format/, fn ->
         pipeline do
           task "deploy" do
             run "./deploy.sh"
