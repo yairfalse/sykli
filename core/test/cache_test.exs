@@ -431,6 +431,22 @@ defmodule Sykli.CacheTest do
       assert {:miss, _key, :env_changed} = Sykli.Cache.check_detailed(task2, @test_workdir)
     end
 
+    test "returns :mounts_changed when task mounts differ" do
+      Sykli.Cache.init()
+      Sykli.Cache.clean()
+
+      File.write!(Path.join(@test_workdir, "out.txt"), "output")
+
+      mount1 = %{resource: "src:.", path: "/app", type: :directory}
+      task1 = make_task("build", "go build", mounts: [mount1], outputs: ["out.txt"])
+      key1 = Sykli.Cache.cache_key(task1, @test_workdir)
+      Sykli.Cache.store(key1, task1, ["out.txt"], 100, @test_workdir)
+
+      mount2 = %{resource: "src:./src", path: "/app", type: :directory}
+      task2 = make_task("build", "go build", mounts: [mount2], outputs: ["out.txt"])
+      assert {:miss, _key, :mounts_changed} = Sykli.Cache.check_detailed(task2, @test_workdir)
+    end
+
     test "returns :corrupted when meta file is invalid" do
       Sykli.Cache.init()
       Sykli.Cache.clean()

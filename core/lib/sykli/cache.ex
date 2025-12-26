@@ -52,6 +52,8 @@ defmodule Sykli.Cache do
     - :inputs_changed - input files have changed
     - :container_changed - container image changed
     - :env_changed - task environment changed
+    - :mounts_changed - task mounts have changed
+    - :config_changed - task configuration has changed
     - :corrupted - meta file is corrupted
     - :blobs_missing - output blobs are missing
   """
