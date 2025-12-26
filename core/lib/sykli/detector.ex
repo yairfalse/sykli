@@ -41,8 +41,12 @@ defmodule Sykli.Detector do
       file = Path.basename(path)
 
       case System.cmd("go", ["run", file, "--emit"], cd: dir, stderr_to_stdout: true) do
-        {output, 0} -> {:ok, output}
-        {error, _} -> {:error, {:go_failed, error}}
+        {output, 0} ->
+          # go run outputs download messages then JSON - extract just the JSON
+          extract_json(output)
+
+        {error, _} ->
+          {:error, {:go_failed, error}}
       end
     end
   end
