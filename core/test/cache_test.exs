@@ -348,6 +348,136 @@ defmodule Sykli.CacheTest do
     end
   end
 
+  describe "check_detailed/2" do
+    test "returns :no_cache when cache is empty" do
+      Sykli.Cache.init()
+      Sykli.Cache.clean()
+
+      task = make_task("test", "echo test")
+      assert {:miss, _key, :no_cache} = Sykli.Cache.check_detailed(task, @test_workdir)
+    end
+
+    test "returns :hit when cache is valid" do
+      Sykli.Cache.init()
+      Sykli.Cache.clean()
+
+      File.write!(Path.join(@test_workdir, "out.txt"), "output")
+
+      task = make_task("test", "echo test", outputs: ["out.txt"])
+      key = Sykli.Cache.cache_key(task, @test_workdir)
+      Sykli.Cache.store(key, task, ["out.txt"], 100, @test_workdir)
+
+      assert {:hit, ^key} = Sykli.Cache.check_detailed(task, @test_workdir)
+    end
+
+    test "returns :command_changed when command differs" do
+      Sykli.Cache.init()
+      Sykli.Cache.clean()
+
+      File.write!(Path.join(@test_workdir, "out.txt"), "output")
+
+      # Store with original command
+      task1 = make_task("build", "echo v1", outputs: ["out.txt"])
+      key1 = Sykli.Cache.cache_key(task1, @test_workdir)
+      Sykli.Cache.store(key1, task1, ["out.txt"], 100, @test_workdir)
+
+      # Check with different command
+      task2 = make_task("build", "echo v2", outputs: ["out.txt"])
+      assert {:miss, _key, :command_changed} = Sykli.Cache.check_detailed(task2, @test_workdir)
+    end
+
+    test "returns :inputs_changed when input files differ" do
+      Sykli.Cache.init()
+      Sykli.Cache.clean()
+
+      File.write!(Path.join(@test_workdir, "main.go"), "v1")
+      File.write!(Path.join(@test_workdir, "out.txt"), "output")
+
+      task = make_task("build", "go build", inputs: ["*.go"], outputs: ["out.txt"])
+      key = Sykli.Cache.cache_key(task, @test_workdir)
+      Sykli.Cache.store(key, task, ["out.txt"], 100, @test_workdir)
+
+      # Modify input file
+      File.write!(Path.join(@test_workdir, "main.go"), "v2")
+
+      assert {:miss, _key, :inputs_changed} = Sykli.Cache.check_detailed(task, @test_workdir)
+    end
+
+    test "returns :container_changed when container differs" do
+      Sykli.Cache.init()
+      Sykli.Cache.clean()
+
+      File.write!(Path.join(@test_workdir, "out.txt"), "output")
+
+      task1 = make_task("build", "go build", container: "golang:1.21", outputs: ["out.txt"])
+      key1 = Sykli.Cache.cache_key(task1, @test_workdir)
+      Sykli.Cache.store(key1, task1, ["out.txt"], 100, @test_workdir)
+
+      task2 = make_task("build", "go build", container: "golang:1.22", outputs: ["out.txt"])
+      assert {:miss, _key, :container_changed} = Sykli.Cache.check_detailed(task2, @test_workdir)
+    end
+
+    test "returns :env_changed when task env differs" do
+      Sykli.Cache.init()
+      Sykli.Cache.clean()
+
+      File.write!(Path.join(@test_workdir, "out.txt"), "output")
+
+      task1 = make_task("build", "go build", env: %{"CGO_ENABLED" => "0"}, outputs: ["out.txt"])
+      key1 = Sykli.Cache.cache_key(task1, @test_workdir)
+      Sykli.Cache.store(key1, task1, ["out.txt"], 100, @test_workdir)
+
+      task2 = make_task("build", "go build", env: %{"CGO_ENABLED" => "1"}, outputs: ["out.txt"])
+      assert {:miss, _key, :env_changed} = Sykli.Cache.check_detailed(task2, @test_workdir)
+    end
+
+    test "returns :mounts_changed when task mounts differ" do
+      Sykli.Cache.init()
+      Sykli.Cache.clean()
+
+      File.write!(Path.join(@test_workdir, "out.txt"), "output")
+
+      mount1 = %{resource: "src:.", path: "/app", type: :directory}
+      task1 = make_task("build", "go build", mounts: [mount1], outputs: ["out.txt"])
+      key1 = Sykli.Cache.cache_key(task1, @test_workdir)
+      Sykli.Cache.store(key1, task1, ["out.txt"], 100, @test_workdir)
+
+      mount2 = %{resource: "src:./src", path: "/app", type: :directory}
+      task2 = make_task("build", "go build", mounts: [mount2], outputs: ["out.txt"])
+      assert {:miss, _key, :mounts_changed} = Sykli.Cache.check_detailed(task2, @test_workdir)
+    end
+
+    test "returns :corrupted when meta file is invalid" do
+      Sykli.Cache.init()
+      Sykli.Cache.clean()
+
+      # Create a corrupted meta file with same key format
+      task = make_task("test", "echo test")
+      key = Sykli.Cache.cache_key(task, @test_workdir)
+      meta_dir = Path.join(Sykli.Cache.cache_dir(), "meta")
+      File.write!(Path.join(meta_dir, "#{key}.json"), "not json")
+
+      assert {:miss, ^key, :corrupted} = Sykli.Cache.check_detailed(task, @test_workdir)
+    end
+
+    test "returns :blobs_missing when output blobs are gone" do
+      Sykli.Cache.init()
+      Sykli.Cache.clean()
+
+      File.write!(Path.join(@test_workdir, "out.txt"), "output")
+
+      task = make_task("build", "echo build", outputs: ["out.txt"])
+      key = Sykli.Cache.cache_key(task, @test_workdir)
+      Sykli.Cache.store(key, task, ["out.txt"], 100, @test_workdir)
+
+      # Delete blobs
+      blobs_dir = Path.join(Sykli.Cache.cache_dir(), "blobs")
+      Path.wildcard(Path.join(blobs_dir, "*")) |> Enum.each(&File.rm!/1)
+
+      assert {:miss, ^key, :blobs_missing} = Sykli.Cache.check_detailed(task, @test_workdir)
+    end
+  end
+
   describe "clean_older_than/1" do
     test "removes old entries and keeps recent ones" do
       Sykli.Cache.init()

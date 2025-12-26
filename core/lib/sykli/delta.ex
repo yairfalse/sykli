@@ -116,12 +116,6 @@ defmodule Sykli.Delta do
     end
   end
 
-  # Find tasks directly affected by changed files (names only)
-  defp find_directly_affected(tasks, changed_files, workdir) do
-    find_directly_affected_detailed(tasks, changed_files, workdir)
-    |> Enum.map(& &1.name)
-  end
-
   # Find tasks directly affected by changed files (with details)
   defp find_directly_affected_detailed(tasks, changed_files, workdir) do
     abs_workdir = Path.expand(workdir)
@@ -210,13 +204,6 @@ defmodule Sykli.Delta do
     Regex.match?(~r/^#{regex_pattern}$/, file)
   end
 
-  # Add all tasks that depend on affected tasks (transitively) - names only
-  defp add_dependents(affected_names, tasks) do
-    affected_set = MapSet.new(affected_names)
-    reverse_deps = build_reverse_deps(tasks)
-    find_all_dependents(affected_set, reverse_deps)
-  end
-
   # Add all tasks that depend on affected tasks (transitively) - with details
   defp add_dependents_detailed(directly_affected, tasks) do
     affected_names = MapSet.new(Enum.map(directly_affected, & &1.name))
@@ -265,25 +252,6 @@ defmodule Sykli.Delta do
         Map.update(inner_acc, dep, [task.name], &[task.name | &1])
       end)
     end)
-  end
-
-  defp find_all_dependents(affected_set, reverse_deps) do
-    do_find_dependents(MapSet.to_list(affected_set), affected_set, reverse_deps)
-  end
-
-  defp do_find_dependents([], affected_set, _reverse_deps) do
-    MapSet.to_list(affected_set)
-  end
-
-  defp do_find_dependents([current | rest], affected_set, reverse_deps) do
-    dependents = Map.get(reverse_deps, current, [])
-
-    new_dependents =
-      Enum.reject(dependents, &MapSet.member?(affected_set, &1))
-
-    new_affected = Enum.reduce(new_dependents, affected_set, &MapSet.put(&2, &1))
-
-    do_find_dependents(rest ++ new_dependents, new_affected, reverse_deps)
   end
 
   @doc """
