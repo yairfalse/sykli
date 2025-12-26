@@ -141,10 +141,10 @@ defmodule Sykli.Target.Local do
     abs_workdir = Path.expand(workdir)
 
     cond do
-      not String.starts_with?(abs_source, abs_workdir) ->
+      not path_within?(abs_source, abs_workdir) ->
         {:error, {:path_traversal, source_path}}
 
-      not String.starts_with?(abs_dest, abs_workdir) ->
+      not path_within?(abs_dest, abs_workdir) ->
         {:error, {:path_traversal, dest_path}}
 
       File.regular?(abs_source) ->
@@ -368,6 +368,11 @@ defmodule Sykli.Target.Local do
 
   defp sanitize_name(name) do
     String.replace(name, ~r/[^a-zA-Z0-9_-]/, "_")
+  end
+
+  # Securely check if path is within base directory (prevents path traversal)
+  defp path_within?(path, base) do
+    path == base or String.starts_with?(path, base <> "/")
   end
 
   defp progress_prefix(nil), do: ""

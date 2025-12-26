@@ -42,7 +42,7 @@ defmodule Sykli.Target.Behaviour do
   ## Target Lifecycle
 
       setup/1     → Initialize target (verify connectivity)
-      run_task/2  → Execute tasks
+      run_task/3  → Execute tasks (task, state, opts)
       teardown/1  → Cleanup resources
 
   ## Resource Management

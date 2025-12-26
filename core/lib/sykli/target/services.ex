@@ -143,20 +143,29 @@ defmodule Sykli.Services.Docker do
   defp start_containers(network_name, services) do
     docker = docker_executable()
 
-    Enum.map(services, fn %Sykli.Graph.Service{image: image, name: name} ->
+    Enum.reduce_while(services, {:ok, []}, fn %Sykli.Graph.Service{image: image, name: name}, {:ok, acc} ->
       container_name = "#{network_name}-#{name}"
 
-      {output, 0} = System.cmd(docker, [
+      case System.cmd(docker, [
         "run", "-d",
         "--name", container_name,
         "--network", network_name,
         "--network-alias", name,
         image
-      ], stderr_to_stdout: true)
+      ], stderr_to_stdout: true) do
+        {output, 0} ->
+          IO.puts("  #{IO.ANSI.faint()}Started service #{name} (#{image})#{IO.ANSI.reset()}")
+          {:cont, {:ok, [String.trim(output) | acc]}}
 
-      IO.puts("  #{IO.ANSI.faint()}Started service #{name} (#{image})#{IO.ANSI.reset()}")
-      String.trim(output)
+        {error, _code} ->
+          IO.puts("  #{IO.ANSI.red()}Failed to start service #{name}: #{String.trim(error)}#{IO.ANSI.reset()}")
+          {:halt, {:error, {:service_failed, name, error}}}
+      end
     end)
+    |> case do
+      {:ok, containers} -> Enum.reverse(containers)
+      {:error, _} = err -> err
+    end
   end
 
   defp docker_executable do

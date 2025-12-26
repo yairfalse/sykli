@@ -139,10 +139,10 @@ defmodule Sykli.Storage.Local do
     abs_workdir = Path.expand(workdir)
 
     cond do
-      not String.starts_with?(abs_source, abs_workdir) ->
+      not path_within?(abs_source, abs_workdir) ->
         {:error, {:path_traversal, source_path}}
 
-      not String.starts_with?(abs_dest, abs_workdir) ->
+      not path_within?(abs_dest, abs_workdir) ->
         {:error, {:path_traversal, dest_path}}
 
       File.regular?(abs_source) ->
@@ -179,5 +179,10 @@ defmodule Sykli.Storage.Local do
       {:error, reason, _file} -> {:error, {:copy_failed, reason}}
       {:error, reason} -> {:error, {:copy_failed, reason}}
     end
+  end
+
+  # Securely check if path is within base directory (prevents path traversal)
+  defp path_within?(path, base) do
+    path == base or String.starts_with?(path, base <> "/")
   end
 end

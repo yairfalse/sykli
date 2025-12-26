@@ -354,10 +354,10 @@ defmodule Sykli.Target.K8s do
       container
     end
 
-    # Add volume mounts
+    # Add volume mounts - use unique_volume_name to match volume definitions
     container = if task.mounts && length(task.mounts) > 0 do
       mounts = Enum.map(task.mounts, fn m ->
-        %{"name" => sanitize_name(m.resource), "mountPath" => m.path}
+        %{"name" => unique_volume_name(m.resource), "mountPath" => m.path}
       end)
       Map.put(container, "volumeMounts", mounts)
     else
@@ -467,20 +467,20 @@ defmodule Sykli.Target.K8s do
   end
 
   defp build_volumes(task, k8s_opts) do
-    # Volumes from task mounts
+    # Volumes from task mounts - use unique_volume_name to prevent collisions
     mount_volumes = (task.mounts || [])
       |> Enum.map(fn m ->
         case m.type do
           "cache" ->
             %{
-              "name" => sanitize_name(m.resource),
+              "name" => unique_volume_name(m.resource),
               "emptyDir" => %{}
             }
           "directory" ->
             # For directories, we'd need a PVC or hostPath
             # For now, use emptyDir (loses data)
             %{
-              "name" => sanitize_name(m.resource),
+              "name" => unique_volume_name(m.resource),
               "emptyDir" => %{}
             }
         end
@@ -607,6 +607,15 @@ defmodule Sykli.Target.K8s do
     |> String.downcase()
     |> String.replace(~r/[^a-z0-9-]/, "-")
     |> String.slice(0, 50)
+  end
+
+  # Create unique volume name by appending a short hash to prevent collisions
+  # e.g., "my_resource" and "my-resource" would both become "my-resource"
+  # but with hash they become "my-resource-a1b2" and "my-resource-c3d4"
+  defp unique_volume_name(name) do
+    sanitized = sanitize_name(name)
+    hash = :crypto.hash(:md5, name) |> Base.encode16(case: :lower) |> String.slice(0, 4)
+    "#{String.slice(sanitized, 0, 45)}-#{hash}"
   end
 
   defp progress_prefix(nil), do: ""
