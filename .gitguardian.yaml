@@ -1,0 +1,8 @@
+# GitGuardian configuration
+# Ignore test fixtures that contain fake secrets for testing
+
+paths-ignore:
+  - "**/test/**"
+  - "**/*_test.exs"
+  - "**/*_test.go"
+  - "**/*_test.rs"
