@@ -163,7 +163,7 @@ defmodule Sykli.Emitter do
     }
 
     output =
-      if has_v2_features do
+      if has_v2_features and map_size(pipeline.resources) > 0 do
         Map.put(output, :resources, resources_to_json(pipeline.resources))
       else
         output

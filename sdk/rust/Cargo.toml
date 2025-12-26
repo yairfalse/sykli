@@ -10,7 +10,7 @@ homepage = "https://github.com/yairfalse/sykli"
 documentation = "https://docs.rs/sykli"
 keywords = ["ci", "pipeline", "build", "automation"]
 categories = ["development-tools"]
-rust-version = "1.70"
+rust-version = "1.80"
 
 [dependencies]
 regex = "1.10"

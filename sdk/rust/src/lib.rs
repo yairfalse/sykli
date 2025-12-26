@@ -752,7 +752,13 @@ pub struct SecretRef {
 
 impl SecretRef {
     /// Creates a secret reference that reads from an environment variable.
+    ///
+    /// # Panics
+    /// Panics if env_var is empty.
     pub fn from_env(env_var: &str) -> Self {
+        if env_var.is_empty() {
+            panic!("SecretRef::from_env() requires a non-empty environment variable name");
+        }
         SecretRef {
             name: String::new(),
             source: SecretSource::Env,
@@ -761,7 +767,13 @@ impl SecretRef {
     }
 
     /// Creates a secret reference that reads from a file.
+    ///
+    /// # Panics
+    /// Panics if path is empty.
     pub fn from_file(path: &str) -> Self {
+        if path.is_empty() {
+            panic!("SecretRef::from_file() requires a non-empty file path");
+        }
         SecretRef {
             name: String::new(),
             source: SecretSource::File,
@@ -771,7 +783,13 @@ impl SecretRef {
 
     /// Creates a secret reference that reads from HashiCorp Vault.
     /// The path format is "path/to/secret#field".
+    ///
+    /// # Panics
+    /// Panics if path doesn't contain '#' separator (required format: "path#field").
     pub fn from_vault(path: &str) -> Self {
+        if !path.contains('#') {
+            panic!("SecretRef::from_vault() requires 'path#field' format (e.g., 'secret/data/db#password')");
+        }
         SecretRef {
             name: String::new(),
             source: SecretSource::Vault,
@@ -799,7 +817,7 @@ impl SecretRef {
 ///
 /// p.task("test")
 ///     .run("cargo test")
-///     .when_cond(Condition::not(Condition::branch("wip/*")));
+///     .when_cond(Condition::negate(Condition::branch("wip/*")));
 /// ```
 #[derive(Clone, Default, Debug)]
 pub struct Condition {
@@ -809,7 +827,13 @@ pub struct Condition {
 impl Condition {
     /// Creates a condition that matches a branch name or pattern.
     /// Supports glob patterns like "feature/*".
+    ///
+    /// # Panics
+    /// Panics if pattern is empty. Use `Condition::default()` for an always-true condition.
     pub fn branch(pattern: &str) -> Self {
+        if pattern.is_empty() {
+            panic!("Condition::branch() requires a non-empty pattern. Use Condition::default() for always-true.");
+        }
         if pattern.contains('*') {
             Condition {
                 expr: format!("branch matches '{}'", pattern),
@@ -861,7 +885,9 @@ impl Condition {
     }
 
     /// Negates a condition.
-    pub fn not(c: Condition) -> Self {
+    ///
+    /// Note: Named `negate` instead of `not` to avoid confusion with `std::ops::Not`.
+    pub fn negate(c: Condition) -> Self {
         Condition {
             expr: format!("!({})", c.expr),
         }
@@ -880,10 +906,11 @@ impl Condition {
             expr: format!("({}) && ({})", self.expr, other.expr),
         }
     }
+}
 
-    /// Returns the condition expression string.
-    pub fn to_string(&self) -> String {
-        self.expr.clone()
+impl std::fmt::Display for Condition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.expr)
     }
 }
 
@@ -1110,6 +1137,17 @@ impl<'a> Task<'a> {
                 .outputs
                 .insert(format!("output_{i}"), (*path).to_string());
         }
+        self
+    }
+
+    /// Sets a single dependency - this task runs after the named task.
+    ///
+    /// This is a convenience method matching the Go SDK's `After(task)` signature.
+    #[must_use]
+    pub fn after_one(self, task: &str) -> Self {
+        self.pipeline.tasks[self.index]
+            .depends_on
+            .push(task.to_string());
         self
     }
 
@@ -1737,6 +1775,20 @@ impl Pipeline {
         }
     }
 
+    /// Always emits the pipeline as JSON to stdout and exits.
+    ///
+    /// Unlike [`Pipeline::emit`], this method always writes the JSON output
+    /// regardless of command line arguments. This matches the Go SDK's `MustEmit()`.
+    ///
+    /// **Note:** This method exits the process and does not return.
+    pub fn force_emit(&self) {
+        if let Err(e) = self.emit_to(&mut io::stdout()) {
+            eprintln!("error: {}", e);
+            std::process::exit(1);
+        }
+        std::process::exit(0);
+    }
+
     /// Writes the pipeline JSON to the given writer.
     pub fn emit_to<W: Write>(&self, w: &mut W) -> io::Result<()> {
         // Validate
@@ -1833,7 +1885,12 @@ impl Pipeline {
                         },
                     );
                 }
-                Some(resources)
+                // Only include resources if non-empty (matches Go SDK behavior)
+                if resources.is_empty() {
+                    None
+                } else {
+                    Some(resources)
+                }
             } else {
                 None
             },

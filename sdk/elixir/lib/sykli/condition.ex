@@ -28,9 +28,15 @@ defmodule Sykli.Condition do
 
       Condition.branch("main")        # branch == 'main'
       Condition.branch("release/*")   # branch matches 'release/*'
+
+  Raises ArgumentError if pattern is empty.
   """
   @spec branch(String.t()) :: t()
   def branch(pattern) when is_binary(pattern) do
+    if pattern == "" do
+      raise ArgumentError, "Condition.branch() requires a non-empty pattern"
+    end
+
     if String.contains?(pattern, "*") do
       %__MODULE__{expr: "branch matches '#{pattern}'"}
     else

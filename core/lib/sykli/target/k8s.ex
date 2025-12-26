@@ -208,7 +208,7 @@ defmodule Sykli.Target.K8s do
     start_time = System.monotonic_time(:millisecond)
 
     # Build and apply Job
-    {:ok, manifest} = build_job_manifest(task, job_name, state, opts)
+    manifest = build_job_manifest(task, job_name, state, opts)
 
     case apply_job(manifest, state) do
       :ok ->
@@ -312,7 +312,7 @@ defmodule Sykli.Target.K8s do
       }
     }
 
-    {:ok, manifest}
+    manifest
   end
 
   defp build_container_spec(task, k8s_opts) do

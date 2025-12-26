@@ -32,9 +32,14 @@ defmodule Sykli.SecretRef do
   ## Examples
 
       SecretRef.from_env("GITHUB_TOKEN")
+
+  Raises ArgumentError if env_var is empty.
   """
   @spec from_env(String.t()) :: t()
   def from_env(env_var) when is_binary(env_var) do
+    if env_var == "" do
+      raise ArgumentError, "SecretRef.from_env() requires a non-empty environment variable name"
+    end
     %__MODULE__{source: :env, key: env_var}
   end
 
@@ -44,9 +49,14 @@ defmodule Sykli.SecretRef do
   ## Examples
 
       SecretRef.from_file("/run/secrets/api-key")
+
+  Raises ArgumentError if path is empty.
   """
   @spec from_file(String.t()) :: t()
   def from_file(path) when is_binary(path) do
+    if path == "" do
+      raise ArgumentError, "SecretRef.from_file() requires a non-empty file path"
+    end
     %__MODULE__{source: :file, key: path}
   end
 
@@ -57,9 +67,14 @@ defmodule Sykli.SecretRef do
   ## Examples
 
       SecretRef.from_vault("secret/data/db#password")
+
+  Raises ArgumentError if path doesn't contain '#' separator.
   """
   @spec from_vault(String.t()) :: t()
   def from_vault(path) when is_binary(path) do
+    unless String.contains?(path, "#") do
+      raise ArgumentError, "SecretRef.from_vault() requires 'path#field' format (e.g., 'secret/data/db#password')"
+    end
     %__MODULE__{source: :vault, key: path}
   end
 end
