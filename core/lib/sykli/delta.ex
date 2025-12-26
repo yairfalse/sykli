@@ -200,7 +200,11 @@ defmodule Sykli.Delta do
     regex_pattern =
       pattern
       |> Regex.escape()
+      # **/ at start should match zero or more directories
+      |> String.replace("\\*\\*/", "(.*/)?")
+      # ** elsewhere matches anything
       |> String.replace("\\*\\*", ".*")
+      # * matches anything except /
       |> String.replace("\\*", "[^/]*")
 
     Regex.match?(~r/^#{regex_pattern}$/, file)
