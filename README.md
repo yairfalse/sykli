@@ -4,12 +4,49 @@
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Elixir](https://img.shields.io/badge/elixir-1.16%2B-purple.svg)](https://elixir-lang.org)
+[![Version](https://img.shields.io/badge/version-0.2.0-green.svg)](CHANGELOG.md)
 
 A CI orchestrator that lets you define pipelines in Go, Rust, or Elixir. Your pipeline is a real program that outputs a task graph, which Sykli executes in parallel.
 
-**This is a learning project** - exploring how to build CI tools with BEAM/OTP.
+---
 
-**Current Status**: Core working - parallel execution, caching, cycle detection, matrix builds.
+## Philosophy: Local First
+
+**We start local.** Sykli runs on your laptop first, not in a CI server you can't debug.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    LOCAL FIRST                                   │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│   1. Write sykli.go on your laptop                               │
+│   2. Run `sykli` - see it work (or fail) immediately             │
+│   3. Fix issues locally, not via git push + wait + read logs     │
+│   4. When ready, same pipeline runs in CI                        │
+│                                                                  │
+│   Your laptop IS your CI server. CI is just another node.        │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+This release (v0.2.0) focuses on **local execution with Docker containers**. Kubernetes and remote execution come next, but the foundation is solid: if it works on your machine, it works everywhere.
+
+---
+
+## What's New in v0.2.0
+
+| Feature | Description |
+|---------|-------------|
+| **`sykli delta`** | Run only tasks affected by git changes |
+| **`sykli graph`** | Visualize your pipeline as Mermaid/DOT diagram |
+| **Templates** | DRY - define container config once, reuse everywhere |
+| **Parallel/Chain** | Compose tasks into concurrent groups or sequences |
+| **Artifact passing** | Pass outputs between tasks with `InputFrom` |
+| **Cache visibility** | Know WHY a task ran: `command_changed`, `inputs_changed`, etc. |
+| **Type-safe conditions** | `Branch("main").Or(HasTag())` instead of error-prone strings |
+| **K8s options** | Full K8s config with validation (for future K8s target) |
+
+See [CHANGELOG.md](CHANGELOG.md) for full details.
 
 ---
 
@@ -67,6 +104,72 @@ Output:
 
 ---
 
+## CLI Commands
+
+### `sykli` - Run Pipeline
+
+```bash
+sykli                    # Run all tasks
+sykli --filter=test      # Run only tasks matching "test"
+sykli --verbose          # Show detailed output
+```
+
+### `sykli delta` - Affected Tasks Only
+
+Only run tasks affected by your git changes. Perfect for large monorepos.
+
+```bash
+sykli delta              # Compare against HEAD (uncommitted changes)
+sykli delta --from=main  # Compare against main branch
+sykli delta --from=HEAD~3 # Compare against 3 commits ago
+```
+
+Output:
+```
+Changed files (3):
+  src/api/handler.go
+  src/api/handler_test.go
+  go.mod
+
+Affected tasks:
+  ● test       (direct: src/api/*.go changed)
+  ● build      (depends on: test)
+  ○ lint       (not affected)
+  ○ deploy     (not affected)
+
+Running 2 affected tasks...
+```
+
+### `sykli graph` - Visualize Pipeline
+
+See your pipeline as a dependency graph.
+
+```bash
+sykli graph              # Output Mermaid diagram
+sykli graph --format=dot # Output Graphviz DOT
+```
+
+Output (Mermaid):
+```mermaid
+graph TD
+    lint["lint"]
+    test["test"]
+    build["build"]
+    deploy["deploy"]
+    lint --> build
+    test --> build
+    build --> deploy
+```
+
+### `sykli cache` - Cache Management
+
+```bash
+sykli cache status       # Show cache statistics
+sykli cache clean        # Clear all cached results
+```
+
+---
+
 ## SDK Examples
 
 ### Basic Tasks
@@ -104,7 +207,75 @@ s.Task("test").
 
 Expands to `test[go_version=1.21]`, `test[go_version=1.22]`, `test[go_version=1.23]`.
 
-### Containers (v2)
+### Templates (v0.2.0)
+
+Define container configuration once, reuse everywhere. No more copy-paste.
+
+```go
+s := sykli.New()
+src := s.Dir(".")
+cache := s.Cache("go-mod")
+
+// Define template once
+golang := s.Template("golang").
+    Container("golang:1.21").
+    Mount(src, "/src").
+    MountCache(cache, "/go/pkg/mod").
+    Workdir("/src")
+
+// Reuse everywhere - clean and DRY
+s.Task("test").From(golang).Run("go test ./...")
+s.Task("lint").From(golang).Run("go vet ./...")
+s.Task("build").From(golang).Run("go build -o app")
+```
+
+### Parallel Groups (v0.2.0)
+
+Run multiple tasks concurrently as a named group.
+
+```go
+// These three tasks run in parallel
+checks := s.Parallel("checks",
+    s.Task("lint").From(golang).Run("go vet ./..."),
+    s.Task("fmt").From(golang).Run("gofmt -l ."),
+    s.Task("test").From(golang).Run("go test ./..."),
+)
+
+// Build waits for all checks to complete
+s.Task("build").From(golang).Run("go build").After(checks)
+```
+
+### Chain (v0.2.0)
+
+Run tasks in sequence, each depending on the previous.
+
+```go
+// deploy runs after build, build runs after test
+s.Chain(
+    s.Task("test").Run("go test ./..."),
+    s.Task("build").Run("go build -o app"),
+    s.Task("deploy").Run("./deploy.sh"),
+)
+```
+
+### Artifact Passing (v0.2.0)
+
+Pass outputs from one task to another.
+
+```go
+// Build produces an artifact
+build := s.Task("build").
+    From(golang).
+    Run("go build -o /out/app").
+    Output("binary", "/out/app")
+
+// Deploy consumes it
+s.Task("deploy").
+    Run("./deploy.sh /app/bin").
+    InputFrom(build, "binary", "/app/bin")
+```
+
+### Containers
 
 ```go
 s := sykli.New()
@@ -348,26 +519,43 @@ end
 
 ## Features
 
+### v0.2.0 (Current)
+
 | Feature | Status |
 |---------|--------|
+| **SDKs** | |
 | Go SDK | ✅ |
 | Rust SDK | ✅ |
 | Elixir SDK | ✅ |
+| **Execution** | |
 | Parallel execution | ✅ |
 | Content-addressed caching | ✅ |
+| Cache miss visibility | ✅ NEW |
 | Cycle detection | ✅ |
 | Retry & timeout | ✅ |
+| **Composition** | |
+| Templates | ✅ NEW |
+| Parallel groups | ✅ NEW |
+| Chain combinator | ✅ NEW |
+| Artifact passing | ✅ NEW |
+| Matrix builds | ✅ |
+| **Conditions & Secrets** | |
 | Conditional execution | ✅ |
 | Type-safe conditions | ✅ |
 | Typed secret references | ✅ |
-| Matrix builds | ✅ |
-| Container tasks | ✅ (SDK support) |
-| K8s options with validation | ✅ |
-| Per-task target override | ✅ |
+| **CLI** | |
+| `sykli delta` (affected tasks) | ✅ NEW |
+| `sykli graph` (visualization) | ✅ NEW |
 | Explain / dry-run mode | ✅ |
 | Helpful error suggestions | ✅ |
+| **Targets** | |
+| Local (Docker) | ✅ |
+| Container tasks | ✅ |
+| K8s options with validation | ✅ |
+| K8s execution | 🚧 v0.3.0 |
+| **Integrations** | |
 | GitHub status API | ✅ |
-| Remote execution | Planned |
+| Remote cache | 🚧 v0.3.0 |
 
 ---
 
@@ -436,10 +624,32 @@ mix run -e 'Sykli.run(".")'
 
 ---
 
+## Roadmap
+
+**v0.2.0** (Current) - Local execution foundation
+- ✅ Local Docker execution
+- ✅ Templates, Parallel, Chain composition
+- ✅ Delta & Graph CLI commands
+- ✅ Cache visibility
+
+**v0.3.0** - Kubernetes & Remote
+- 🚧 K8s target execution (API client ready)
+- 🚧 Remote cache (S3/GCS)
+- 🚧 `sykli watch` (file watcher)
+
+**v0.4.0** - Distributed
+- 🔮 BEAM mesh (laptop ↔ CI ↔ teammates)
+- 🔮 Hot config push
+- 🔮 Live process observation
+
+See [docs/adr/](docs/adr/) for detailed architectural decisions.
+
+---
+
 ## License
 
 MIT
 
 ---
 
-**Learning Elixir. Learning CI. Building tools.**
+**Built in Berlin. Powered by BEAM. No YAML was harmed.**
