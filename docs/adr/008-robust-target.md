@@ -248,19 +248,6 @@ target = Target.import("./targets/k8s-prod.target.json")
 target = Target.import("https://example.com/targets/k8s-prod.json")
 ```
 
-### Target Registry (Future)
-
-```elixir
-# From public registry
-target = Target.use("sykli/k8s-gcp", version: "1.0.0")
-
-# From private registry
-target = Target.use("myorg/k8s-prod",
-  registry: "https://targets.myorg.io",
-  version: "2.1.0"
-)
-```
-
 ---
 
 ## Target Introspection
@@ -388,7 +375,6 @@ Add version tracking and lockfile support:
 
 ## Future Work
 
-- Target registry (like npm/hex for targets)
 - Target composition (layered configurations)
 - Cost estimation based on target + resources
 - Target recommendations based on task requirements
