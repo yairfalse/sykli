@@ -7,6 +7,13 @@ defmodule Sykli.Delta do
   all tasks that depend on affected tasks (transitive dependents).
   """
 
+  @type affected_task :: %{
+          name: String.t(),
+          reason: :direct | :dependent,
+          files: [String.t()],
+          depends_on: String.t() | nil
+        }
+
   @doc """
   Returns list of task names affected by git changes.
 
@@ -15,26 +22,48 @@ defmodule Sykli.Delta do
     - path: project path (default: ".")
   """
   def affected_tasks(tasks, opts \\ []) do
+    case affected_tasks_detailed(tasks, opts) do
+      {:ok, details} -> {:ok, Enum.map(details, & &1.name)}
+      error -> error
+    end
+  end
+
+  @doc """
+  Returns detailed info about affected tasks including WHY they're affected.
+
+  Returns list of maps with:
+    - name: task name
+    - reason: :direct (files changed) or :dependent (depends on affected task)
+    - files: list of changed files that triggered this task (empty for dependents)
+    - depends_on: name of affected task this depends on (nil for direct)
+  """
+  def affected_tasks_detailed(tasks, opts \\ []) do
     from = Keyword.get(opts, :from, "HEAD")
     path = Keyword.get(opts, :path, ".")
 
     case get_changed_files(from, path) do
       {:ok, []} ->
-        # No changes, nothing affected
         {:ok, []}
 
       {:ok, changed_files} ->
-        # Find directly affected tasks
-        directly_affected = find_directly_affected(tasks, changed_files, path)
+        # Find directly affected tasks with file details
+        directly_affected = find_directly_affected_detailed(tasks, changed_files, path)
 
-        # Add transitive dependents
-        all_affected = add_dependents(directly_affected, tasks)
+        # Add transitive dependents with dependency info
+        all_affected = add_dependents_detailed(directly_affected, tasks)
 
         {:ok, all_affected}
 
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  @doc """
+  Returns the list of changed files from git.
+  """
+  def get_changed_files(from, path) do
+    get_changed_files_impl(from, path)
   end
 
   @doc """
@@ -46,7 +75,18 @@ defmodule Sykli.Delta do
   end
 
   # Get list of changed files from git (relative to project path)
-  defp get_changed_files(from, path) do
+  defp get_changed_files_impl(from, path) do
+    # First check if we're in a git repo
+    case System.cmd("git", ["rev-parse", "--git-dir"], cd: path, stderr_to_stdout: true) do
+      {_, 0} ->
+        get_git_changes(from, path)
+
+      {_, _} ->
+        {:error, {:not_a_git_repo, path}}
+    end
+  end
+
+  defp get_git_changes(from, path) do
     # Use --relative to get paths relative to the project directory
     case System.cmd("git", ["diff", "--name-only", "--relative", from], cd: path, stderr_to_stdout: true) do
       {output, 0} ->
@@ -62,43 +102,69 @@ defmodule Sykli.Delta do
             {:ok, files}
         end
 
-      {error, _} ->
-        {:error, {:git_failed, error}}
+      {error, code} ->
+        cond do
+          String.contains?(error, "unknown revision") ->
+            {:error, {:unknown_ref, from}}
+
+          String.contains?(error, "bad revision") ->
+            {:error, {:bad_revision, from}}
+
+          true ->
+            {:error, {:git_failed, error, code}}
+        end
     end
   end
 
-  # Find tasks directly affected by changed files
+  # Find tasks directly affected by changed files (names only)
   defp find_directly_affected(tasks, changed_files, workdir) do
-    abs_workdir = Path.expand(workdir)
-
-    tasks
-    |> Enum.filter(fn task ->
-      task_affected?(task, changed_files, abs_workdir)
-    end)
+    find_directly_affected_detailed(tasks, changed_files, workdir)
     |> Enum.map(& &1.name)
   end
 
-  # Check if a task is affected by any changed file
-  defp task_affected?(task, changed_files, workdir) do
-    # Get all input paths from task mounts
+  # Find tasks directly affected by changed files (with details)
+  defp find_directly_affected_detailed(tasks, changed_files, workdir) do
+    abs_workdir = Path.expand(workdir)
+
+    tasks
+    |> Enum.map(fn task ->
+      matching_files = get_matching_files(task, changed_files, abs_workdir)
+
+      if matching_files != [] do
+        %{name: task.name, reason: :direct, files: matching_files, depends_on: nil}
+      else
+        nil
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  # Get list of changed files that match a task's inputs
+  defp get_matching_files(task, changed_files, workdir) do
     input_paths = get_task_input_paths(task, workdir)
 
-    # If task has no mounts, it's not affected by file changes
-    # (it either has no inputs or uses inputs field)
     if input_paths == [] do
       # Check if task has inputs field (glob patterns)
       case task.inputs do
-        nil -> false
-        [] -> false
-        patterns -> any_file_matches_patterns?(changed_files, patterns)
+        nil -> []
+        [] -> []
+        patterns -> get_files_matching_patterns(changed_files, patterns)
       end
     else
-      # Check if any changed file is under any input path
-      Enum.any?(changed_files, fn file ->
+      # Get changed files under any input path
+      Enum.filter(changed_files, fn file ->
         file_under_any_path?(file, input_paths, workdir)
       end)
     end
   end
+
+  # Get files matching any of the patterns
+  defp get_files_matching_patterns(files, patterns) do
+    Enum.filter(files, fn file ->
+      Enum.any?(patterns, fn pattern -> match_glob?(file, pattern) end)
+    end)
+  end
+
 
   # Get all input paths from task mounts
   defp get_task_input_paths(task, workdir) do
@@ -129,15 +195,6 @@ defmodule Sykli.Delta do
     end)
   end
 
-  # Check if any file matches any glob pattern
-  defp any_file_matches_patterns?(files, patterns) do
-    Enum.any?(files, fn file ->
-      Enum.any?(patterns, fn pattern ->
-        match_glob?(file, pattern)
-      end)
-    end)
-  end
-
   # Simple glob matching (supports * and **)
   defp match_glob?(file, pattern) do
     regex_pattern =
@@ -149,15 +206,52 @@ defmodule Sykli.Delta do
     Regex.match?(~r/^#{regex_pattern}$/, file)
   end
 
-  # Add all tasks that depend on affected tasks (transitively)
+  # Add all tasks that depend on affected tasks (transitively) - names only
   defp add_dependents(affected_names, tasks) do
     affected_set = MapSet.new(affected_names)
+    reverse_deps = build_reverse_deps(tasks)
+    find_all_dependents(affected_set, reverse_deps)
+  end
 
-    # Build reverse dependency map: task -> tasks that depend on it
+  # Add all tasks that depend on affected tasks (transitively) - with details
+  defp add_dependents_detailed(directly_affected, tasks) do
+    affected_names = MapSet.new(Enum.map(directly_affected, & &1.name))
     reverse_deps = build_reverse_deps(tasks)
 
-    # BFS to find all dependents
-    find_all_dependents(affected_set, reverse_deps)
+    # BFS to find dependents with tracking of which task triggered them
+    dependent_details = find_dependents_with_reasons(directly_affected, affected_names, reverse_deps)
+
+    directly_affected ++ dependent_details
+  end
+
+  defp find_dependents_with_reasons(queue, seen, reverse_deps) do
+    do_find_dependents_with_reasons(queue, seen, reverse_deps, [])
+  end
+
+  defp do_find_dependents_with_reasons([], _seen, _reverse_deps, acc) do
+    Enum.reverse(acc)
+  end
+
+  defp do_find_dependents_with_reasons([current | rest], seen, reverse_deps, acc) do
+    dependents = Map.get(reverse_deps, current.name, [])
+
+    {new_details, new_seen} =
+      Enum.reduce(dependents, {[], seen}, fn dep_name, {details, seen_acc} ->
+        if MapSet.member?(seen_acc, dep_name) do
+          {details, seen_acc}
+        else
+          detail = %{
+            name: dep_name,
+            reason: :dependent,
+            files: [],
+            depends_on: current.name
+          }
+
+          {[detail | details], MapSet.put(seen_acc, dep_name)}
+        end
+      end)
+
+    do_find_dependents_with_reasons(rest ++ Enum.reverse(new_details), new_seen, reverse_deps, new_details ++ acc)
   end
 
   defp build_reverse_deps(tasks) do
@@ -186,5 +280,28 @@ defmodule Sykli.Delta do
     new_affected = Enum.reduce(new_dependents, affected_set, &MapSet.put(&2, &1))
 
     do_find_dependents(rest ++ new_dependents, new_affected, reverse_deps)
+  end
+
+  @doc """
+  Formats error tuples into human-readable messages.
+  """
+  def format_error({:not_a_git_repo, path}) do
+    "Not a git repository: #{path}"
+  end
+
+  def format_error({:unknown_ref, ref}) do
+    "Unknown git reference: #{ref}\nHint: Make sure the branch or commit exists."
+  end
+
+  def format_error({:bad_revision, ref}) do
+    "Bad revision: #{ref}\nHint: Check that '#{ref}' is a valid branch, tag, or commit."
+  end
+
+  def format_error({:git_failed, message, _code}) do
+    "Git command failed: #{String.trim(message)}"
+  end
+
+  def format_error(other) do
+    "Error: #{inspect(other)}"
   end
 end

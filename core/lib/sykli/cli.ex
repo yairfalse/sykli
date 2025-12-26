@@ -112,14 +112,17 @@ defmodule Sykli.CLI do
     and runs only affected tasks plus their dependents.
 
     Options:
-      --from <ref>    Compare against branch/commit (default: HEAD)
+      --from=<ref>    Compare against branch/commit (default: HEAD)
       --dry-run       Show affected tasks without running
+      --json          Output as JSON (for tooling)
+      --verbose       Show which files triggered each task
       --help          Show this help
 
     Examples:
       sykli delta                  Run affected tasks
       sykli delta --from=main      Compare against main branch
       sykli delta --dry-run        Show what would run
+      sykli delta --dry-run -v     Show what would run and why
     """)
     halt(0)
   end
@@ -129,22 +132,32 @@ defmodule Sykli.CLI do
     path = path || "."
     from = Keyword.get(opts, :from, "HEAD")
     dry_run = Keyword.get(opts, :dry_run, false)
+    json = Keyword.get(opts, :json, false)
+    verbose = Keyword.get(opts, :verbose, false)
 
     # Get the task graph
     case get_task_graph(path) do
       {:ok, tasks} ->
-        # Find affected tasks
-        case Sykli.Delta.affected_tasks(tasks, from: from, path: path) do
+        # Find affected tasks with details
+        case Sykli.Delta.affected_tasks_detailed(tasks, from: from, path: path) do
           {:ok, []} ->
-            IO.puts("#{IO.ANSI.green()}No tasks affected by changes#{IO.ANSI.reset()}")
+            if json do
+              IO.puts(Jason.encode!(%{affected: [], changed_files: []}))
+            else
+              IO.puts("#{IO.ANSI.green()}No tasks affected by changes#{IO.ANSI.reset()}")
+            end
             halt(0)
 
-          {:ok, affected_names} ->
+          {:ok, affected} ->
+            affected_names = Enum.map(affected, & &1.name)
+
+            if json do
+              output_delta_json(affected, from, path)
+              halt(0)
+            end
+
             if dry_run do
-              IO.puts("#{IO.ANSI.cyan()}Affected tasks:#{IO.ANSI.reset()}")
-              Enum.each(affected_names, fn name ->
-                IO.puts("  • #{name}")
-              end)
+              output_delta_dry_run(affected, verbose)
               halt(0)
             else
               # Run only affected tasks
@@ -152,14 +165,73 @@ defmodule Sykli.CLI do
             end
 
           {:error, reason} ->
-            IO.puts("#{IO.ANSI.red()}Error finding affected tasks: #{inspect(reason)}#{IO.ANSI.reset()}")
+            if json do
+              IO.puts(Jason.encode!(%{error: Sykli.Delta.format_error(reason)}))
+            else
+              IO.puts("#{IO.ANSI.red()}#{Sykli.Delta.format_error(reason)}#{IO.ANSI.reset()}")
+            end
             halt(1)
         end
 
       {:error, reason} ->
-        IO.puts("#{IO.ANSI.red()}Error: #{inspect(reason)}#{IO.ANSI.reset()}")
+        if json do
+          IO.puts(Jason.encode!(%{error: inspect(reason)}))
+        else
+          IO.puts("#{IO.ANSI.red()}Error: #{inspect(reason)}#{IO.ANSI.reset()}")
+        end
         halt(1)
     end
+  end
+
+  defp output_delta_json(affected, from, path) do
+    {:ok, changed_files} = Sykli.Delta.get_changed_files(from, path)
+
+    output = %{
+      affected: Enum.map(affected, fn a ->
+        %{
+          name: a.name,
+          reason: a.reason,
+          files: a.files,
+          depends_on: a.depends_on
+        }
+      end),
+      changed_files: changed_files,
+      from: from
+    }
+
+    IO.puts(Jason.encode!(output, pretty: true))
+  end
+
+  defp output_delta_dry_run(affected, verbose) do
+    IO.puts("#{IO.ANSI.cyan()}Affected tasks:#{IO.ANSI.reset()}")
+
+    Enum.each(affected, fn task ->
+      case task.reason do
+        :direct ->
+          if verbose and task.files != [] do
+            files_str = Enum.take(task.files, 3) |> Enum.join(", ")
+            suffix = if length(task.files) > 3, do: " +#{length(task.files) - 3} more", else: ""
+            IO.puts("  #{IO.ANSI.green()}•#{IO.ANSI.reset()} #{task.name}")
+            IO.puts("    #{IO.ANSI.faint()}↳ #{files_str}#{suffix}#{IO.ANSI.reset()}")
+          else
+            IO.puts("  #{IO.ANSI.green()}•#{IO.ANSI.reset()} #{task.name}")
+          end
+
+        :dependent ->
+          if verbose do
+            IO.puts("  #{IO.ANSI.yellow()}•#{IO.ANSI.reset()} #{task.name}")
+            IO.puts("    #{IO.ANSI.faint()}↳ depends on: #{task.depends_on}#{IO.ANSI.reset()}")
+          else
+            IO.puts("  #{IO.ANSI.yellow()}•#{IO.ANSI.reset()} #{task.name} #{IO.ANSI.faint()}(via #{task.depends_on})#{IO.ANSI.reset()}")
+          end
+      end
+    end)
+
+    direct_count = Enum.count(affected, & &1.reason == :direct)
+    dep_count = Enum.count(affected, & &1.reason == :dependent)
+
+    IO.puts("")
+    IO.puts("#{IO.ANSI.faint()}#{direct_count} direct, #{dep_count} dependent#{IO.ANSI.reset()}")
   end
 
   defp parse_delta_args(args) do
@@ -172,6 +244,12 @@ defmodule Sykli.CLI do
 
           arg == "--dry-run" ->
             {[{:dry_run, true} | opts], rest}
+
+          arg == "--json" ->
+            {[{:json, true} | opts], rest}
+
+          arg == "--verbose" or arg == "-v" ->
+            {[{:verbose, true} | opts], rest}
 
           String.starts_with?(arg, "--") ->
             {opts, rest}
