@@ -26,8 +26,9 @@ erl_crash.dump
 go.work
 go.work.sum
 
-# Rust
-target/
+# Rust (only in SDK directories)
+sdk/rust/target/
+sdk/go/target/
 
 # IDE
 .vscode/
