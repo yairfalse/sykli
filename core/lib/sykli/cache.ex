@@ -33,8 +33,32 @@ defmodule Sykli.Cache do
   Returns {:hit, key} or {:miss, key}
   """
   def check(task, workdir) do
+    case check_detailed(task, workdir) do
+      {:hit, key} -> {:hit, key}
+      {:miss, key, _reason} -> {:miss, key}
+    end
+  end
+
+  @doc """
+  Check if task can be skipped, with detailed miss reason.
+
+  Returns:
+    - {:hit, key} - cache hit, can skip
+    - {:miss, key, reason} - cache miss with reason
+
+  Reasons:
+    - :no_cache - no cache entry exists for this task
+    - :command_changed - command differs from cached
+    - :inputs_changed - input files have changed
+    - :container_changed - container image changed
+    - :env_changed - task environment changed
+    - :corrupted - meta file is corrupted
+    - :blobs_missing - output blobs are missing
+  """
+  def check_detailed(task, workdir) do
     key = cache_key(task, workdir)
     meta_path = meta_path(key)
+    abs_workdir = Path.expand(workdir)
 
     case read_meta(meta_path) do
       {:ok, meta} ->
@@ -43,21 +67,90 @@ defmodule Sykli.Cache do
           {:hit, key}
         else
           # Corrupted cache - clean up
-          case File.rm(meta_path) do
-            :ok ->
-              :ok
-
-            {:error, reason} ->
-              IO.warn("Failed to remove corrupted cache file #{meta_path}: #{inspect(reason)}")
-          end
-
-          {:miss, key}
+          cleanup_meta(meta_path)
+          {:miss, key, :blobs_missing}
         end
 
+      {:error, :corrupted} ->
+        cleanup_meta(meta_path)
+        {:miss, key, :corrupted}
+
       {:error, _} ->
-        {:miss, key}
+        # No cache entry - try to find why by looking for other entries with same task name
+        find_miss_reason(task, abs_workdir, key)
     end
   end
+
+  # Find the reason for cache miss by comparing with existing entries
+  defp find_miss_reason(task, workdir, current_key) do
+    # Look for any meta file for this task name
+    meta_files = Path.wildcard(Path.join(@meta_dir, "*.json"))
+
+    matching_entry = Enum.find_value(meta_files, fn path ->
+      case read_meta(path) do
+        {:ok, meta} ->
+          if meta["task_name"] == task.name, do: meta, else: nil
+        _ ->
+          nil
+      end
+    end)
+
+    case matching_entry do
+      nil ->
+        {:miss, current_key, :no_cache}
+
+      cached_meta ->
+        # Compare individual components to find what changed
+        reason = determine_change_reason(task, cached_meta, workdir)
+        {:miss, current_key, reason}
+    end
+  end
+
+  # Determine what changed between current task and cached metadata
+  defp determine_change_reason(task, cached_meta, workdir) do
+    cond do
+      task.command != cached_meta["command"] ->
+        :command_changed
+
+      hash_inputs(task.inputs || [], workdir) != cached_meta["inputs_hash"] ->
+        :inputs_changed
+
+      (task.container || "") != (cached_meta["container"] || "") ->
+        :container_changed
+
+      hash_task_env(task.env || %{}) != (cached_meta["env_hash"] || "") ->
+        :env_changed
+
+      hash_mounts(task.mounts || []) != (cached_meta["mounts_hash"] || "") ->
+        :mounts_changed
+
+      true ->
+        # Fallback - something else changed (maybe version)
+        :config_changed
+    end
+  end
+
+  defp cleanup_meta(meta_path) do
+    case File.rm(meta_path) do
+      :ok -> :ok
+      {:error, reason} ->
+        IO.warn("Failed to remove corrupted cache file #{meta_path}: #{inspect(reason)}")
+    end
+  end
+
+  @doc """
+  Format a cache miss reason for display.
+  """
+  def format_miss_reason(:no_cache), do: "first run"
+  def format_miss_reason(:command_changed), do: "command changed"
+  def format_miss_reason(:inputs_changed), do: "inputs changed"
+  def format_miss_reason(:container_changed), do: "container changed"
+  def format_miss_reason(:env_changed), do: "env changed"
+  def format_miss_reason(:mounts_changed), do: "mounts changed"
+  def format_miss_reason(:corrupted), do: "cache corrupted"
+  def format_miss_reason(:blobs_missing), do: "outputs missing"
+  def format_miss_reason(:config_changed), do: "config changed"
+  def format_miss_reason(other), do: "#{other}"
 
   @doc """
   Restore cached outputs to workdir.
@@ -107,6 +200,9 @@ defmodule Sykli.Cache do
       "duration_ms" => duration_ms,
       "cached_at" => DateTime.utc_now() |> DateTime.to_iso8601(),
       "inputs_hash" => hash_inputs(task.inputs || [], abs_workdir),
+      "container" => task.container || "",
+      "env_hash" => hash_task_env(task.env || %{}),
+      "mounts_hash" => hash_mounts(task.mounts || []),
       "sykli_version" => @version
     }
 

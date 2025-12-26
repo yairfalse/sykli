@@ -194,8 +194,8 @@ defmodule Sykli.Executor do
   defp run_task_with_cache(%Sykli.Graph.Task{} = task, workdir, progress, executor) do
     prefix = progress_prefix(progress)
 
-    # Check cache first
-    case Sykli.Cache.check(task, workdir) do
+    # Check cache first (with detailed reason)
+    case Sykli.Cache.check_detailed(task, workdir) do
       {:hit, key} ->
         # Restore outputs from cache
         case Sykli.Cache.restore(key, workdir) do
@@ -215,7 +215,12 @@ defmodule Sykli.Executor do
             run_with_retry(task, workdir, nil, progress, executor)
         end
 
-      {:miss, cache_key} ->
+      {:miss, cache_key, reason} ->
+        # Show miss reason for visibility
+        reason_str = Sykli.Cache.format_miss_reason(reason)
+        IO.puts(
+          "#{prefix}#{IO.ANSI.cyan()}▶ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(#{reason_str})#{IO.ANSI.reset()}"
+        )
         run_with_retry(task, workdir, cache_key, progress, executor)
     end
   end
