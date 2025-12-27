@@ -263,6 +263,23 @@ defmodule Sykli.DSL do
     update_current_task(fn t -> %{t | mounts: t.mounts ++ [mount]} end)
   end
 
+  @doc """
+  Mounts the current working directory to /work and sets workdir.
+  This is a convenience method that combines mount + workdir for the common case.
+  """
+  def mount_cwd do
+    mount = %{resource: "src:.", path: "/work", type: :directory}
+    update_current_task(fn t -> %{t | mounts: t.mounts ++ [mount], workdir: "/work"} end)
+  end
+
+  @doc """
+  Mounts the current working directory to a custom path and sets workdir.
+  """
+  def mount_cwd_at(container_path) when is_binary(container_path) do
+    mount = %{resource: "src:.", path: container_path, type: :directory}
+    update_current_task(fn t -> %{t | mounts: t.mounts ++ [mount], workdir: container_path} end)
+  end
+
   # ============================================================================
   # TEMPLATES
   # ============================================================================

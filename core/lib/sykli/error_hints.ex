@@ -86,7 +86,27 @@ defmodule Sykli.ErrorHints do
     # Generic build issues
     {~r/out of memory/i, "Out of memory - reduce parallelism or increase memory"},
     {~r/disk quota exceeded/i, "Disk full - free up space"},
-    {~r/too many open files/i, "File descriptor limit - try: ulimit -n 4096"}
+    {~r/too many open files/i, "File descriptor limit - try: ulimit -n 4096"},
+
+    # Test failures
+    {~r/FAIL:/i, "Test failed - check test output above"},
+    {~r/--- FAIL:/i, "Go test failed - check test output above"},
+    {~r/test result: FAILED/i, "Rust test failed - check test output above"},
+    {~r/\d+ tests?, \d+ failures?/i, "Tests failed - review failures above"},
+
+    # Compilation errors
+    {~r/syntax error/i, "Syntax error - check file for typos"},
+    {~r/type error/i, "Type error - check type annotations"},
+    {~r/undefined reference/i, "Linker error - check for missing libraries"},
+
+    # Git issues
+    {~r/not a git repository/i, "Not in a git repo - run: git init"},
+    {~r/fatal: could not read from remote/i, "Git auth failed - check SSH keys or credentials"},
+
+    # Elixir issues
+    {~r/\*\* \(CompileError\)/i, "Elixir compile error - check syntax"},
+    {~r/\*\* \(UndefinedFunctionError\)/i, "Function not defined - check module imports"},
+    {~r/\*\* \(ArgumentError\)/i, "Invalid argument - check function parameters"}
   ]
 
   @doc """
@@ -133,7 +153,101 @@ defmodule Sykli.ErrorHints do
 
   def format_hints(hints) do
     hints
-    |> Enum.map(fn hint -> "  #{IO.ANSI.yellow()}#{hint}#{IO.ANSI.reset()}" end)
+    |> Enum.map(fn hint -> "  #{IO.ANSI.yellow()}> #{hint}#{IO.ANSI.reset()}" end)
     |> Enum.join("\n")
+  end
+
+  # ----- DID YOU MEAN -----
+
+  @doc """
+  Suggests similar items using Jaro-Winkler distance.
+  Returns nil if no good match, or "Did you mean 'closest'?" if found.
+  """
+  def did_you_mean(input, candidates, threshold \\ 0.8) when is_list(candidates) do
+    input_str = to_string(input)
+
+    best =
+      candidates
+      |> Enum.map(fn c -> {c, jaro_distance(input_str, to_string(c))} end)
+      |> Enum.max_by(fn {_, score} -> score end, fn -> {nil, 0} end)
+
+    case best do
+      {candidate, score} when score >= threshold ->
+        "Did you mean '#{candidate}'?"
+
+      _ ->
+        nil
+    end
+  end
+
+  # Jaro distance implementation (simple version)
+  defp jaro_distance(s1, s2) when s1 == s2, do: 1.0
+  defp jaro_distance("", _), do: 0.0
+  defp jaro_distance(_, ""), do: 0.0
+
+  defp jaro_distance(s1, s2) do
+    len1 = String.length(s1)
+    len2 = String.length(s2)
+    match_distance = max(div(max(len1, len2), 2) - 1, 0)
+
+    s1_chars = String.graphemes(s1)
+    s2_chars = String.graphemes(s2)
+
+    {matches, transpositions} = find_matches(s1_chars, s2_chars, match_distance)
+
+    if matches == 0 do
+      0.0
+    else
+      (matches / len1 + matches / len2 + (matches - transpositions / 2) / matches) / 3
+    end
+  end
+
+  defp find_matches(s1_chars, s2_chars, match_distance) do
+    len2 = length(s2_chars)
+    s2_matched = :array.new(len2, default: false)
+
+    {matches, s1_matched_chars, s2_matched} =
+      s1_chars
+      |> Enum.with_index()
+      |> Enum.reduce({0, [], s2_matched}, fn {c1, i}, {m, matched, s2m} ->
+        start = max(0, i - match_distance)
+        stop = min(i + match_distance + 1, len2)
+
+        case find_match_in_range(c1, s2_chars, start, stop, s2m) do
+          {:found, j, new_s2m} ->
+            {m + 1, [{c1, j} | matched], new_s2m}
+
+          :not_found ->
+            {m, matched, s2m}
+        end
+      end)
+
+    # Count transpositions
+    s2_matched_chars =
+      s2_chars
+      |> Enum.with_index()
+      |> Enum.filter(fn {_, j} -> :array.get(j, s2_matched) end)
+      |> Enum.map(fn {c, _} -> c end)
+
+    s1_matched_sorted = s1_matched_chars |> Enum.reverse() |> Enum.map(fn {c, _} -> c end)
+
+    transpositions =
+      Enum.zip(s1_matched_sorted, s2_matched_chars)
+      |> Enum.count(fn {a, b} -> a != b end)
+
+    {matches, transpositions}
+  end
+
+  defp find_match_in_range(c1, s2_chars, start, stop, s2_matched) do
+    start..(stop - 1)
+    |> Enum.reduce_while(:not_found, fn j, _ ->
+      c2 = Enum.at(s2_chars, j)
+
+      if c1 == c2 and not :array.get(j, s2_matched) do
+        {:halt, {:found, j, :array.set(j, true, s2_matched)}}
+      else
+        {:cont, :not_found}
+      end
+    end)
   end
 end

@@ -1037,6 +1037,39 @@ impl<'a> Task<'a> {
         self
     }
 
+    /// Mounts the current working directory to `/work` and sets workdir.
+    /// This is a convenience method that combines mount + workdir for the common case.
+    #[must_use]
+    pub fn mount_cwd(self) -> Self {
+        self.pipeline.tasks[self.index].mounts.push(Mount {
+            resource: "src:.".to_string(),
+            path: "/work".to_string(),
+            mount_type: "directory".to_string(),
+        });
+        self.pipeline.tasks[self.index].workdir = Some("/work".to_string());
+        self
+    }
+
+    /// Mounts the current working directory to a custom path and sets workdir.
+    ///
+    /// # Panics
+    /// Panics if `path` is empty or not absolute (must start with `/`).
+    #[must_use]
+    pub fn mount_cwd_at(self, path: &str) -> Self {
+        assert!(!path.is_empty(), "container mount path cannot be empty");
+        assert!(
+            path.starts_with('/'),
+            "container mount path must be absolute (start with /)"
+        );
+        self.pipeline.tasks[self.index].mounts.push(Mount {
+            resource: "src:.".to_string(),
+            path: path.to_string(),
+            mount_type: "directory".to_string(),
+        });
+        self.pipeline.tasks[self.index].workdir = Some(path.to_string());
+        self
+    }
+
     /// Sets the working directory inside the container.
     ///
     /// # Panics
