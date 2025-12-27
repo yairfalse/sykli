@@ -26,10 +26,17 @@ defmodule Sykli.Detector do
       Path.expand(path)
     end
 
+    # Debug: print what we're looking for
+    IO.puts(:stderr, "[debug] Looking in: #{abs_path}")
+    IO.puts(:stderr, "[debug] File.cwd!(): #{File.cwd!()}")
+    IO.puts(:stderr, "[debug] PWD env: #{inspect(System.get_env("PWD"))}")
+
     @sdk_files
     |> Enum.find_value(fn {file, runner} ->
       full_path = Path.join(abs_path, file)
-      if File.exists?(full_path), do: {:ok, {full_path, runner}}
+      exists = File.exists?(full_path)
+      IO.puts(:stderr, "[debug] Checking #{full_path}: #{exists}")
+      if exists, do: {:ok, {full_path, runner}}
     end)
     |> case do
       {:ok, result} -> {:ok, result}
