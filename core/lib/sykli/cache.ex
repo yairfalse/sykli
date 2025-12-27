@@ -13,20 +13,22 @@ defmodule Sykli.Cache do
         └── <sha256>            # content-addressed files
   """
 
-  @cache_dir Path.expand("~/.sykli/cache")
-  @meta_dir Path.join(@cache_dir, "meta")
-  @blobs_dir Path.join(@cache_dir, "blobs")
   @version "0.1.0"
 
   # Env vars that affect builds (PATH excluded - too volatile)
   @relevant_env_vars ["GOPATH", "GOROOT", "CARGO_HOME", "NODE_ENV", "GOOS", "GOARCH"]
 
+  # Runtime path expansion (not compile-time) for Burrito compatibility
+  defp cache_dir, do: Path.expand("~/.sykli/cache")
+  defp meta_dir, do: Path.join(cache_dir(), "meta")
+  defp blobs_dir, do: Path.join(cache_dir(), "blobs")
+
   def init do
-    File.mkdir_p!(@meta_dir)
-    File.mkdir_p!(@blobs_dir)
+    File.mkdir_p!(meta_dir())
+    File.mkdir_p!(blobs_dir())
   end
 
-  def cache_dir, do: @cache_dir
+  def get_cache_dir, do: cache_dir()
 
   @doc """
   Check if task can be skipped (cache hit).
@@ -86,7 +88,7 @@ defmodule Sykli.Cache do
   # Find the reason for cache miss by comparing with existing entries
   defp find_miss_reason(task, workdir, current_key) do
     # Look for any meta file for this task name
-    meta_files = Path.wildcard(Path.join(@meta_dir, "*.json"))
+    meta_files = Path.wildcard(Path.join(meta_dir(), "*.json"))
 
     matching_entry = Enum.find_value(meta_files, fn path ->
       case read_meta(path) do
@@ -229,8 +231,8 @@ defmodule Sykli.Cache do
   def stats do
     init()
 
-    meta_files = Path.wildcard(Path.join(@meta_dir, "*.json"))
-    blob_files = Path.wildcard(Path.join(@blobs_dir, "*"))
+    meta_files = Path.wildcard(Path.join(meta_dir(), "*.json"))
+    blob_files = Path.wildcard(Path.join(blobs_dir(), "*"))
 
     meta_count = length(meta_files)
     blob_count = length(blob_files)
@@ -257,8 +259,8 @@ defmodule Sykli.Cache do
   Clean all cache entries.
   """
   def clean do
-    File.rm_rf!(@meta_dir)
-    File.rm_rf!(@blobs_dir)
+    File.rm_rf!(meta_dir())
+    File.rm_rf!(blobs_dir())
     init()
     :ok
   end
@@ -270,7 +272,7 @@ defmodule Sykli.Cache do
   def clean_older_than(seconds) do
     init()
     cutoff = DateTime.utc_now() |> DateTime.add(-seconds, :second)
-    meta_files = Path.wildcard(Path.join(@meta_dir, "*.json"))
+    meta_files = Path.wildcard(Path.join(meta_dir(), "*.json"))
 
     # Track which blobs are still referenced
     referenced_blobs = MapSet.new()
@@ -328,7 +330,7 @@ defmodule Sykli.Cache do
       end)
 
     # Clean orphaned blobs
-    blob_files = Path.wildcard(Path.join(@blobs_dir, "*"))
+    blob_files = Path.wildcard(Path.join(blobs_dir(), "*"))
 
     orphaned =
       Enum.reduce(blob_files, 0, fn path, count ->
@@ -438,11 +440,11 @@ defmodule Sykli.Cache do
   end
 
   defp meta_path(key) do
-    Path.join(@meta_dir, "#{key}.json")
+    Path.join(meta_dir(), "#{key}.json")
   end
 
   defp blob_path(hash) do
-    Path.join(@blobs_dir, hash)
+    Path.join(blobs_dir(), hash)
   end
 
   defp read_meta(path) do

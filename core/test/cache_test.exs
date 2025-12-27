@@ -221,7 +221,7 @@ defmodule Sykli.CacheTest do
       assert :ok = Sykli.Cache.store(key2, task2, ["file2.txt"], 100, @test_workdir)
 
       # Check that only one blob exists (deduplication)
-      blobs_dir = Path.join(Sykli.Cache.cache_dir(), "blobs")
+      blobs_dir = Path.join(Sykli.Cache.get_cache_dir(), "blobs")
       blob_files = Path.wildcard(Path.join(blobs_dir, "*"))
 
       # Should have exactly 1 blob for the identical content
@@ -268,7 +268,7 @@ defmodule Sykli.CacheTest do
       Sykli.Cache.init()
 
       # Create a corrupted meta file
-      meta_dir = Path.join(Sykli.Cache.cache_dir(), "meta")
+      meta_dir = Path.join(Sykli.Cache.get_cache_dir(), "meta")
       File.mkdir_p!(meta_dir)
       File.write!(Path.join(meta_dir, "corrupted.json"), "not valid json")
 
@@ -289,7 +289,7 @@ defmodule Sykli.CacheTest do
       assert :ok = Sykli.Cache.store(key, task, ["app"], 100, @test_workdir)
 
       # Delete the blob
-      blobs_dir = Path.join(Sykli.Cache.cache_dir(), "blobs")
+      blobs_dir = Path.join(Sykli.Cache.get_cache_dir(), "blobs")
       Path.wildcard(Path.join(blobs_dir, "*")) |> Enum.each(&File.rm!/1)
 
       # Should treat as miss and clean up meta
@@ -454,7 +454,7 @@ defmodule Sykli.CacheTest do
       # Create a corrupted meta file with same key format
       task = make_task("test", "echo test")
       key = Sykli.Cache.cache_key(task, @test_workdir)
-      meta_dir = Path.join(Sykli.Cache.cache_dir(), "meta")
+      meta_dir = Path.join(Sykli.Cache.get_cache_dir(), "meta")
       File.write!(Path.join(meta_dir, "#{key}.json"), "not json")
 
       assert {:miss, ^key, :corrupted} = Sykli.Cache.check_detailed(task, @test_workdir)
@@ -471,7 +471,7 @@ defmodule Sykli.CacheTest do
       Sykli.Cache.store(key, task, ["out.txt"], 100, @test_workdir)
 
       # Delete blobs
-      blobs_dir = Path.join(Sykli.Cache.cache_dir(), "blobs")
+      blobs_dir = Path.join(Sykli.Cache.get_cache_dir(), "blobs")
       Path.wildcard(Path.join(blobs_dir, "*")) |> Enum.each(&File.rm!/1)
 
       assert {:miss, ^key, :blobs_missing} = Sykli.Cache.check_detailed(task, @test_workdir)
@@ -497,7 +497,7 @@ defmodule Sykli.CacheTest do
       Sykli.Cache.store(key_new, task_new, ["new.txt"], 100, @test_workdir)
 
       # Manually modify the old entry's timestamp
-      meta_dir = Path.join(Sykli.Cache.cache_dir(), "meta")
+      meta_dir = Path.join(Sykli.Cache.get_cache_dir(), "meta")
       old_meta_path = Path.join(meta_dir, "#{key_old}.json")
 
       {:ok, content} = File.read(old_meta_path)
