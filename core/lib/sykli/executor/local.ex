@@ -109,10 +109,18 @@ defmodule Sykli.Executor.Local do
 
   @impl true
   def run_job(task, opts) do
-    workdir = Keyword.get(opts, :workdir, ".")
+    pipeline_workdir = Keyword.get(opts, :workdir, ".")
     network = Keyword.get(opts, :network)
     progress = Keyword.get(opts, :progress)
     timeout = (task.timeout || 300) * 1000
+
+    # For shell tasks, combine pipeline workdir with task workdir
+    # For container tasks, task.workdir is for inside the container (-w flag), not host
+    effective_workdir = if task.container == nil do
+      resolve_workdir(pipeline_workdir, task.workdir)
+    else
+      pipeline_workdir
+    end
 
     prefix = progress_prefix(progress)
 
@@ -120,14 +128,14 @@ defmodule Sykli.Executor.Local do
     {_, {h, m, s}} = :calendar.local_time()
     timestamp = :io_lib.format("~2..0B:~2..0B:~2..0B", [h, m, s]) |> to_string()
 
-    # Build command
-    {cmd_type, cmd_args, display_cmd} = build_command(task, workdir, network)
+    # Build command (pass pipeline workdir for container mounts)
+    {cmd_type, cmd_args, display_cmd} = build_command(task, pipeline_workdir, network)
 
     IO.puts("#{prefix}#{IO.ANSI.cyan()}▶ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{timestamp} #{display_cmd}#{IO.ANSI.reset()}")
 
     start_time = System.monotonic_time(:millisecond)
 
-    case run_streaming(cmd_type, cmd_args, workdir, timeout) do
+    case run_streaming(cmd_type, cmd_args, effective_workdir, timeout) do
       {:ok, 0, lines, _output} ->
         duration_ms = System.monotonic_time(:millisecond) - start_time
         lines_str = if lines > 0, do: " #{lines}L", else: ""
@@ -320,6 +328,13 @@ defmodule Sykli.Executor.Local do
   end
 
   # ----- HELPERS -----
+
+  # Resolve effective workdir: combine pipeline workdir with task workdir
+  defp resolve_workdir(pipeline_workdir, nil), do: pipeline_workdir
+  defp resolve_workdir(pipeline_workdir, ""), do: pipeline_workdir
+  defp resolve_workdir(pipeline_workdir, task_workdir) do
+    Path.join(pipeline_workdir, task_workdir) |> Path.expand()
+  end
 
   defp docker_executable do
     System.find_executable("docker") || "/usr/bin/docker"

@@ -1,10 +1,12 @@
+#!/usr/bin/env elixir
 # Sykli CI for Sykli itself - dogfooding!
 #
 # Run locally:  sykli
 # Run in CI:    sykli (via GitHub Actions)
 
-Mix.install([{:sykli_sdk, path: "sdk/elixir"}])
+Mix.install([{:sykli_sdk, path: Path.join(__DIR__, "sdk/elixir")}])
 
+Code.eval_string("""
 use Sykli
 
 pipeline do
@@ -55,3 +57,4 @@ pipeline do
     after_ ["core:build", "sdk:go"]
   end
 end
+""")
