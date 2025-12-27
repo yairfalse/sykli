@@ -18,9 +18,12 @@ defmodule Sykli.Detector do
   end
 
   def find(path) do
+    # Expand to absolute path to work correctly with Burrito-bundled binaries
+    abs_path = Path.expand(path)
+
     @sdk_files
     |> Enum.find_value(fn {file, runner} ->
-      full_path = Path.join(path, file)
+      full_path = Path.join(abs_path, file)
       if File.exists?(full_path), do: {:ok, {full_path, runner}}
     end)
     |> case do
