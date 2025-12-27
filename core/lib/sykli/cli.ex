@@ -25,6 +25,10 @@ defmodule Sykli.CLI do
       ["delta" | delta_args] ->
         handle_delta(delta_args)
 
+      # Support explicit 'run' command: sykli run [path]
+      ["run" | run_args] ->
+        run_sykli(run_args)
+
       _ ->
         run_sykli(args)
     end
@@ -35,6 +39,7 @@ defmodule Sykli.CLI do
     sykli - CI pipelines in your language
 
     Usage: sykli [path]
+           sykli run [path]
            sykli cache <command>
 
     Options:
@@ -43,12 +48,14 @@ defmodule Sykli.CLI do
 
     Commands:
       sykli [path]     Run pipeline (default: current directory)
+      sykli run [path] Run pipeline (explicit form)
       sykli delta      Run only tasks affected by git changes
       sykli graph      Show task graph (see: sykli graph --help)
       sykli cache      Manage cache (see: sykli cache --help)
 
     Examples:
       sykli                    Run pipeline in current directory
+      sykli run                Same as above
       sykli ./my-project       Run pipeline in ./my-project
       sykli cache stats        Show cache statistics
     """)
