@@ -3,8 +3,10 @@
 
 echo "Running sykli delta (affected tasks only)..."
 
-# Use local binary if available, otherwise try PATH
-if [ -f "./core/burrito_out/sykli_macos_aarch64" ]; then
+# Use local escript if available, then burrito binary, then PATH
+if [ -f "./core/sykli" ]; then
+    SYKLI="./core/sykli"
+elif [ -f "./core/burrito_out/sykli_macos_aarch64" ]; then
     SYKLI="./core/burrito_out/sykli_macos_aarch64"
 elif command -v sykli &> /dev/null; then
     SYKLI="sykli"
