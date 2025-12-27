@@ -671,31 +671,198 @@ mesh:
 
 ---
 
+## Mesh Feature Levels
+
+The superpowers manifest as concrete features, prioritized by impact and demo-ability:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    MESH FEATURE LEVELS                           │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│   Level 1: CACHE SHARING               ← Ship first ($$$)       │
+│   Level 2: LIVE OBSERVATION            ← Ship second (DX wow)   │
+│   Level 3: DISTRIBUTED EXECUTION       ← Later (architecture)   │
+│   Level 4: TEAM AWARENESS              ← Later (polish)         │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Level 1: Cache Sharing (Priority: P0)
+
+**The pitch:** "I built this. You get a cache hit."
+
+Your laptop ↔ CI ↔ teammate. Same content-addressed cache. Build once, hit everywhere.
+
+```bash
+# Terminal 1: Alice builds
+$ sykli run build
+  ✓ build-frontend (23s)
+  ✓ build-backend (45s)
+  Cached to mesh.
+
+# Terminal 2: Bob builds (5 seconds later)
+$ sykli run build
+  ⚡ build-frontend (cache hit from alice@192.168.1.42)
+  ⚡ build-backend (cache hit from alice@192.168.1.42)
+  Done in 0.3s
+```
+
+**Why first:**
+- Saves hours per day across a team
+- Easy to measure (build times, CI costs)
+- Engineering managers approve budget ("cut CI costs 60%")
+
+**Implementation:**
+- Content-addressed blobs (already in `Sykli.Cache`)
+- Cache metadata sync via Erlang distribution
+- Bloom filter for "do you have this key?" queries
+
+### Level 2: Live Observation (Priority: P0)
+
+**The pitch:** "Watch CI from your couch."
+
+CI is running? See it live from your terminal. Not logs after the fact - live stdout, resource usage, which step it's on. Attach if you need to.
+
+```bash
+$ sykli observe ci-runner-3
+
+Observing: ci-runner-3@10.0.1.50
+────────────────────────────────────────────────────────
+Task: test-integration
+  ████████████░░░░░░░░  Step 7/12  (2m 14s)
+  Memory: 1.2GB  CPU: 78%
+
+Live output:
+  > Running test_user_signup... passed
+  > Running test_checkout...
+
+[Press 'a' to attach, 'k' to kill, 'q' to quit]
+```
+
+**Why second:**
+- Developers tell their friends ("holy shit" moment)
+- Demo-able in 30 seconds
+- No other CI does this
+
+**Implementation:**
+- PubSub for task events
+- `:rpc.call/4` for remote process inspection
+- TUI with `ratatouille` or `owl`
+
+### Level 3: Distributed Execution (Priority: P1)
+
+**The pitch:** "Your laptop is slow? Offload heavy tasks to a beefy CI runner."
+
+Same pipeline, different compute. Your laptop stays cool, CI runner does the work.
+
+```bash
+$ sykli run build --on ci-runner-large
+
+Offloading to ci-runner-large@10.0.1.50...
+  ✓ build-frontend (12s on 32-core)
+  ✓ build-backend (8s on 32-core)
+  Artifacts synced back.
+
+Done in 22s (would be 4m locally).
+```
+
+**Why later:**
+- Needs Levels 1+2 working first
+- More complex scheduling
+- Security implications (code runs remotely)
+
+**Implementation:**
+- Task serialization and transfer
+- Artifact streaming back
+- Resource-based scheduling
+
+### Level 4: Team Awareness (Priority: P2)
+
+**The pitch:** "Who's running what right now?"
+
+Not a dashboard you check - presence in the mesh itself.
+
+```bash
+$ sykli mesh status
+
+Sykli Mesh (7 nodes)
+────────────────────────────────────────────────────────
+  alice@laptop      idle
+  bob@laptop        build-frontend (2m)
+  ci-runner-1       test-unit (45s) ← triggered by alice
+  ci-runner-2       idle
+  ci-runner-3       deploy-staging (1m)
+
+Recent:
+  10:42  alice pushed feature-x
+  10:41  bob cache hit from alice (build-frontend)
+  10:38  ci-runner-1 completed test-all ✓
+
+Queue:
+  1. test-integration (waiting for ci-runner-1)
+```
+
+**Why last:**
+- Nice-to-have, not need-to-have
+- Requires good UX design
+- Builds on all other levels
+
+**Implementation:**
+- Presence tracking via PubSub
+- Event log aggregation
+- Real-time mesh TUI
+
+---
+
+## Feature Comparison
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    NO ONE ELSE HAS THIS                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│                    GitHub   CircleCI   Dagger   Sykli            │
+│   ─────────────────────────────────────────────────────────      │
+│   Shared cache       ✗        ✗         ~        ✓               │
+│   Live observation   ✗        ✗         ✗        ✓               │
+│   Distributed exec   ✗        ✗         ✗        ✓               │
+│   Team awareness     ✗        ✗         ✗        ✓               │
+│                                                                  │
+│   The mesh makes CI feel like a shared space, not a black box.   │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
 ## Implementation Phases
 
-### Phase 1: Local Mesh
+### Phase 1: Local Mesh + Cache (Levels 1+2)
 
 - mDNS discovery on local network
 - Shared cache between laptop and teammates
 - Basic remote observation
+- Live task streaming
 
-### Phase 2: Cloud Mesh
+### Phase 2: Cloud Mesh (Sykli Cloud)
 
 - Explicit node discovery for CI runners
 - Secure cookie + TLS
-- Full distributed cache
+- Full distributed cache with persistence
+- Cross-region cache replication
 
-### Phase 3: Hot Updates
+### Phase 3: Distributed Execution (Level 3)
 
-- Config push across mesh
-- Target registration without restart
-- Worker scaling
+- Task offloading to remote nodes
+- Resource-based scheduling
+- Artifact streaming
 
-### Phase 4: Advanced Observability
+### Phase 4: Team Awareness (Level 4)
 
-- Full TUI for process inspection
-- Distributed tracing (no OpenTelemetry needed)
-- Memory profiling
+- Mesh presence and status
+- Event aggregation
+- Full TUI dashboard
 
 ---
 
@@ -717,6 +884,438 @@ mesh:
 3. Config updates apply in <1 second, no restart
 4. Zero external APM tools required for debugging
 5. Crash in one task doesn't affect other tasks
+
+---
+
+## Pipelines as Real Code
+
+The BEAM superpowers are about the runtime. But there's another advantage: **pipelines are Elixir code, not YAML.**
+
+This isn't just syntax preference. It unlocks capabilities YAML can't have.
+
+### Composition and Reuse
+
+Extract common patterns into functions and modules. Share them across projects.
+
+```elixir
+# shared/lib/ci/common.ex
+defmodule CI.Common do
+  @moduledoc "Shared CI patterns across all projects"
+
+  def docker_build(image, dockerfile \\ "Dockerfile") do
+    task "build-#{image}"
+    |> container("docker:24-dind")
+    |> run("docker build -t #{image} -f #{dockerfile} .")
+    |> outputs(["#{image}.tar"])
+  end
+
+  def go_test(packages \\ "./...") do
+    task "test"
+    |> container("golang:1.22")
+    |> run("go test -v #{packages}")
+    |> inputs(["**/*.go", "go.mod", "go.sum"])
+  end
+
+  def deploy_to_k8s(env, image) do
+    task "deploy-#{env}"
+    |> container("bitnami/kubectl:latest")
+    |> run("""
+      kubectl set image deployment/app app=#{image}
+      kubectl rollout status deployment/app
+    """)
+    |> requires(:k8s)
+  end
+end
+
+# Project A: sykli.exs
+import CI.Common
+
+pipeline do
+  docker_build("myapp:latest")
+  |> then(deploy_to_k8s("staging", "myapp:latest"))
+end
+
+# Project B: sykli.exs (same patterns, different config)
+import CI.Common
+
+pipeline do
+  docker_build("other-app:latest", "Dockerfile.prod")
+  |> then(go_test())
+  |> then(deploy_to_k8s("production", "other-app:latest"))
+end
+```
+
+**YAML can't do this.** You get copy-paste or complex templating (Jsonnet, Helm). With Elixir, it's just functions.
+
+### Conditional Logic
+
+Normal Elixir control flow. Not a foreign DSL.
+
+```elixir
+pipeline do
+  # Branch on environment
+  env = System.get_env("CI_ENVIRONMENT", "dev")
+
+  build_task = task "build"
+    |> container("node:20")
+    |> run("npm run build")
+
+  # Conditional deployment
+  if env == "production" do
+    build_task
+    |> then(task "deploy-prod" |> run("./deploy.sh prod"))
+  else
+    build_task
+    |> then(task "deploy-staging" |> run("./deploy.sh staging"))
+  end
+end
+
+# Or use pattern matching
+defp deploy_target do
+  case System.get_env("BRANCH") do
+    "main" -> "production"
+    "develop" -> "staging"
+    _ -> "preview"
+  end
+end
+
+# Or use the Delta module for changed files
+pipeline do
+  {:ok, affected} = Sykli.Delta.affected_tasks(tasks, from: "main")
+
+  if "backend" in affected do
+    task "test-backend" |> run("go test ./...")
+  end
+
+  if "frontend" in affected do
+    task "test-frontend" |> run("npm test")
+  end
+end
+```
+
+**YAML conditionals** are string interpolation hacks (`if: ${{ github.ref == 'refs/heads/main' }}`). Elixir conditionals are just... conditionals.
+
+### Testing Pipelines
+
+Unit test your pipeline definitions. YAML can't do this.
+
+```elixir
+# test/pipeline_test.exs
+defmodule PipelineTest do
+  use ExUnit.Case
+
+  test "production pipeline includes security scan" do
+    pipeline = MyApp.Pipeline.build(env: "production")
+
+    task_names = Enum.map(pipeline.tasks, & &1.name)
+
+    assert "security-scan" in task_names
+    assert "deploy-prod" in task_names
+  end
+
+  test "staging pipeline skips security scan" do
+    pipeline = MyApp.Pipeline.build(env: "staging")
+
+    task_names = Enum.map(pipeline.tasks, & &1.name)
+
+    refute "security-scan" in task_names
+    assert "deploy-staging" in task_names
+  end
+
+  test "build task has correct inputs" do
+    pipeline = MyApp.Pipeline.build(env: "dev")
+    build = Enum.find(pipeline.tasks, & &1.name == "build")
+
+    assert "src/**/*.ts" in build.inputs
+    assert "package.json" in build.inputs
+  end
+
+  test "deploy requires k8s capability" do
+    pipeline = MyApp.Pipeline.build(env: "production")
+    deploy = Enum.find(pipeline.tasks, & &1.name == "deploy-prod")
+
+    assert :k8s in deploy.requires
+  end
+end
+```
+
+Run `mix test` before pushing. Catch pipeline bugs before they hit CI.
+
+### TDD Your CI: Simulate with Mocks
+
+This is the real killer. Not just "test your pipeline" — **test your pipeline with simulated failures**.
+
+```elixir
+defmodule PipelineSimulationTest do
+  use ExUnit.Case
+
+  test "deploy only runs when build succeeds" do
+    pipeline = MyApp.Pipeline.build()
+
+    # Simulate build failure
+    result = Sykli.Simulate.run(pipeline,
+      mock: %{"build" => {:error, "compile failed"}}
+    )
+
+    refute "deploy" in result.executed
+    assert "build" in result.failed
+  end
+
+  test "handles flaky network gracefully" do
+    pipeline = MyApp.Pipeline.build()
+
+    # Simulate network timeout on first two attempts
+    result = Sykli.Simulate.run(pipeline,
+      mock: %{
+        "push-image" => [
+          {:error, :timeout},
+          {:error, :timeout},
+          {:ok, "pushed"}
+        ]
+      }
+    )
+
+    assert result.retry_count["push-image"] == 2
+    assert "push-image" in result.executed
+  end
+
+  test "cache miss triggers full rebuild" do
+    pipeline = MyApp.Pipeline.build()
+
+    result = Sykli.Simulate.run(pipeline,
+      cache: :miss  # Simulate no cache
+    )
+
+    assert "build" in result.executed
+    assert result.tasks["build"].duration > 0
+  end
+
+  test "cache hit skips build" do
+    pipeline = MyApp.Pipeline.build()
+
+    result = Sykli.Simulate.run(pipeline,
+      cache: :hit  # Simulate cache hit
+    )
+
+    refute "build" in result.executed
+    assert "build" in result.cached
+  end
+
+  test "service container timeout is handled" do
+    pipeline = MyApp.Pipeline.build()
+
+    result = Sykli.Simulate.run(pipeline,
+      mock: %{
+        "test-integration" => {:error, {:service_timeout, "postgres"}}
+      }
+    )
+
+    assert result.tasks["test-integration"].error == {:service_timeout, "postgres"}
+    # Verify cleanup happened
+    assert result.cleanup_ran
+  end
+
+  test "rollback triggers on deploy failure" do
+    pipeline = MyApp.Pipeline.build(env: "production")
+
+    result = Sykli.Simulate.run(pipeline,
+      mock: %{"deploy-prod" => {:error, "pod crashlooping"}}
+    )
+
+    assert "deploy-prod" in result.failed
+    assert "rollback" in result.executed
+  end
+end
+```
+
+**Nobody can do this.**
+
+- You can't mock a GitHub Actions workflow
+- You can't simulate failures in CircleCI
+- You can't test retry logic in GitLab CI
+
+You just push and pray.
+
+With Sykli: **TDD your CI.**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    TDD FOR CI                                    │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│   1. Write the test first                                        │
+│      "What should happen when deploy fails?"                     │
+│      "What if the cache misses?"                                 │
+│      "What if postgres times out?"                               │
+│                                                                  │
+│   2. Run the test                                                │
+│      $ mix test test/pipeline_simulation_test.exs                │
+│      (runs in seconds, no actual containers)                     │
+│                                                                  │
+│   3. Make it pass                                                │
+│      Add retry logic, rollback handling, timeout config          │
+│                                                                  │
+│   4. Push with confidence                                        │
+│      You've already tested the failure modes                     │
+│                                                                  │
+│   Traditional CI: "It works until it doesn't"                    │
+│   Sykli: "I've tested what happens when it doesn't"              │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+This isn't incremental. This is a **different relationship with CI entirely.**
+
+### Simulate Implementation
+
+```elixir
+defmodule Sykli.Simulate do
+  @moduledoc """
+  Dry-run pipeline execution with mocked task results.
+  """
+
+  defstruct [
+    :executed,
+    :failed,
+    :cached,
+    :skipped,
+    :tasks,
+    :retry_count,
+    :cleanup_ran
+  ]
+
+  def run(pipeline, opts \\ []) do
+    mocks = opts[:mock] || %{}
+    cache_behavior = opts[:cache] || :normal
+
+    state = %__MODULE__{
+      executed: [],
+      failed: [],
+      cached: [],
+      skipped: [],
+      tasks: %{},
+      retry_count: %{},
+      cleanup_ran: false
+    }
+
+    # Execute pipeline with mocked results
+    Enum.reduce(pipeline.tasks, state, fn task, acc ->
+      execute_simulated(task, acc, mocks, cache_behavior)
+    end)
+  end
+
+  defp execute_simulated(task, state, mocks, cache_behavior) do
+    # Check cache first
+    if should_cache_hit?(task, cache_behavior) do
+      %{state | cached: [task.name | state.cached]}
+    else
+      # Check for mock result
+      case get_mock_result(mocks, task.name, state.retry_count) do
+        {:ok, _} ->
+          %{state |
+            executed: [task.name | state.executed],
+            tasks: Map.put(state.tasks, task.name, %{duration: 0, error: nil})
+          }
+
+        {:error, reason} ->
+          %{state |
+            failed: [task.name | state.failed],
+            tasks: Map.put(state.tasks, task.name, %{duration: 0, error: reason})
+          }
+
+        :retry ->
+          new_count = Map.update(state.retry_count, task.name, 1, & &1 + 1)
+          execute_simulated(task, %{state | retry_count: new_count}, mocks, cache_behavior)
+      end
+    end
+  end
+
+  defp get_mock_result(mocks, task_name, retry_count) do
+    case Map.get(mocks, task_name) do
+      nil -> {:ok, :default}
+      list when is_list(list) ->
+        # Sequential results for retries
+        index = Map.get(retry_count, task_name, 0)
+        Enum.at(list, index, List.last(list))
+      result -> result
+    end
+  end
+
+  defp should_cache_hit?(task, :hit), do: task.cacheable != false
+  defp should_cache_hit?(_task, :miss), do: false
+  defp should_cache_hit?(_task, :normal), do: false
+end
+```
+
+### Error Locality
+
+When something fails, the error points at **your** code.
+
+```elixir
+# Bad: YAML error
+# Error: yaml: line 47: mapping values are not allowed here
+# (Which line? Which file? What did I do wrong?)
+
+# Good: Elixir error
+** (ArgumentError) task "build" is missing required field :command
+    sykli.exs:12: MyApp.Pipeline.build/1
+    lib/sykli/executor.ex:45: Sykli.Executor.validate/1
+
+# Even better: compile-time error
+** (CompileError) sykli.exs:12: undefined function containr/1
+    (did you mean container/1?)
+```
+
+Stack traces point at your pipeline file, your line number, your function. Not Sykli internals.
+
+### IDE Experience
+
+Full language server support. This is the other half of "your language."
+
+```elixir
+# In VS Code with ElixirLS:
+
+task "build"
+|> container("node:20")
+|> run("npm run build")
+|> out|  # ← Autocomplete: outputs, output_dir, ...
+
+# Hover over `container`:
+# @spec container(Task.t(), String.t()) :: Task.t()
+# Sets the container image for this task.
+
+# Go-to-definition on `CI.Common.docker_build`:
+# → jumps to shared/lib/ci/common.ex:8
+
+# Find all references to `deploy_to_k8s`:
+# → shows all projects using this function
+```
+
+**YAML gives you:** syntax highlighting (maybe), schema validation (if configured).
+**Elixir gives you:** autocomplete, type hints, go-to-definition, find references, inline docs, refactoring tools.
+
+### The Real Test
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    YAML vs ELIXIR                                │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│                              YAML        Elixir                  │
+│   ───────────────────────────────────────────────────────        │
+│   Composition/reuse          copy-paste  functions               │
+│   Conditional logic          string hacks if/case/cond          │
+│   Test pipeline definitions  no          yes                     │
+│   Error points to your code  no          yes                     │
+│   IDE autocomplete           limited     full                    │
+│   Type checking              no          dialyzer               │
+│   Refactoring tools          no          yes                     │
+│                                                                  │
+│   "Write in your language" isn't about syntax preference.        │
+│   It's about the entire toolchain working for you.               │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
