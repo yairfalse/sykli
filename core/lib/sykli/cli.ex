@@ -74,7 +74,7 @@ defmodule Sykli.CLI do
         halt(0)
 
       {:error, :no_sdk_file} ->
-        IO.puts("#{IO.ANSI.red()}No sykli.go, sykli.rs, or sykli.ts found#{IO.ANSI.reset()}")
+        IO.puts("#{IO.ANSI.red()}No sykli.go, sykli.rs, or sykli.exs found#{IO.ANSI.reset()}")
         halt(1)
 
       {:error, results} when is_list(results) ->
