@@ -1,0 +1,24 @@
+#!/bin/bash
+# Sykli pre-commit hook - runs only affected tasks
+
+echo "Running sykli delta (affected tasks only)..."
+
+# Use local binary if available, otherwise try PATH
+if [ -f "./core/burrito_out/sykli_macos_aarch64" ]; then
+    SYKLI="./core/burrito_out/sykli_macos_aarch64"
+elif command -v sykli &> /dev/null; then
+    SYKLI="sykli"
+else
+    echo "sykli not found, skipping pre-commit check"
+    exit 0
+fi
+
+# Run only affected tasks
+$SYKLI delta
+
+if [ $? -ne 0 ]; then
+    echo ""
+    echo "Pre-commit check failed. Fix the issues and try again."
+    echo "To skip: git commit --no-verify"
+    exit 1
+fi
