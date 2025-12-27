@@ -395,7 +395,7 @@ defmodule Sykli.CLI do
     stats = Sykli.Cache.stats()
 
     IO.puts("#{IO.ANSI.cyan()}Cache Statistics#{IO.ANSI.reset()}")
-    IO.puts("  Location:    #{Sykli.Cache.cache_dir()}")
+    IO.puts("  Location:    #{Sykli.Cache.get_cache_dir()}")
     IO.puts("  Tasks:       #{stats.meta_count}")
     IO.puts("  Blobs:       #{stats.blob_count}")
     IO.puts("  Total size:  #{stats.total_size_human}")
@@ -424,7 +424,7 @@ defmodule Sykli.CLI do
   end
 
   defp handle_cache(["path"]) do
-    IO.puts(Sykli.Cache.cache_dir())
+    IO.puts(Sykli.Cache.get_cache_dir())
   end
 
   defp handle_cache(_) do
