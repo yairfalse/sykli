@@ -420,6 +420,55 @@ defmodule Sykli.DSL do
   end
 
   @doc """
+  Generates multiple tasks from a list of values using a generator function.
+
+  Returns a TaskGroup containing all generated tasks, which can be used
+  as a dependency with `after_group/1`.
+
+  ## Example
+
+      # Test across multiple Elixir versions
+      versions = matrix_tasks("elixir-versions", ["1.14", "1.15", "1.16"], fn version ->
+        task_ref("test-\#{version}")
+        |> run_cmd("mix test")
+        |> with_container("elixir:\#{version}")
+      end)
+
+      task "deploy" do
+        run "mix release"
+        after_group versions
+      end
+  """
+  def matrix_tasks(name, values, generator)
+      when is_binary(name) and is_list(values) and is_function(generator, 1) do
+    tasks =
+      values
+      |> Enum.map(fn v -> generator.(v) end)
+      |> Enum.reject(&is_nil/1)
+
+    # Register all tasks
+    current_tasks = Process.get(:sykli_tasks, [])
+    Process.put(:sykli_tasks, tasks ++ current_tasks)
+
+    # Return the group
+    Sykli.TaskGroup.new(name, tasks)
+  end
+
+  @doc """
+  Sets the container image on a task reference (for use outside task blocks).
+  """
+  def with_container(%Sykli.Task{} = task, image) when is_binary(image) do
+    %{task | container: image}
+  end
+
+  @doc """
+  Sets dependencies on a task reference (for use outside task blocks).
+  """
+  def with_deps(%Sykli.Task{} = task, deps) when is_list(deps) do
+    %{task | depends_on: task.depends_on ++ deps}
+  end
+
+  @doc """
   Creates a task reference for use in parallel/chain combinators.
 
   This is a convenience to create tasks inline.

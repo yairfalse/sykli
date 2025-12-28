@@ -981,6 +981,62 @@ func (t *Task) AfterGroup(groups ...*TaskGroup) *Task {
 }
 
 // =============================================================================
+// MATRIX BUILDS
+// =============================================================================
+
+// Matrix creates tasks for each value in the matrix, using a generator function.
+// Useful for testing across multiple versions or configurations.
+//
+// Example:
+//
+//	s.Matrix("test", []string{"1.21", "1.22", "1.23"}, func(version string) *Task {
+//	    return s.Task("test-go-"+version).
+//	        Container("golang:"+version).
+//	        MountCwd().
+//	        Run("go test ./...")
+//	})
+func (p *Pipeline) Matrix(name string, values []string, generator func(string) *Task) *TaskGroup {
+	tasks := make([]*Task, 0, len(values))
+	for _, v := range values {
+		task := generator(v)
+		if task != nil {
+			tasks = append(tasks, task)
+		}
+	}
+	return &TaskGroup{
+		pipeline: p,
+		name:     name,
+		tasks:    tasks,
+	}
+}
+
+// MatrixMap creates tasks for each key-value pair in the matrix.
+// The generator receives both the key and value.
+//
+// Example:
+//
+//	s.MatrixMap("deploy", map[string]string{
+//	    "staging": "staging.example.com",
+//	    "prod":    "prod.example.com",
+//	}, func(env, host string) *Task {
+//	    return s.Task("deploy-"+env).Run("deploy --host "+host)
+//	})
+func (p *Pipeline) MatrixMap(name string, values map[string]string, generator func(key, value string) *Task) *TaskGroup {
+	tasks := make([]*Task, 0, len(values))
+	for k, v := range values {
+		task := generator(k, v)
+		if task != nil {
+			tasks = append(tasks, task)
+		}
+	}
+	return &TaskGroup{
+		pipeline: p,
+		name:     name,
+		tasks:    tasks,
+	}
+}
+
+// =============================================================================
 // CYCLE DETECTION
 // =============================================================================
 
