@@ -78,6 +78,27 @@ defmodule Sykli.Template do
   end
 
   @doc """
+  Mounts the current working directory to /work and sets workdir.
+  This is a convenience method that combines mount + workdir for the common case.
+  """
+  def mount_cwd(%__MODULE__{} = tmpl) do
+    mount_entry = %{resource: "src:.", path: "/work", type: :directory}
+    %{tmpl | mounts: tmpl.mounts ++ [mount_entry], workdir: "/work"}
+  end
+
+  @doc """
+  Mounts the current working directory to a custom path and sets workdir.
+  """
+  def mount_cwd_at(%__MODULE__{} = tmpl, container_path) when is_binary(container_path) do
+    if container_path == "" or not String.starts_with?(container_path, "/") do
+      raise ArgumentError, "container_path must be an absolute path starting with '/'"
+    end
+
+    mount_entry = %{resource: "src:.", path: container_path, type: :directory}
+    %{tmpl | mounts: tmpl.mounts ++ [mount_entry], workdir: container_path}
+  end
+
+  @doc """
   Applies a template's configuration to a task.
 
   Template settings are applied first, then task-specific settings override them.
