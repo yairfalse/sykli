@@ -25,6 +25,9 @@ defmodule Sykli.CLI do
       ["delta" | delta_args] ->
         handle_delta(delta_args)
 
+      ["watch" | watch_args] ->
+        handle_watch(watch_args)
+
       # Support explicit 'run' command: sykli run [path]
       ["run" | run_args] ->
         run_sykli(run_args)
@@ -50,6 +53,7 @@ defmodule Sykli.CLI do
       sykli [path]     Run pipeline (default: current directory)
       sykli run [path] Run pipeline (explicit form)
       sykli delta      Run only tasks affected by git changes
+      sykli watch      Watch files and re-run affected tasks
       sykli graph      Show task graph (see: sykli graph --help)
       sykli cache      Manage cache (see: sykli cache --help)
 
@@ -309,6 +313,60 @@ defmodule Sykli.CLI do
         IO.puts("\n#{IO.ANSI.red()}Build failed#{IO.ANSI.reset()}")
         halt(1)
     end
+  end
+
+  # ----- WATCH SUBCOMMAND -----
+
+  defp handle_watch(["--help"]) do
+    IO.puts("""
+    Usage: sykli watch [options] [path]
+
+    Watch files and re-run affected tasks on changes.
+
+    Options:
+      --from=<ref>    Compare against branch/commit (default: HEAD)
+      --help          Show this help
+
+    Examples:
+      sykli watch                  Watch current directory
+      sykli watch ./my-project     Watch specific project
+      sykli watch --from=main      Compare against main branch
+    """)
+    halt(0)
+  end
+
+  defp handle_watch(args) do
+    {opts, path} = parse_watch_args(args)
+    path = path || "."
+    from = Keyword.get(opts, :from, "HEAD")
+
+    case Sykli.Watch.start(path, from: from) do
+      :ok ->
+        halt(0)
+
+      {:error, reason} ->
+        IO.puts("#{IO.ANSI.red()}Watch error: #{inspect(reason)}#{IO.ANSI.reset()}")
+        halt(1)
+    end
+  end
+
+  defp parse_watch_args(args) do
+    {opts, rest} =
+      Enum.reduce(args, {[], []}, fn arg, {opts, rest} ->
+        cond do
+          String.starts_with?(arg, "--from=") ->
+            from = String.replace_prefix(arg, "--from=", "")
+            {[{:from, from} | opts], rest}
+
+          String.starts_with?(arg, "--") ->
+            {opts, rest}
+
+          true ->
+            {opts, rest ++ [arg]}
+        end
+      end)
+
+    {opts, List.first(rest)}
   end
 
   # ----- GRAPH SUBCOMMAND -----

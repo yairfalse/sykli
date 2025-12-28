@@ -1639,6 +1639,37 @@ impl Pipeline {
         }
     }
 
+    /// Creates tasks for each value in the matrix.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// let mut p = Pipeline::new();
+    /// let tasks = p.matrix(&["1.21", "1.22", "1.23"], |p, version| {
+    ///     p.task(&format!("test-go-{}", version))
+    ///         .container(&format!("golang:{}", version))
+    ///         .mount_cwd()
+    ///         .run("go test ./...")
+    /// });
+    /// ```
+    pub fn matrix<F>(&mut self, values: &[&str], mut generator: F) -> Vec<String>
+    where
+        F: FnMut(&mut Pipeline, &str),
+    {
+        let mut task_names = Vec::new();
+        let start_len = self.tasks.len();
+
+        for v in values {
+            generator(self, v);
+        }
+
+        // Collect names of newly created tasks
+        for task in &self.tasks[start_len..] {
+            task_names.push(task.name.clone());
+        }
+
+        task_names
+    }
+
     // =========================================================================
     // EXPLAIN (Dry-run mode)
     // =========================================================================
