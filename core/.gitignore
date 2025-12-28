@@ -28,3 +28,4 @@ core-*.tar
 # Burrito build output
 /burrito_out/
 
+generated/
