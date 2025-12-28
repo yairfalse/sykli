@@ -11,10 +11,11 @@ defmodule Sykli.K8s.AuthTest do
 
       # Mock the file system checks to return false
       # In actual implementation, we'll need to make this testable
-      result = Auth.detect(
-        in_cluster_path: "/nonexistent/path",
-        kubeconfig_paths: ["/nonexistent/kubeconfig"]
-      )
+      result =
+        Auth.detect(
+          in_cluster_path: "/nonexistent/path",
+          kubeconfig_paths: ["/nonexistent/kubeconfig"]
+        )
 
       assert {:error, :no_auth} = result
 

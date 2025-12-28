@@ -58,7 +58,8 @@ defmodule Sykli.Target.Schema do
 
   defmacro __using__(_opts) do
     quote do
-      import Sykli.Target.Schema, only: [field: 2, field: 3, embed: 2, embed: 3, validates: 2, capabilities: 1]
+      import Sykli.Target.Schema,
+        only: [field: 2, field: 3, embed: 2, embed: 3, validates: 2, capabilities: 1]
 
       Module.register_attribute(__MODULE__, :schema_fields, accumulate: true)
       Module.register_attribute(__MODULE__, :schema_embeds, accumulate: true)
@@ -262,7 +263,9 @@ defmodule Sykli.Target.Schema do
   defp validate_type(field, _, :atom), do: [{field, "must be an atom"}]
 
   defp validate_type(field, value, :k8s_cpu) when is_binary(value) do
-    if valid_k8s_cpu?(value), do: [], else: [{field, "invalid CPU format (use e.g., '500m' or '2')"}]
+    if valid_k8s_cpu?(value),
+      do: [],
+      else: [{field, "invalid CPU format (use e.g., '500m' or '2')"}]
   end
 
   defp validate_type(field, _, :k8s_cpu), do: [{field, "must be a string"}]

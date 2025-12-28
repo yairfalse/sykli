@@ -32,7 +32,9 @@ defmodule Sykli.Target.K8sOptionsTest do
         assert {:error, errors} = K8sOptions.validate(opts)
         assert length(errors) > 0
         {_field, _value, message} = hd(errors)
-        assert String.contains?(message, expected_hint), "expected error for #{mem} to contain '#{expected_hint}', got: #{message}"
+
+        assert String.contains?(message, expected_hint),
+               "expected error for #{mem} to contain '#{expected_hint}', got: #{message}"
       end
     end
   end
@@ -76,6 +78,7 @@ defmodule Sykli.Target.K8sOptionsTest do
             %Toleration{key: "key", operator: op, effect: "NoSchedule"}
           ]
         }
+
         assert {:ok, _} = K8sOptions.validate(opts)
       end
     end
@@ -86,6 +89,7 @@ defmodule Sykli.Target.K8sOptionsTest do
           %Toleration{key: "key", operator: "Invalid", effect: "NoSchedule"}
         ]
       }
+
       assert {:error, errors} = K8sOptions.validate(opts)
       {field, value, message} = hd(errors)
       assert field == "tolerations[0].operator"
@@ -100,6 +104,7 @@ defmodule Sykli.Target.K8sOptionsTest do
             %Toleration{key: "key", operator: "Exists", effect: effect}
           ]
         }
+
         assert {:ok, _} = K8sOptions.validate(opts)
       end
     end
@@ -110,6 +115,7 @@ defmodule Sykli.Target.K8sOptionsTest do
           %Toleration{key: "key", operator: "Exists", effect: "Invalid"}
         ]
       }
+
       assert {:error, errors} = K8sOptions.validate(opts)
       {field, _value, message} = hd(errors)
       assert field == "tolerations[0].effect"
@@ -150,6 +156,7 @@ defmodule Sykli.Target.K8sOptionsTest do
       opts = %K8sOptions{
         volumes: [%Volume{name: "vol", mount_path: ""}]
       }
+
       assert {:error, errors} = K8sOptions.validate(opts)
       {field, _value, message} = hd(errors)
       assert field == "volumes[0].mount_path"
@@ -160,6 +167,7 @@ defmodule Sykli.Target.K8sOptionsTest do
       opts = %K8sOptions{
         volumes: [%Volume{name: "vol", mount_path: "relative/path"}]
       }
+
       assert {:error, errors} = K8sOptions.validate(opts)
       {field, _value, message} = hd(errors)
       assert field == "volumes[0].mount_path"
@@ -170,6 +178,7 @@ defmodule Sykli.Target.K8sOptionsTest do
       opts = %K8sOptions{
         volumes: [%Volume{name: "vol", mount_path: "/data"}]
       }
+
       assert {:ok, _} = K8sOptions.validate(opts)
     end
   end

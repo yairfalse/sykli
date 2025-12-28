@@ -125,7 +125,8 @@ defmodule Sykli.DeltaTest do
 
       File.write!(Path.join(@test_workdir, "main.go"), "package main\n// modified")
 
-      tasks = [make_task("notify")]  # no inputs
+      # no inputs
+      tasks = [make_task("notify")]
 
       assert {:ok, []} = Delta.affected_tasks(tasks, path: @test_workdir)
     end

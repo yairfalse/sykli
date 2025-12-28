@@ -116,11 +116,12 @@ defmodule Sykli.Executor.Local do
 
     # For shell tasks, combine pipeline workdir with task workdir
     # For container tasks, task.workdir is for inside the container (-w flag), not host
-    effective_workdir = if task.container == nil do
-      resolve_workdir(pipeline_workdir, task.workdir)
-    else
-      pipeline_workdir
-    end
+    effective_workdir =
+      if task.container == nil do
+        resolve_workdir(pipeline_workdir, task.workdir)
+      else
+        pipeline_workdir
+      end
 
     prefix = progress_prefix(progress)
 
@@ -131,7 +132,9 @@ defmodule Sykli.Executor.Local do
     # Build command (pass pipeline workdir for container mounts)
     {cmd_type, cmd_args, display_cmd} = build_command(task, pipeline_workdir, network)
 
-    IO.puts("#{prefix}#{IO.ANSI.cyan()}▶ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{timestamp} #{display_cmd}#{IO.ANSI.reset()}")
+    IO.puts(
+      "#{prefix}#{IO.ANSI.cyan()}▶ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{timestamp} #{display_cmd}#{IO.ANSI.reset()}"
+    )
 
     start_time = System.monotonic_time(:millisecond)
 
@@ -139,27 +142,40 @@ defmodule Sykli.Executor.Local do
       {:ok, 0, lines, _output} ->
         duration_ms = System.monotonic_time(:millisecond) - start_time
         lines_str = if lines > 0, do: " #{lines}L", else: ""
-        IO.puts("#{IO.ANSI.green()}✓ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{format_duration(duration_ms)}#{lines_str}#{IO.ANSI.reset()}")
+
+        IO.puts(
+          "#{IO.ANSI.green()}✓ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{format_duration(duration_ms)}#{lines_str}#{IO.ANSI.reset()}"
+        )
+
         :ok
 
       {:ok, code, _lines, output} ->
         duration_ms = System.monotonic_time(:millisecond) - start_time
-        error = Sykli.TaskError.new(
-          task: task.name,
-          command: display_cmd,
-          exit_code: code,
-          output: output,
-          duration_ms: duration_ms
-        )
+
+        error =
+          Sykli.TaskError.new(
+            task: task.name,
+            command: display_cmd,
+            exit_code: code,
+            output: output,
+            duration_ms: duration_ms
+          )
+
         IO.puts(Sykli.TaskError.format(error))
         {:error, {:exit_code, code}}
 
       {:error, :timeout} ->
-        IO.puts("#{IO.ANSI.red()}✗ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(timeout after #{task.timeout}s)#{IO.ANSI.reset()}")
+        IO.puts(
+          "#{IO.ANSI.red()}✗ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(timeout after #{task.timeout}s)#{IO.ANSI.reset()}"
+        )
+
         {:error, :timeout}
 
       {:error, reason} ->
-        IO.puts("#{IO.ANSI.red()}✗ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(error: #{inspect(reason)})#{IO.ANSI.reset()}")
+        IO.puts(
+          "#{IO.ANSI.red()}✗ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(error: #{inspect(reason)})#{IO.ANSI.reset()}"
+        )
+
         {:error, reason}
     end
   end
@@ -187,8 +203,13 @@ defmodule Sykli.Executor.Local do
     # Environment args
     env_args = Enum.flat_map(task.env || %{}, fn {k, v} -> ["-e", "#{k}=#{v}"] end)
 
-    all_args = docker_args ++ network_args ++ mount_args ++ workdir_args ++ env_args ++
-               [task.container, "sh", "-c", task.command]
+    all_args =
+      docker_args ++
+        network_args ++
+        mount_args ++
+        workdir_args ++
+        env_args ++
+        [task.container, "sh", "-c", task.command]
 
     display = "[#{task.container}] #{task.command}"
     {:docker, all_args, display}
@@ -214,8 +235,11 @@ defmodule Sykli.Executor.Local do
   defp extract_host_path(resource, abs_workdir) do
     case String.split(resource, ":", parts: 2) do
       ["src", path] ->
-        full_path = if String.starts_with?(path, "/"), do: path, else: Path.join(abs_workdir, path)
+        full_path =
+          if String.starts_with?(path, "/"), do: path, else: Path.join(abs_workdir, path)
+
         Path.expand(full_path)
+
       _ ->
         abs_workdir
     end
@@ -224,10 +248,11 @@ defmodule Sykli.Executor.Local do
   # ----- COMMAND EXECUTION -----
 
   defp run_streaming(:shell, command, workdir, timeout_ms) do
-    port = Port.open(
-      {:spawn_executable, "/bin/sh"},
-      [:binary, :exit_status, :stderr_to_stdout, args: ["-c", command], cd: workdir]
-    )
+    port =
+      Port.open(
+        {:spawn_executable, "/bin/sh"},
+        [:binary, :exit_status, :stderr_to_stdout, args: ["-c", command], cd: workdir]
+      )
 
     try do
       stream_output(port, timeout_ms)
@@ -239,10 +264,11 @@ defmodule Sykli.Executor.Local do
   defp run_streaming(:docker, args, workdir, timeout_ms) do
     docker_path = docker_executable()
 
-    port = Port.open(
-      {:spawn_executable, docker_path},
-      [:binary, :exit_status, :stderr_to_stdout, args: args, cd: workdir]
-    )
+    port =
+      Port.open(
+        {:spawn_executable, docker_path},
+        [:binary, :exit_status, :stderr_to_stdout, args: args, cd: workdir]
+      )
 
     try do
       stream_output(port, timeout_ms)
@@ -285,13 +311,22 @@ defmodule Sykli.Executor.Local do
     Enum.map(services, fn %Sykli.Graph.Service{image: image, name: name} ->
       container_name = "#{network_name}-#{name}"
 
-      {output, 0} = System.cmd(docker_path, [
-        "run", "-d",
-        "--name", container_name,
-        "--network", network_name,
-        "--network-alias", name,
-        image
-      ], stderr_to_stdout: true)
+      {output, 0} =
+        System.cmd(
+          docker_path,
+          [
+            "run",
+            "-d",
+            "--name",
+            container_name,
+            "--network",
+            network_name,
+            "--network-alias",
+            name,
+            image
+          ],
+          stderr_to_stdout: true
+        )
 
       container_id = String.trim(output)
       IO.puts("  #{IO.ANSI.faint()}Started service #{name} (#{image})#{IO.ANSI.reset()}")
@@ -311,6 +346,7 @@ defmodule Sykli.Executor.Local do
         {:ok, %{mode: mode}} -> File.chmod(abs_dest, mode)
         _ -> :ok
       end
+
       :ok
     else
       {:error, reason} -> {:error, {:copy_failed, reason}}
@@ -332,6 +368,7 @@ defmodule Sykli.Executor.Local do
   # Resolve effective workdir: combine pipeline workdir with task workdir
   defp resolve_workdir(pipeline_workdir, nil), do: pipeline_workdir
   defp resolve_workdir(pipeline_workdir, ""), do: pipeline_workdir
+
   defp resolve_workdir(pipeline_workdir, task_workdir) do
     Path.join(pipeline_workdir, task_workdir) |> Path.expand()
   end
@@ -345,7 +382,9 @@ defmodule Sykli.Executor.Local do
   end
 
   defp progress_prefix(nil), do: ""
-  defp progress_prefix({current, total}), do: "#{IO.ANSI.faint()}[#{current}/#{total}]#{IO.ANSI.reset()} "
+
+  defp progress_prefix({current, total}),
+    do: "#{IO.ANSI.faint()}[#{current}/#{total}]#{IO.ANSI.reset()} "
 
   defp format_duration(ms) when ms < 1000, do: "#{ms}ms"
   defp format_duration(ms) when ms < 60_000, do: "#{Float.round(ms / 1000, 1)}s"

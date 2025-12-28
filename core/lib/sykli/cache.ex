@@ -90,14 +90,16 @@ defmodule Sykli.Cache do
     # Look for any meta file for this task name
     meta_files = Path.wildcard(Path.join(meta_dir(), "*.json"))
 
-    matching_entry = Enum.find_value(meta_files, fn path ->
-      case read_meta(path) do
-        {:ok, meta} ->
-          if meta["task_name"] == task.name, do: meta, else: nil
-        _ ->
-          nil
-      end
-    end)
+    matching_entry =
+      Enum.find_value(meta_files, fn path ->
+        case read_meta(path) do
+          {:ok, meta} ->
+            if meta["task_name"] == task.name, do: meta, else: nil
+
+          _ ->
+            nil
+        end
+      end)
 
     case matching_entry do
       nil ->
@@ -136,7 +138,9 @@ defmodule Sykli.Cache do
 
   defp cleanup_meta(meta_path) do
     case File.rm(meta_path) do
-      :ok -> :ok
+      :ok ->
+        :ok
+
       {:error, reason} ->
         IO.warn("Failed to remove corrupted cache file #{meta_path}: #{inspect(reason)}")
     end

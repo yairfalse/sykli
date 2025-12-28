@@ -165,6 +165,7 @@ defmodule Sykli.Storage.Local do
         {:ok, %{mode: mode}} -> File.chmod(abs_dest, mode)
         _ -> :ok
       end
+
       :ok
     else
       {:error, reason} -> {:error, {:copy_failed, reason}}

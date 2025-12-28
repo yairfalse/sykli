@@ -112,9 +112,14 @@ defmodule Sykli.Executor do
     next_tasks = rest |> List.flatten() |> Enum.map(& &1.name)
 
     # Show level header with upcoming tasks
-    IO.puts("\n#{IO.ANSI.faint()}── Level with #{level_size} task(s)#{if level_size > 1, do: " (parallel)", else: ""} ──#{IO.ANSI.reset()}")
+    IO.puts(
+      "\n#{IO.ANSI.faint()}── Level with #{level_size} task(s)#{if level_size > 1, do: " (parallel)", else: ""} ──#{IO.ANSI.reset()}"
+    )
+
     if length(next_tasks) > 0 do
-      IO.puts("#{IO.ANSI.faint()}   next → #{Enum.join(Enum.take(next_tasks, 3), ", ")}#{if length(next_tasks) > 3, do: " +#{length(next_tasks) - 3} more", else: ""}#{IO.ANSI.reset()}")
+      IO.puts(
+        "#{IO.ANSI.faint()}   next → #{Enum.join(Enum.take(next_tasks, 3), ", ")}#{if length(next_tasks) > 3, do: " +#{length(next_tasks) - 3} more", else: ""}#{IO.ANSI.reset()}"
+      )
     end
 
     # THIS IS THE PARALLEL BIT!
@@ -160,7 +165,14 @@ defmodule Sykli.Executor do
       {:error, Enum.reverse(acc) ++ results}
     else
       # Continue to next level
-      run_levels(rest, workdir, Enum.reverse(results) ++ acc, {new_completed, total}, graph, executor)
+      run_levels(
+        rest,
+        workdir,
+        Enum.reverse(results) ++ acc,
+        {new_completed, total},
+        graph,
+        executor
+      )
     end
   end
 
@@ -218,9 +230,11 @@ defmodule Sykli.Executor do
       {:miss, cache_key, reason} ->
         # Show miss reason for visibility
         reason_str = Sykli.Cache.format_miss_reason(reason)
+
         IO.puts(
           "#{prefix}#{IO.ANSI.cyan()}▶ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(#{reason_str})#{IO.ANSI.reset()}"
         )
+
         run_with_retry(task, workdir, cache_key, progress, executor)
     end
   end
@@ -241,6 +255,7 @@ defmodule Sykli.Executor do
           "#{IO.ANSI.yellow()}↻ #{task.name}#{IO.ANSI.reset()} " <>
             "#{IO.ANSI.faint()}(retry #{attempt}/#{max_attempts - 1})#{IO.ANSI.reset()}"
         )
+
         do_run_with_retry(task, workdir, cache_key, attempt + 1, max_attempts, progress, executor)
 
       {:error, reason} ->
@@ -248,7 +263,13 @@ defmodule Sykli.Executor do
     end
   end
 
-  defp run_and_cache(%Sykli.Graph.Task{name: name, outputs: outputs_raw, services: services} = task, workdir, cache_key, progress, executor) do
+  defp run_and_cache(
+         %Sykli.Graph.Task{name: name, outputs: outputs_raw, services: services} = task,
+         workdir,
+         cache_key,
+         progress,
+         executor
+       ) do
     # Convert outputs to list of paths for cache storage (handle both map and list formats)
     outputs = normalize_outputs_to_list(outputs_raw)
 
@@ -263,10 +284,11 @@ defmodule Sykli.Executor do
           start_time = System.monotonic_time(:millisecond)
 
           # Extract network name for job execution
-          network = case network_info do
-            {net, _containers} -> net
-            _ -> nil
-          end
+          network =
+            case network_info do
+              {net, _containers} -> net
+              _ -> nil
+            end
 
           # Run job via executor
           run_opts = [workdir: workdir, network: network, progress: progress]
@@ -280,6 +302,7 @@ defmodule Sykli.Executor do
               if cache_key do
                 Sykli.Cache.store(cache_key, task, outputs || [], duration_ms, workdir)
               end
+
               maybe_github_status(name, "success")
               :ok
 
@@ -293,7 +316,10 @@ defmodule Sykli.Executor do
         end
 
       {:error, reason} ->
-        IO.puts("#{IO.ANSI.red()}✗ #{name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(service start failed: #{inspect(reason)})#{IO.ANSI.reset()}")
+        IO.puts(
+          "#{IO.ANSI.red()}✗ #{name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(service start failed: #{inspect(reason)})#{IO.ANSI.reset()}"
+        )
+
         {:error, {:service_start_failed, reason}}
     end
   end
@@ -337,6 +363,7 @@ defmodule Sykli.Executor do
   # Convert outputs to map format (for artifact lookup by name)
   defp normalize_outputs_to_map(nil), do: %{}
   defp normalize_outputs_to_map(outputs) when is_map(outputs), do: outputs
+
   defp normalize_outputs_to_map(outputs) when is_list(outputs) do
     outputs
     |> Enum.with_index()
@@ -346,16 +373,32 @@ defmodule Sykli.Executor do
   # ----- TASK INPUT RESOLUTION -----
 
   # Resolve and copy task_inputs (artifact passing between tasks)
-  defp resolve_task_inputs(%Sykli.Graph.Task{task_inputs: nil}, _graph, _workdir, _executor), do: :ok
-  defp resolve_task_inputs(%Sykli.Graph.Task{task_inputs: []}, _graph, _workdir, _executor), do: :ok
+  defp resolve_task_inputs(%Sykli.Graph.Task{task_inputs: nil}, _graph, _workdir, _executor),
+    do: :ok
 
-  defp resolve_task_inputs(%Sykli.Graph.Task{name: task_name, task_inputs: task_inputs}, graph, workdir, executor) do
+  defp resolve_task_inputs(%Sykli.Graph.Task{task_inputs: []}, _graph, _workdir, _executor),
+    do: :ok
+
+  defp resolve_task_inputs(
+         %Sykli.Graph.Task{name: task_name, task_inputs: task_inputs},
+         graph,
+         workdir,
+         executor
+       ) do
     abs_workdir = Path.expand(workdir)
 
     results =
       task_inputs
       |> Enum.map(fn %Sykli.Graph.TaskInput{from_task: from_task, output: output_name, dest: dest} ->
-        resolve_single_input(task_name, from_task, output_name, dest, graph, abs_workdir, executor)
+        resolve_single_input(
+          task_name,
+          from_task,
+          output_name,
+          dest,
+          graph,
+          abs_workdir,
+          executor
+        )
       end)
 
     case Enum.find(results, &match?({:error, _}, &1)) do
@@ -368,7 +411,10 @@ defmodule Sykli.Executor do
     # Find the source task
     case Map.get(graph, from_task) do
       nil ->
-        IO.puts("#{IO.ANSI.red()}✗ #{task_name}: source task '#{from_task}' not found#{IO.ANSI.reset()}")
+        IO.puts(
+          "#{IO.ANSI.red()}✗ #{task_name}: source task '#{from_task}' not found#{IO.ANSI.reset()}"
+        )
+
         {:error, {:source_task_not_found, from_task}}
 
       source_task ->
@@ -377,7 +423,10 @@ defmodule Sykli.Executor do
 
         case Map.get(outputs, output_name) do
           nil ->
-            IO.puts("#{IO.ANSI.red()}✗ #{task_name}: output '#{output_name}' not found in task '#{from_task}'#{IO.ANSI.reset()}")
+            IO.puts(
+              "#{IO.ANSI.red()}✗ #{task_name}: output '#{output_name}' not found in task '#{from_task}'#{IO.ANSI.reset()}"
+            )
+
             {:error, {:output_not_found, from_task, output_name}}
 
           source_path ->
@@ -388,7 +437,10 @@ defmodule Sykli.Executor do
                 :ok
 
               {:error, reason} ->
-                IO.puts("#{IO.ANSI.red()}✗ #{task_name}: failed to copy #{source_path}: #{inspect(reason)}#{IO.ANSI.reset()}")
+                IO.puts(
+                  "#{IO.ANSI.red()}✗ #{task_name}: failed to copy #{source_path}: #{inspect(reason)}#{IO.ANSI.reset()}"
+                )
+
                 {:error, {:copy_failed, source_path, reason}}
             end
         end
@@ -462,6 +514,7 @@ defmodule Sykli.Executor do
         IO.puts(
           "#{IO.ANSI.yellow()}⚠ Invalid condition: #{condition} (#{reason})#{IO.ANSI.reset()}"
         )
+
         # On error, skip the task (safer than running)
         false
     end
@@ -470,6 +523,7 @@ defmodule Sykli.Executor do
   # ----- PROGRESS PREFIX -----
 
   defp progress_prefix(nil), do: ""
+
   defp progress_prefix({current, total}) do
     "#{IO.ANSI.faint()}[#{current}/#{total}]#{IO.ANSI.reset()} "
   end
@@ -483,7 +537,9 @@ defmodule Sykli.Executor do
   # ----- SUMMARY -----
 
   defp print_summary({:ok, results}, total_time), do: do_print_summary(results, total_time, :ok)
-  defp print_summary({:error, results}, total_time), do: do_print_summary(results, total_time, :error)
+
+  defp print_summary({:error, results}, total_time),
+    do: do_print_summary(results, total_time, :error)
 
   defp do_print_summary(results, total_time, status) do
     if Enum.empty?(results) do
@@ -500,9 +556,9 @@ defmodule Sykli.Executor do
 
       IO.puts(
         "#{color}#{icon}#{IO.ANSI.reset()} " <>
-        "#{IO.ANSI.bright()}#{passed} passed#{IO.ANSI.reset()}" <>
-        if(failed > 0, do: ", #{IO.ANSI.red()}#{failed} failed#{IO.ANSI.reset()}", else: "") <>
-        " #{IO.ANSI.faint()}in #{format_duration(total_time)}#{IO.ANSI.reset()}"
+          "#{IO.ANSI.bright()}#{passed} passed#{IO.ANSI.reset()}" <>
+          if(failed > 0, do: ", #{IO.ANSI.red()}#{failed} failed#{IO.ANSI.reset()}", else: "") <>
+          " #{IO.ANSI.faint()}in #{format_duration(total_time)}#{IO.ANSI.reset()}"
       )
 
       # Show slowest tasks if there are more than 3
@@ -516,6 +572,7 @@ defmodule Sykli.Executor do
         if length(slowest) > 0 do
           IO.puts("")
           IO.puts("#{IO.ANSI.faint()}Slowest:#{IO.ANSI.reset()}")
+
           Enum.each(slowest, fn {name, _result, duration} ->
             IO.puts("  #{IO.ANSI.faint()}#{format_duration(duration)}#{IO.ANSI.reset()} #{name}")
           end)

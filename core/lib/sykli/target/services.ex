@@ -143,22 +143,34 @@ defmodule Sykli.Services.Docker do
   defp start_containers(network_name, services) do
     docker = docker_executable()
 
-    Enum.reduce_while(services, {:ok, []}, fn %Sykli.Graph.Service{image: image, name: name}, {:ok, acc} ->
+    Enum.reduce_while(services, {:ok, []}, fn %Sykli.Graph.Service{image: image, name: name},
+                                              {:ok, acc} ->
       container_name = "#{network_name}-#{name}"
 
-      case System.cmd(docker, [
-        "run", "-d",
-        "--name", container_name,
-        "--network", network_name,
-        "--network-alias", name,
-        image
-      ], stderr_to_stdout: true) do
+      case System.cmd(
+             docker,
+             [
+               "run",
+               "-d",
+               "--name",
+               container_name,
+               "--network",
+               network_name,
+               "--network-alias",
+               name,
+               image
+             ],
+             stderr_to_stdout: true
+           ) do
         {output, 0} ->
           IO.puts("  #{IO.ANSI.faint()}Started service #{name} (#{image})#{IO.ANSI.reset()}")
           {:cont, {:ok, [String.trim(output) | acc]}}
 
         {error, _code} ->
-          IO.puts("  #{IO.ANSI.red()}Failed to start service #{name}: #{String.trim(error)}#{IO.ANSI.reset()}")
+          IO.puts(
+            "  #{IO.ANSI.red()}Failed to start service #{name}: #{String.trim(error)}#{IO.ANSI.reset()}"
+          )
+
           {:halt, {:error, {:service_failed, name, error}}}
       end
     end)

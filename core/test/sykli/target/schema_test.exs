@@ -12,9 +12,9 @@ defmodule Sykli.Target.SchemaTest do
       defmodule SimpleSchema do
         use Sykli.Target.Schema
 
-        field :name, :string, required: true
-        field :port, :integer, default: 8080
-        field :enabled, :boolean, default: true
+        field(:name, :string, required: true)
+        field(:port, :integer, default: 8080)
+        field(:enabled, :boolean, default: true)
       end
 
       assert SimpleSchema.__schema__(:fields) == [:name, :port, :enabled]
@@ -28,11 +28,11 @@ defmodule Sykli.Target.SchemaTest do
       defmodule NestedSchema do
         use Sykli.Target.Schema
 
-        field :namespace, :string, required: true
+        field(:namespace, :string, required: true)
 
         embed :resources do
-          field :cpu, :string, default: "500m"
-          field :memory, :string, default: "512Mi"
+          field(:cpu, :string, default: "500m")
+          field(:memory, :string, default: "512Mi")
         end
       end
 
@@ -44,8 +44,8 @@ defmodule Sykli.Target.SchemaTest do
       defmodule ListSchema do
         use Sykli.Target.Schema
 
-        field :tags, {:list, :string}, default: []
-        field :ports, {:list, :integer}
+        field(:tags, {:list, :string}, default: [])
+        field(:ports, {:list, :integer})
       end
 
       assert ListSchema.__schema__(:type, :tags) == {:list, :string}
@@ -56,8 +56,8 @@ defmodule Sykli.Target.SchemaTest do
       defmodule MapSchema do
         use Sykli.Target.Schema
 
-        field :labels, {:map, :string, :string}, default: %{}
-        field :node_selector, {:map, :string, :string}
+        field(:labels, {:map, :string, :string}, default: %{})
+        field(:node_selector, {:map, :string, :string})
       end
 
       assert MapSchema.__schema__(:type, :labels) == {:map, :string, :string}
@@ -72,10 +72,10 @@ defmodule Sykli.Target.SchemaTest do
     defmodule ValidatedSchema do
       use Sykli.Target.Schema
 
-      field :namespace, :string, required: true
-      field :replicas, :integer, default: 1
-      field :cpu, :k8s_cpu
-      field :memory, :k8s_memory
+      field(:namespace, :string, required: true)
+      field(:replicas, :integer, default: 1)
+      field(:cpu, :k8s_cpu)
+      field(:memory, :k8s_memory)
     end
 
     test "validates required fields" do
@@ -109,7 +109,9 @@ defmodule Sykli.Target.SchemaTest do
       assert :ok = Schema.validate(ValidatedSchema, %{namespace: "x", memory: "1Gi"})
       assert :ok = Schema.validate(ValidatedSchema, %{namespace: "x", memory: "1024Ki"})
 
-      assert {:error, errors} = Schema.validate(ValidatedSchema, %{namespace: "x", memory: "512mb"})
+      assert {:error, errors} =
+               Schema.validate(ValidatedSchema, %{namespace: "x", memory: "512mb"})
+
       assert {:memory, msg} = Enum.find(errors, fn {k, _} -> k == :memory end)
       assert msg =~ "invalid"
     end
@@ -118,11 +120,11 @@ defmodule Sykli.Target.SchemaTest do
       defmodule EmbedValidation do
         use Sykli.Target.Schema
 
-        field :name, :string, required: true
+        field(:name, :string, required: true)
 
         embed :resources, required: true do
-          field :cpu, :k8s_cpu, required: true
-          field :memory, :k8s_memory, required: true
+          field(:cpu, :k8s_cpu, required: true)
+          field(:memory, :k8s_memory, required: true)
         end
       end
 
@@ -144,7 +146,7 @@ defmodule Sykli.Target.SchemaTest do
       defmodule ListValidation do
         use Sykli.Target.Schema
 
-        field :ports, {:list, :integer}, required: true
+        field(:ports, {:list, :integer}, required: true)
       end
 
       assert :ok = Schema.validate(ListValidation, %{ports: [80, 443, 8080]})
@@ -162,13 +164,13 @@ defmodule Sykli.Target.SchemaTest do
     defmodule StructSchema do
       use Sykli.Target.Schema
 
-      field :namespace, :string, required: true
-      field :replicas, :integer, default: 1
-      field :debug, :boolean, default: false
+      field(:namespace, :string, required: true)
+      field(:replicas, :integer, default: 1)
+      field(:debug, :boolean, default: false)
 
       embed :resources do
-        field :cpu, :string, default: "500m"
-        field :memory, :string, default: "512Mi"
+        field(:cpu, :string, default: "500m")
+        field(:memory, :string, default: "512Mi")
       end
     end
 
@@ -183,11 +185,12 @@ defmodule Sykli.Target.SchemaTest do
     end
 
     test "creates struct with overrides" do
-      {:ok, config} = Schema.new(StructSchema, %{
-        namespace: "staging",
-        replicas: 3,
-        resources: %{cpu: "1", memory: "1Gi"}
-      })
+      {:ok, config} =
+        Schema.new(StructSchema, %{
+          namespace: "staging",
+          replicas: 3,
+          resources: %{cpu: "1", memory: "1Gi"}
+        })
 
       assert config.namespace == "staging"
       assert config.replicas == 3
@@ -210,12 +213,12 @@ defmodule Sykli.Target.SchemaTest do
 
       @schema_version "1.0.0"
 
-      field :namespace, :string, required: true
-      field :service_account, :string, default: "default"
+      field(:namespace, :string, required: true)
+      field(:service_account, :string, default: "default")
 
       embed :resources do
-        field :cpu, :k8s_cpu, default: "500m"
-        field :memory, :k8s_memory, default: "512Mi"
+        field(:cpu, :k8s_cpu, default: "500m")
+        field(:memory, :k8s_memory, default: "512Mi")
       end
     end
 
@@ -285,12 +288,12 @@ defmodule Sykli.Target.SchemaTest do
       @moduledoc "A test schema for introspection"
       @schema_version "2.1.0"
 
-      field :namespace, :string, required: true, doc: "Kubernetes namespace"
-      field :replicas, :integer, default: 1, doc: "Number of replicas"
+      field(:namespace, :string, required: true, doc: "Kubernetes namespace")
+      field(:replicas, :integer, default: 1, doc: "Number of replicas")
 
       embed :resources, doc: "Resource limits" do
-        field :cpu, :k8s_cpu, default: "500m", doc: "CPU request/limit"
-        field :memory, :k8s_memory, default: "512Mi", doc: "Memory request/limit"
+        field(:cpu, :k8s_cpu, default: "500m", doc: "CPU request/limit")
+        field(:memory, :k8s_memory, default: "512Mi", doc: "Memory request/limit")
       end
     end
 
@@ -324,34 +327,38 @@ defmodule Sykli.Target.SchemaTest do
     defmodule CustomValidation do
       use Sykli.Target.Schema
 
-      field :port, :integer, required: true
-      field :namespace, :string, required: true
+      field(:port, :integer, required: true)
+      field(:namespace, :string, required: true)
 
-      validates :port, fn port ->
+      validates(:port, fn port ->
         if port > 0 and port < 65536 do
           :ok
         else
           {:error, "must be between 1 and 65535"}
         end
-      end
+      end)
 
       # Inline validator for namespace (function refs don't work at macro expansion time)
-      validates :namespace, fn name ->
+      validates(:namespace, fn name ->
         if Regex.match?(~r/^[a-z0-9][a-z0-9-]*[a-z0-9]$/, name) do
           :ok
         else
           {:error, "must be a valid Kubernetes name (lowercase alphanumeric and dashes)"}
         end
-      end
+      end)
     end
 
     test "runs custom validators" do
       assert :ok = Schema.validate(CustomValidation, %{port: 8080, namespace: "my-app"})
 
-      assert {:error, errors} = Schema.validate(CustomValidation, %{port: 99999, namespace: "my-app"})
+      assert {:error, errors} =
+               Schema.validate(CustomValidation, %{port: 99999, namespace: "my-app"})
+
       assert {:port, "must be between 1 and 65535"} in errors
 
-      assert {:error, errors} = Schema.validate(CustomValidation, %{port: 80, namespace: "My_App"})
+      assert {:error, errors} =
+               Schema.validate(CustomValidation, %{port: 80, namespace: "My_App"})
+
       assert {:namespace, msg} = Enum.find(errors, fn {k, _} -> k == :namespace end)
       assert msg =~ "Kubernetes name"
     end
@@ -367,15 +374,15 @@ defmodule Sykli.Target.SchemaTest do
 
       @schema_version "1.0.0"
 
-      capabilities [:secrets, :storage, :services]
+      capabilities([:secrets, :storage, :services])
 
-      field :namespace, :string, required: true
+      field(:namespace, :string, required: true)
     end
 
     defmodule BasicTarget do
       use Sykli.Target.Schema
 
-      field :name, :string, required: true
+      field(:name, :string, required: true)
       # No capabilities declared - defaults to empty
     end
 

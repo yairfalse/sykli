@@ -84,10 +84,11 @@ defmodule Sykli.Runtime.Docker do
     # Image and command
     args = args ++ [image, "sh", "-c", command]
 
-    port = Port.open(
-      {:spawn_executable, docker_path},
-      [:binary, :exit_status, :stderr_to_stdout, args: args, cd: workdir]
-    )
+    port =
+      Port.open(
+        {:spawn_executable, docker_path},
+        [:binary, :exit_status, :stderr_to_stdout, args: args, cd: workdir]
+      )
 
     try do
       stream_output(port, timeout_ms)
@@ -124,13 +125,21 @@ defmodule Sykli.Runtime.Docker do
   def start_service(name, image, network, _opts) do
     docker_path = docker_executable()
 
-    case System.cmd(docker_path, [
-           "run", "-d",
-           "--name", name,
-           "--network", network,
-           "--network-alias", name,
-           image
-         ], stderr_to_stdout: true) do
+    case System.cmd(
+           docker_path,
+           [
+             "run",
+             "-d",
+             "--name",
+             name,
+             "--network",
+             network,
+             "--network-alias",
+             name,
+             image
+           ],
+           stderr_to_stdout: true
+         ) do
       {output, 0} ->
         {:ok, String.trim(output)}
 

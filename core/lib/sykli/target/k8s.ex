@@ -98,7 +98,10 @@ defmodule Sykli.Target.K8s do
         }
 
         mode_str = if state.in_cluster, do: "in-cluster", else: "kubeconfig"
-        IO.puts("#{IO.ANSI.faint()}Target: k8s (#{mode_str}, namespace: #{final_namespace})#{IO.ANSI.reset()}")
+
+        IO.puts(
+          "#{IO.ANSI.faint()}Target: k8s (#{mode_str}, namespace: #{final_namespace})#{IO.ANSI.reset()}"
+        )
 
         # Ensure namespace exists
         ensure_namespace(state)
@@ -142,11 +145,13 @@ defmodule Sykli.Target.K8s do
 
     # TODO: Create PVC via kubectl/API
     # For now, return a reference that will be used in Job spec
-    {:ok, %{
-      id: name,
-      host_path: nil,  # Not applicable for K8s
-      reference: "pvc:#{name}"
-    }}
+    {:ok,
+     %{
+       id: name,
+       # Not applicable for K8s
+       host_path: nil,
+       reference: "pvc:#{name}"
+     }}
   end
 
   @impl true
@@ -203,7 +208,9 @@ defmodule Sykli.Target.K8s do
 
     job_name = generate_job_name(task.name)
 
-    IO.puts("#{prefix}#{IO.ANSI.cyan()}▶ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{timestamp} [k8s:#{job_name}]#{IO.ANSI.reset()}")
+    IO.puts(
+      "#{prefix}#{IO.ANSI.cyan()}▶ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{timestamp} [k8s:#{job_name}]#{IO.ANSI.reset()}"
+    )
 
     start_time = System.monotonic_time(:millisecond)
 
@@ -216,31 +223,48 @@ defmodule Sykli.Target.K8s do
         case wait_for_job(job_name, state, task.timeout || 300) do
           {:ok, :succeeded} ->
             duration_ms = System.monotonic_time(:millisecond) - start_time
-            IO.puts("#{IO.ANSI.green()}✓ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{format_duration(duration_ms)}#{IO.ANSI.reset()}")
+
+            IO.puts(
+              "#{IO.ANSI.green()}✓ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{format_duration(duration_ms)}#{IO.ANSI.reset()}"
+            )
+
             cleanup_job(job_name, state)
             :ok
 
           {:ok, :failed} ->
             duration_ms = System.monotonic_time(:millisecond) - start_time
             logs = get_job_logs(job_name, state)
-            IO.puts("#{IO.ANSI.red()}✗ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{format_duration(duration_ms)}#{IO.ANSI.reset()}")
+
+            IO.puts(
+              "#{IO.ANSI.red()}✗ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{format_duration(duration_ms)}#{IO.ANSI.reset()}"
+            )
+
             IO.puts("#{IO.ANSI.faint()}#{logs}#{IO.ANSI.reset()}")
             cleanup_job(job_name, state)
             {:error, :job_failed}
 
           {:error, :timeout} ->
-            IO.puts("#{IO.ANSI.red()}✗ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(timeout)#{IO.ANSI.reset()}")
+            IO.puts(
+              "#{IO.ANSI.red()}✗ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(timeout)#{IO.ANSI.reset()}"
+            )
+
             cleanup_job(job_name, state)
             {:error, :timeout}
 
           {:error, reason} ->
-            IO.puts("#{IO.ANSI.red()}✗ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(#{inspect(reason)})#{IO.ANSI.reset()}")
+            IO.puts(
+              "#{IO.ANSI.red()}✗ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(#{inspect(reason)})#{IO.ANSI.reset()}"
+            )
+
             cleanup_job(job_name, state)
             {:error, reason}
         end
 
       {:error, reason} ->
-        IO.puts("#{IO.ANSI.red()}✗ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(failed to create job: #{inspect(reason)})#{IO.ANSI.reset()}")
+        IO.puts(
+          "#{IO.ANSI.red()}✗ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(failed to create job: #{inspect(reason)})#{IO.ANSI.reset()}"
+        )
+
         {:error, reason}
     end
   end
@@ -277,7 +301,8 @@ defmodule Sykli.Target.K8s do
     }
 
     # Add optional pod spec fields
-    pod_spec = pod_spec
+    pod_spec =
+      pod_spec
       |> maybe_add("nodeSelector", k8s_opts.node_selector)
       |> maybe_add("tolerations", build_tolerations(k8s_opts.tolerations))
       |> maybe_add("affinity", build_affinity(k8s_opts.affinity))
@@ -294,15 +319,18 @@ defmodule Sykli.Target.K8s do
       "metadata" => %{
         "name" => job_name,
         "namespace" => namespace,
-        "labels" => Map.merge(
-          %{"sykli.io/task" => task.name},
-          k8s_opts.labels || %{}
-        ),
+        "labels" =>
+          Map.merge(
+            %{"sykli.io/task" => task.name},
+            k8s_opts.labels || %{}
+          ),
         "annotations" => k8s_opts.annotations || %{}
       },
       "spec" => %{
-        "backoffLimit" => 0,  # No retries at Job level (SYKLI handles retries)
-        "ttlSecondsAfterFinished" => 300,  # Auto-cleanup after 5 min
+        # No retries at Job level (SYKLI handles retries)
+        "backoffLimit" => 0,
+        # Auto-cleanup after 5 min
+        "ttlSecondsAfterFinished" => 300,
         "template" => %{
           "metadata" => %{
             "labels" => %{"sykli.io/task" => task.name}
@@ -323,46 +351,55 @@ defmodule Sykli.Target.K8s do
     }
 
     # Add workdir
-    container = if task.workdir do
-      Map.put(container, "workingDir", task.workdir)
-    else
-      container
-    end
+    container =
+      if task.workdir do
+        Map.put(container, "workingDir", task.workdir)
+      else
+        container
+      end
 
     # Add environment variables
-    container = if task.env && map_size(task.env) > 0 do
-      env_vars = Enum.map(task.env, fn {k, v} ->
-        %{"name" => k, "value" => v}
-      end)
-      Map.put(container, "env", env_vars)
-    else
-      container
-    end
+    container =
+      if task.env && map_size(task.env) > 0 do
+        env_vars =
+          Enum.map(task.env, fn {k, v} ->
+            %{"name" => k, "value" => v}
+          end)
+
+        Map.put(container, "env", env_vars)
+      else
+        container
+      end
 
     # Add resources
-    container = if k8s_opts.resources || k8s_opts.gpu do
-      resources = build_resources(k8s_opts)
-      Map.put(container, "resources", resources)
-    else
-      container
-    end
+    container =
+      if k8s_opts.resources || k8s_opts.gpu do
+        resources = build_resources(k8s_opts)
+        Map.put(container, "resources", resources)
+      else
+        container
+      end
 
     # Add security context
-    container = if k8s_opts.security_context do
-      Map.put(container, "securityContext", build_security_context(k8s_opts.security_context))
-    else
-      container
-    end
+    container =
+      if k8s_opts.security_context do
+        Map.put(container, "securityContext", build_security_context(k8s_opts.security_context))
+      else
+        container
+      end
 
     # Add volume mounts - use unique_volume_name to match volume definitions
-    container = if task.mounts && length(task.mounts) > 0 do
-      mounts = Enum.map(task.mounts, fn m ->
-        %{"name" => unique_volume_name(m.resource), "mountPath" => m.path}
-      end)
-      Map.put(container, "volumeMounts", mounts)
-    else
-      container
-    end
+    container =
+      if task.mounts && length(task.mounts) > 0 do
+        mounts =
+          Enum.map(task.mounts, fn m ->
+            %{"name" => unique_volume_name(m.resource), "mountPath" => m.path}
+          end)
+
+        Map.put(container, "volumeMounts", mounts)
+      else
+        container
+      end
 
     container
   end
@@ -378,16 +415,19 @@ defmodule Sykli.Target.K8s do
     resources = %{}
 
     # Resolve shorthand fields
-    res = if k8s_opts.resources do
-      K8sOptions.Resources.resolve(k8s_opts.resources)
-    else
-      %K8sOptions.Resources{}
-    end
+    res =
+      if k8s_opts.resources do
+        K8sOptions.Resources.resolve(k8s_opts.resources)
+      else
+        %K8sOptions.Resources{}
+      end
 
     # Build requests
     requests = %{}
     requests = if res.request_cpu, do: Map.put(requests, "cpu", res.request_cpu), else: requests
-    requests = if res.request_memory, do: Map.put(requests, "memory", res.request_memory), else: requests
+
+    requests =
+      if res.request_memory, do: Map.put(requests, "memory", res.request_memory), else: requests
 
     # Build limits
     limits = %{}
@@ -395,19 +435,23 @@ defmodule Sykli.Target.K8s do
     limits = if res.limit_memory, do: Map.put(limits, "memory", res.limit_memory), else: limits
 
     # Add GPU
-    limits = if k8s_opts.gpu && k8s_opts.gpu > 0 do
-      Map.put(limits, "nvidia.com/gpu", to_string(k8s_opts.gpu))
-    else
-      limits
-    end
+    limits =
+      if k8s_opts.gpu && k8s_opts.gpu > 0 do
+        Map.put(limits, "nvidia.com/gpu", to_string(k8s_opts.gpu))
+      else
+        limits
+      end
 
-    resources = if map_size(requests) > 0, do: Map.put(resources, "requests", requests), else: resources
+    resources =
+      if map_size(requests) > 0, do: Map.put(resources, "requests", requests), else: resources
+
     resources = if map_size(limits) > 0, do: Map.put(resources, "limits", limits), else: resources
 
     resources
   end
 
   defp build_tolerations(nil), do: nil
+
   defp build_tolerations(tolerations) do
     Enum.map(tolerations, fn t ->
       tol = %{"operator" => t.operator || "Equal"}
@@ -419,29 +463,35 @@ defmodule Sykli.Target.K8s do
   end
 
   defp build_affinity(nil), do: nil
+
   defp build_affinity(affinity) do
     aff = %{}
 
-    aff = if affinity.node_affinity do
-      na = affinity.node_affinity
-      node_aff = %{}
+    aff =
+      if affinity.node_affinity do
+        na = affinity.node_affinity
+        node_aff = %{}
 
-      node_aff = if na.required_labels && map_size(na.required_labels) > 0 do
-        Map.put(node_aff, "requiredDuringSchedulingIgnoredDuringExecution", %{
-          "nodeSelectorTerms" => [%{
-            "matchExpressions" => Enum.map(na.required_labels, fn {k, v} ->
-              %{"key" => k, "operator" => "In", "values" => [v]}
-            end)
-          }]
-        })
+        node_aff =
+          if na.required_labels && map_size(na.required_labels) > 0 do
+            Map.put(node_aff, "requiredDuringSchedulingIgnoredDuringExecution", %{
+              "nodeSelectorTerms" => [
+                %{
+                  "matchExpressions" =>
+                    Enum.map(na.required_labels, fn {k, v} ->
+                      %{"key" => k, "operator" => "In", "values" => [v]}
+                    end)
+                }
+              ]
+            })
+          else
+            node_aff
+          end
+
+        Map.put(aff, "nodeAffinity", node_aff)
       else
-        node_aff
+        aff
       end
-
-      Map.put(aff, "nodeAffinity", node_aff)
-    else
-      aff
-    end
 
     if map_size(aff) > 0, do: aff, else: nil
   end
@@ -452,23 +502,32 @@ defmodule Sykli.Target.K8s do
     ctx = if sc.run_as_group, do: Map.put(ctx, "runAsGroup", sc.run_as_group), else: ctx
     ctx = if sc.run_as_non_root, do: Map.put(ctx, "runAsNonRoot", sc.run_as_non_root), else: ctx
     ctx = if sc.privileged, do: Map.put(ctx, "privileged", sc.privileged), else: ctx
-    ctx = if sc.read_only_root_filesystem, do: Map.put(ctx, "readOnlyRootFilesystem", sc.read_only_root_filesystem), else: ctx
 
-    ctx = if sc.add_capabilities || sc.drop_capabilities do
-      caps = %{}
-      caps = if sc.add_capabilities, do: Map.put(caps, "add", sc.add_capabilities), else: caps
-      caps = if sc.drop_capabilities, do: Map.put(caps, "drop", sc.drop_capabilities), else: caps
-      Map.put(ctx, "capabilities", caps)
-    else
-      ctx
-    end
+    ctx =
+      if sc.read_only_root_filesystem,
+        do: Map.put(ctx, "readOnlyRootFilesystem", sc.read_only_root_filesystem),
+        else: ctx
+
+    ctx =
+      if sc.add_capabilities || sc.drop_capabilities do
+        caps = %{}
+        caps = if sc.add_capabilities, do: Map.put(caps, "add", sc.add_capabilities), else: caps
+
+        caps =
+          if sc.drop_capabilities, do: Map.put(caps, "drop", sc.drop_capabilities), else: caps
+
+        Map.put(ctx, "capabilities", caps)
+      else
+        ctx
+      end
 
     ctx
   end
 
   defp build_volumes(task, k8s_opts) do
     # Volumes from task mounts - use unique_volume_name to prevent collisions
-    mount_volumes = (task.mounts || [])
+    mount_volumes =
+      (task.mounts || [])
       |> Enum.map(fn m ->
         case m.type do
           "cache" ->
@@ -476,6 +535,7 @@ defmodule Sykli.Target.K8s do
               "name" => unique_volume_name(m.resource),
               "emptyDir" => %{}
             }
+
           "directory" ->
             # For directories, we'd need a PVC or hostPath
             # For now, use emptyDir (loses data)
@@ -487,7 +547,8 @@ defmodule Sykli.Target.K8s do
       end)
 
     # Additional K8s volumes
-    k8s_volumes = (k8s_opts.volumes || [])
+    k8s_volumes =
+      (k8s_opts.volumes || [])
       |> Enum.map(&build_k8s_volume/1)
 
     mount_volumes ++ k8s_volumes
@@ -499,19 +560,29 @@ defmodule Sykli.Target.K8s do
     cond do
       v.config_map ->
         Map.put(vol, "configMap", %{"name" => v.config_map.name})
+
       v.secret ->
         Map.put(vol, "secret", %{"secretName" => v.secret.name})
+
       v.empty_dir ->
         ed = %{}
         ed = if v.empty_dir.medium, do: Map.put(ed, "medium", v.empty_dir.medium), else: ed
-        ed = if v.empty_dir.size_limit, do: Map.put(ed, "sizeLimit", v.empty_dir.size_limit), else: ed
+
+        ed =
+          if v.empty_dir.size_limit,
+            do: Map.put(ed, "sizeLimit", v.empty_dir.size_limit),
+            else: ed
+
         Map.put(vol, "emptyDir", ed)
+
       v.host_path ->
         hp = %{"path" => v.host_path.path}
         hp = if v.host_path.type, do: Map.put(hp, "type", v.host_path.type), else: hp
         Map.put(vol, "hostPath", hp)
+
       v.pvc ->
         Map.put(vol, "persistentVolumeClaim", %{"claimName" => v.pvc.claim_name})
+
       true ->
         vol
     end
@@ -529,7 +600,8 @@ defmodule Sykli.Target.K8s do
   defp apply_job(manifest, state) do
     case Job.create(manifest, state.auth_config) do
       {:ok, _job} -> :ok
-      {:error, %Error{type: :conflict}} -> :ok  # Job already exists, that's fine
+      # Job already exists, that's fine
+      {:error, %Error{type: :conflict}} -> :ok
       {:error, error} -> {:error, format_error(error)}
     end
   end
@@ -576,12 +648,15 @@ defmodule Sykli.Target.K8s do
 
         case Client.request(:post, "/api/v1/namespaces", manifest, state.auth_config) do
           {:ok, _} -> :ok
-          {:error, %Error{type: :conflict}} -> :ok  # Already exists
-          {:error, _} -> :ok  # Best effort
+          # Already exists
+          {:error, %Error{type: :conflict}} -> :ok
+          # Best effort
+          {:error, _} -> :ok
         end
 
       {:error, _} ->
-        :ok  # Best effort
+        # Best effort
+        :ok
     end
   end
 
@@ -619,7 +694,9 @@ defmodule Sykli.Target.K8s do
   end
 
   defp progress_prefix(nil), do: ""
-  defp progress_prefix({current, total}), do: "#{IO.ANSI.faint()}[#{current}/#{total}]#{IO.ANSI.reset()} "
+
+  defp progress_prefix({current, total}),
+    do: "#{IO.ANSI.faint()}[#{current}/#{total}]#{IO.ANSI.reset()} "
 
   defp format_duration(ms) when ms < 1000, do: "#{ms}ms"
   defp format_duration(ms) when ms < 60_000, do: "#{Float.round(ms / 1000, 1)}s"

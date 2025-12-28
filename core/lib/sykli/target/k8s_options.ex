@@ -34,30 +34,44 @@ defmodule Sykli.Target.K8sOptions do
 
   defstruct [
     # Pod Scheduling
-    :node_selector,       # %{"disk" => "ssd", "zone" => "us-west-2a"}
-    :tolerations,         # [%Toleration{}]
-    :affinity,            # %Affinity{}
-    :priority_class_name, # "high-priority"
+    # %{"disk" => "ssd", "zone" => "us-west-2a"}
+    :node_selector,
+    # [%Toleration{}]
+    :tolerations,
+    # %Affinity{}
+    :affinity,
+    # "high-priority"
+    :priority_class_name,
 
     # Resources
-    :resources,           # %Resources{}
-    :gpu,                 # integer (nvidia.com/gpu)
+    # %Resources{}
+    :resources,
+    # integer (nvidia.com/gpu)
+    :gpu,
 
     # Security
-    :service_account,     # "sykli-runner"
-    :security_context,    # %SecurityContext{}
+    # "sykli-runner"
+    :service_account,
+    # %SecurityContext{}
+    :security_context,
 
     # Networking
-    :host_network,        # boolean
-    :dns_policy,          # "ClusterFirst"
+    # boolean
+    :host_network,
+    # "ClusterFirst"
+    :dns_policy,
 
     # Storage
-    :volumes,             # [%Volume{}]
+    # [%Volume{}]
+    :volumes,
 
     # Metadata
-    :labels,              # %{"app" => "sykli"}
-    :annotations,         # %{"prometheus.io/scrape" => "true"}
-    :namespace            # "ci-jobs" (override default)
+    # %{"app" => "sykli"}
+    :labels,
+    # %{"prometheus.io/scrape" => "true"}
+    :annotations,
+    # "ci-jobs" (override default)
+    :namespace
   ]
 
   @type t :: %__MODULE__{
@@ -85,13 +99,19 @@ defmodule Sykli.Target.K8sOptions do
     @moduledoc "CPU/memory requests and limits"
 
     defstruct [
-      :request_cpu,     # "500m", "2"
-      :request_memory,  # "512Mi", "4Gi"
-      :limit_cpu,       # "2", "4"
-      :limit_memory,    # "4Gi", "16Gi"
+      # "500m", "2"
+      :request_cpu,
+      # "512Mi", "4Gi"
+      :request_memory,
+      # "2", "4"
+      :limit_cpu,
+      # "4Gi", "16Gi"
+      :limit_memory,
       # Shorthand: sets both request and limit
-      :cpu,             # "2" -> request=2, limit=2
-      :memory           # "4Gi" -> request=4Gi, limit=4Gi
+      # "2" -> request=2, limit=2
+      :cpu,
+      # "4Gi" -> request=4Gi, limit=4Gi
+      :memory
     ]
 
     @type t :: %__MODULE__{
@@ -125,9 +145,11 @@ defmodule Sykli.Target.K8sOptions do
 
     @type t :: %__MODULE__{
             key: String.t() | nil,
-            operator: String.t(),  # "Exists" | "Equal"
+            # "Exists" | "Equal"
+            operator: String.t(),
             value: String.t() | nil,
-            effect: String.t() | nil  # "NoSchedule" | "PreferNoSchedule" | "NoExecute"
+            # "NoSchedule" | "PreferNoSchedule" | "NoExecute"
+            effect: String.t() | nil
           }
   end
 
@@ -232,8 +254,10 @@ defmodule Sykli.Target.K8sOptions do
   defmodule EmptyDirVolume do
     @moduledoc "Ephemeral volume"
     defstruct [:medium, :size_limit]
+
     @type t :: %__MODULE__{
-            medium: String.t() | nil,  # "" (disk) or "Memory" (tmpfs)
+            # "" (disk) or "Memory" (tmpfs)
+            medium: String.t() | nil,
             size_limit: String.t() | nil
           }
   end
@@ -241,9 +265,11 @@ defmodule Sykli.Target.K8sOptions do
   defmodule HostPathVolume do
     @moduledoc "Mount a host path (use with caution)"
     defstruct [:path, :type]
+
     @type t :: %__MODULE__{
             path: String.t(),
-            type: String.t() | nil  # "DirectoryOrCreate", "FileOrCreate", etc.
+            # "DirectoryOrCreate", "FileOrCreate", etc.
+            type: String.t() | nil
           }
   end
 
@@ -285,6 +311,7 @@ defmodule Sykli.Target.K8sOptions do
   end
 
   defp parse_tolerations(nil), do: nil
+
   defp parse_tolerations(list) when is_list(list) do
     Enum.map(list, fn t ->
       %Toleration{
@@ -297,6 +324,7 @@ defmodule Sykli.Target.K8sOptions do
   end
 
   defp parse_affinity(nil), do: nil
+
   defp parse_affinity(map) do
     %Affinity{
       node_affinity: parse_node_affinity(map["node_affinity"]),
@@ -306,6 +334,7 @@ defmodule Sykli.Target.K8sOptions do
   end
 
   defp parse_node_affinity(nil), do: nil
+
   defp parse_node_affinity(map) do
     %NodeAffinity{
       required_labels: map["required_labels"],
@@ -314,6 +343,7 @@ defmodule Sykli.Target.K8sOptions do
   end
 
   defp parse_pod_affinity(nil), do: nil
+
   defp parse_pod_affinity(map) do
     %PodAffinity{
       required_labels: map["required_labels"],
@@ -322,6 +352,7 @@ defmodule Sykli.Target.K8sOptions do
   end
 
   defp parse_resources(nil), do: nil
+
   defp parse_resources(map) do
     %Resources{
       request_cpu: map["request_cpu"],
@@ -334,6 +365,7 @@ defmodule Sykli.Target.K8sOptions do
   end
 
   defp parse_security_context(nil), do: nil
+
   defp parse_security_context(map) do
     %SecurityContext{
       run_as_user: map["run_as_user"],
@@ -347,6 +379,7 @@ defmodule Sykli.Target.K8sOptions do
   end
 
   defp parse_volumes(nil), do: nil
+
   defp parse_volumes(list) when is_list(list) do
     Enum.map(list, fn v ->
       %Volume{
@@ -368,11 +401,13 @@ defmodule Sykli.Target.K8sOptions do
   defp parse_secret_volume(map), do: %SecretVolume{name: map["name"]}
 
   defp parse_empty_dir(nil), do: nil
+
   defp parse_empty_dir(map) do
     %EmptyDirVolume{medium: map["medium"], size_limit: map["size_limit"]}
   end
 
   defp parse_host_path(nil), do: nil
+
   defp parse_host_path(map) do
     %HostPathVolume{path: map["path"], type: map["type"]}
   end
@@ -410,7 +445,8 @@ defmodule Sykli.Target.K8sOptions do
       service_account: task_opts.service_account || defaults.service_account,
       dns_policy: task_opts.dns_policy || defaults.dns_policy,
       gpu: task_opts.gpu || defaults.gpu,
-      host_network: if(is_nil(task_opts.host_network), do: defaults.host_network, else: task_opts.host_network),
+      host_network:
+        if(is_nil(task_opts.host_network), do: defaults.host_network, else: task_opts.host_network),
 
       # Resources: merge field by field
       resources: merge_resources(defaults.resources, task_opts.resources),
@@ -556,8 +592,7 @@ defmodule Sykli.Target.K8sOptions do
     else
       suggestion = memory_suggestion(value)
 
-      message =
-        "invalid memory format, use Ki/Mi/Gi/Ti (e.g., '512Mi', '4Gi')" <> suggestion
+      message = "invalid memory format, use Ki/Mi/Gi/Ti (e.g., '512Mi', '4Gi')" <> suggestion
 
       [{field, value, message} | errors]
     end
@@ -663,7 +698,9 @@ defmodule Sykli.Target.K8sOptions do
   """
   def validate!(opts) do
     case validate(opts) do
-      {:ok, _} -> nil
+      {:ok, _} ->
+        nil
+
       {:error, [{field, value, message} | _]} ->
         "k8s.#{field}: #{message} (got #{inspect(value)})"
     end

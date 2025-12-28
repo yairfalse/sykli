@@ -86,7 +86,10 @@ defmodule Sykli.Target.Local do
     # Verify runtime is available
     case runtime.available?() do
       {:ok, info} ->
-        IO.puts("#{IO.ANSI.faint()}Target: local (#{runtime.name()}: #{format_runtime_info(info)})#{IO.ANSI.reset()}")
+        IO.puts(
+          "#{IO.ANSI.faint()}Target: local (#{runtime.name()}: #{format_runtime_info(info)})#{IO.ANSI.reset()}"
+        )
+
         {:ok, %__MODULE__{workdir: Path.expand(workdir), runtime: runtime}}
 
       {:error, reason} ->
@@ -230,7 +233,9 @@ defmodule Sykli.Target.Local do
     # Determine runtime and build execution params
     {runtime, image, mounts, display_cmd} = build_execution_params(task, workdir, state)
 
-    IO.puts("#{prefix}#{IO.ANSI.cyan()}▶ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{timestamp} #{display_cmd}#{IO.ANSI.reset()}")
+    IO.puts(
+      "#{prefix}#{IO.ANSI.cyan()}▶ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{timestamp} #{display_cmd}#{IO.ANSI.reset()}"
+    )
 
     start_time = System.monotonic_time(:millisecond)
 
@@ -246,27 +251,40 @@ defmodule Sykli.Target.Local do
       {:ok, 0, lines, _output} ->
         duration_ms = System.monotonic_time(:millisecond) - start_time
         lines_str = if lines > 0, do: " #{lines}L", else: ""
-        IO.puts("#{IO.ANSI.green()}✓ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{format_duration(duration_ms)}#{lines_str}#{IO.ANSI.reset()}")
+
+        IO.puts(
+          "#{IO.ANSI.green()}✓ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{format_duration(duration_ms)}#{lines_str}#{IO.ANSI.reset()}"
+        )
+
         :ok
 
       {:ok, code, _lines, output} ->
         duration_ms = System.monotonic_time(:millisecond) - start_time
-        error = Sykli.TaskError.new(
-          task: task.name,
-          command: display_cmd,
-          exit_code: code,
-          output: output,
-          duration_ms: duration_ms
-        )
+
+        error =
+          Sykli.TaskError.new(
+            task: task.name,
+            command: display_cmd,
+            exit_code: code,
+            output: output,
+            duration_ms: duration_ms
+          )
+
         IO.puts(Sykli.TaskError.format(error))
         {:error, {:exit_code, code}}
 
       {:error, :timeout} ->
-        IO.puts("#{IO.ANSI.red()}✗ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(timeout after #{task.timeout}s)#{IO.ANSI.reset()}")
+        IO.puts(
+          "#{IO.ANSI.red()}✗ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(timeout after #{task.timeout}s)#{IO.ANSI.reset()}"
+        )
+
         {:error, :timeout}
 
       {:error, reason} ->
-        IO.puts("#{IO.ANSI.red()}✗ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(error: #{inspect(reason)})#{IO.ANSI.reset()}")
+        IO.puts(
+          "#{IO.ANSI.red()}✗ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(error: #{inspect(reason)})#{IO.ANSI.reset()}"
+        )
+
         {:error, reason}
     end
   end
@@ -304,8 +322,11 @@ defmodule Sykli.Target.Local do
   defp extract_host_path(resource, abs_workdir) do
     case String.split(resource, ":", parts: 2) do
       ["src", path] ->
-        full_path = if String.starts_with?(path, "/"), do: path, else: Path.join(abs_workdir, path)
+        full_path =
+          if String.starts_with?(path, "/"), do: path, else: Path.join(abs_workdir, path)
+
         Path.expand(full_path)
+
       _ ->
         abs_workdir
     end
@@ -325,7 +346,10 @@ defmodule Sykli.Target.Local do
           container_id
 
         {:error, reason} ->
-          IO.puts("  #{IO.ANSI.red()}Failed to start service #{name}: #{inspect(reason)}#{IO.ANSI.reset()}")
+          IO.puts(
+            "  #{IO.ANSI.red()}Failed to start service #{name}: #{inspect(reason)}#{IO.ANSI.reset()}"
+          )
+
           nil
       end
     end)
@@ -346,6 +370,7 @@ defmodule Sykli.Target.Local do
         {:ok, %{mode: mode}} -> File.chmod(abs_dest, mode)
         _ -> :ok
       end
+
       :ok
     else
       {:error, reason} -> {:error, {:copy_failed, reason}}
@@ -376,7 +401,9 @@ defmodule Sykli.Target.Local do
   end
 
   defp progress_prefix(nil), do: ""
-  defp progress_prefix({current, total}), do: "#{IO.ANSI.faint()}[#{current}/#{total}]#{IO.ANSI.reset()} "
+
+  defp progress_prefix({current, total}),
+    do: "#{IO.ANSI.faint()}[#{current}/#{total}]#{IO.ANSI.reset()} "
 
   defp format_duration(ms) when ms < 1000, do: "#{ms}ms"
   defp format_duration(ms) when ms < 60_000, do: "#{Float.round(ms / 1000, 1)}s"

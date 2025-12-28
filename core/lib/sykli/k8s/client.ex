@@ -147,7 +147,8 @@ defmodule Sykli.K8s.Client do
 
     key_der =
       case :public_key.pem_decode(key_pem) do
-        [{key_type, der, :not_encrypted} | _] when key_type in [:RSAPrivateKey, :PrivateKeyInfo] ->
+        [{key_type, der, :not_encrypted} | _]
+        when key_type in [:RSAPrivateKey, :PrivateKeyInfo] ->
           {key_type, der}
 
         _ ->

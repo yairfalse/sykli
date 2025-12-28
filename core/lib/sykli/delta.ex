@@ -88,12 +88,18 @@ defmodule Sykli.Delta do
 
   defp get_git_changes(from, path) do
     # Use --relative to get paths relative to the project directory
-    case System.cmd("git", ["diff", "--name-only", "--relative", from], cd: path, stderr_to_stdout: true) do
+    case System.cmd("git", ["diff", "--name-only", "--relative", from],
+           cd: path,
+           stderr_to_stdout: true
+         ) do
       {output, 0} ->
         files = output |> String.trim() |> String.split("\n", trim: true)
 
         # Also get untracked files (relative to current directory)
-        case System.cmd("git", ["ls-files", "--others", "--exclude-standard"], cd: path, stderr_to_stdout: true) do
+        case System.cmd("git", ["ls-files", "--others", "--exclude-standard"],
+               cd: path,
+               stderr_to_stdout: true
+             ) do
           {untracked, 0} ->
             untracked_files = untracked |> String.trim() |> String.split("\n", trim: true)
             {:ok, Enum.uniq(files ++ untracked_files)}
@@ -159,7 +165,6 @@ defmodule Sykli.Delta do
     end)
   end
 
-
   # Get all input paths from task mounts
   defp get_task_input_paths(task, workdir) do
     (task.mounts || [])
@@ -210,7 +215,8 @@ defmodule Sykli.Delta do
     reverse_deps = build_reverse_deps(tasks)
 
     # BFS to find dependents with tracking of which task triggered them
-    dependent_details = find_dependents_with_reasons(directly_affected, affected_names, reverse_deps)
+    dependent_details =
+      find_dependents_with_reasons(directly_affected, affected_names, reverse_deps)
 
     directly_affected ++ dependent_details
   end
@@ -242,7 +248,12 @@ defmodule Sykli.Delta do
         end
       end)
 
-    do_find_dependents_with_reasons(rest ++ Enum.reverse(new_details), new_seen, reverse_deps, new_details ++ acc)
+    do_find_dependents_with_reasons(
+      rest ++ Enum.reverse(new_details),
+      new_seen,
+      reverse_deps,
+      new_details ++ acc
+    )
   end
 
   defp build_reverse_deps(tasks) do

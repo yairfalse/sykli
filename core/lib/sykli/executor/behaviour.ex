@@ -14,10 +14,10 @@ defmodule Sykli.Executor.Behaviour do
   @type job :: Sykli.Graph.Task.t()
   @type result :: :ok | {:error, term()}
   @type run_opts :: [
-    workdir: String.t(),
-    network: String.t() | nil,
-    progress: {integer(), integer()} | nil
-  ]
+          workdir: String.t(),
+          network: String.t() | nil,
+          progress: {integer(), integer()} | nil
+        ]
 
   @doc """
   Run a single job/task.
@@ -49,7 +49,11 @@ defmodule Sykli.Executor.Behaviour do
   - Local: file path in workdir
   - K8s: PVC mount path
   """
-  @callback artifact_path(task_name :: String.t(), artifact_name :: String.t(), workdir :: String.t()) :: String.t()
+  @callback artifact_path(
+              task_name :: String.t(),
+              artifact_name :: String.t(),
+              workdir :: String.t()
+            ) :: String.t()
 
   @doc """
   Copy an artifact from source to destination.
@@ -58,10 +62,10 @@ defmodule Sykli.Executor.Behaviour do
   Returns :ok on success, {:error, reason} on failure.
   """
   @callback copy_artifact(
-    source_path :: String.t(),
-    dest_path :: String.t(),
-    workdir :: String.t()
-  ) :: :ok | {:error, term()}
+              source_path :: String.t(),
+              dest_path :: String.t(),
+              workdir :: String.t()
+            ) :: :ok | {:error, term()}
 
   @doc """
   Start service containers for a task.
@@ -73,9 +77,9 @@ defmodule Sykli.Executor.Behaviour do
   - K8s: Sidecar pods or services
   """
   @callback start_services(
-    task_name :: String.t(),
-    services :: [Sykli.Graph.Service.t()]
-  ) :: {:ok, network_info :: term()} | {:error, term()}
+              task_name :: String.t(),
+              services :: [Sykli.Graph.Service.t()]
+            ) :: {:ok, network_info :: term()} | {:error, term()}
 
   @doc """
   Stop service containers after task completion.

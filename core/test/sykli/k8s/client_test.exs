@@ -18,11 +18,14 @@ defmodule Sykli.K8s.ClientTest do
       # Mock would return this
       mock_response = {:ok, %{"kind" => "Job", "metadata" => %{"name" => "test"}}}
 
-      result = Client.request(:get, "/apis/batch/v1/namespaces/default/jobs/test", nil, config,
-        http_client: fn _method, _url, _headers, _body, _opts ->
-          {:ok, {{~c"HTTP/1.1", 200, ~c"OK"}, [], Jason.encode!(%{"kind" => "Job", "metadata" => %{"name" => "test"}})}}
-        end
-      )
+      result =
+        Client.request(:get, "/apis/batch/v1/namespaces/default/jobs/test", nil, config,
+          http_client: fn _method, _url, _headers, _body, _opts ->
+            {:ok,
+             {{~c"HTTP/1.1", 200, ~c"OK"}, [],
+              Jason.encode!(%{"kind" => "Job", "metadata" => %{"name" => "test"}})}}
+          end
+        )
 
       assert {:ok, body} = result
       assert body["kind"] == "Job"
@@ -37,19 +40,20 @@ defmodule Sykli.K8s.ClientTest do
 
       manifest = %{"apiVersion" => "batch/v1", "kind" => "Job"}
 
-      result = Client.request(:post, "/apis/batch/v1/namespaces/default/jobs", manifest, config,
-        http_client: fn :post, url, headers, body, _opts ->
-          # Verify the request
-          assert String.contains?(url, "/apis/batch/v1/namespaces/default/jobs")
-          assert Enum.any?(headers, fn {k, _} -> k == ~c"Authorization" end)
-          assert Enum.any?(headers, fn {k, _} -> k == ~c"Content-Type" end)
+      result =
+        Client.request(:post, "/apis/batch/v1/namespaces/default/jobs", manifest, config,
+          http_client: fn :post, url, headers, body, _opts ->
+            # Verify the request
+            assert String.contains?(url, "/apis/batch/v1/namespaces/default/jobs")
+            assert Enum.any?(headers, fn {k, _} -> k == ~c"Authorization" end)
+            assert Enum.any?(headers, fn {k, _} -> k == ~c"Content-Type" end)
 
-          decoded = Jason.decode!(body)
-          assert decoded["kind"] == "Job"
+            decoded = Jason.decode!(body)
+            assert decoded["kind"] == "Job"
 
-          {:ok, {{~c"HTTP/1.1", 201, ~c"Created"}, [], body}}
-        end
-      )
+            {:ok, {{~c"HTTP/1.1", 201, ~c"Created"}, [], body}}
+          end
+        )
 
       assert {:ok, _body} = result
     end
@@ -61,11 +65,12 @@ defmodule Sykli.K8s.ClientTest do
         ca_cert: nil
       }
 
-      result = Client.request(:get, "/api/v1/namespaces", nil, config,
-        http_client: fn _, _, _, _, _ ->
-          {:ok, {{~c"HTTP/1.1", 401, ~c"Unauthorized"}, [], "{\"message\": \"Unauthorized\"}"}}
-        end
-      )
+      result =
+        Client.request(:get, "/api/v1/namespaces", nil, config,
+          http_client: fn _, _, _, _, _ ->
+            {:ok, {{~c"HTTP/1.1", 401, ~c"Unauthorized"}, [], "{\"message\": \"Unauthorized\"}"}}
+          end
+        )
 
       assert {:error, %Error{type: :auth_failed, status_code: 401}} = result
     end
@@ -77,11 +82,12 @@ defmodule Sykli.K8s.ClientTest do
         ca_cert: nil
       }
 
-      result = Client.request(:get, "/api/v1/secrets", nil, config,
-        http_client: fn _, _, _, _, _ ->
-          {:ok, {{~c"HTTP/1.1", 403, ~c"Forbidden"}, [], "{\"message\": \"forbidden\"}"}}
-        end
-      )
+      result =
+        Client.request(:get, "/api/v1/secrets", nil, config,
+          http_client: fn _, _, _, _, _ ->
+            {:ok, {{~c"HTTP/1.1", 403, ~c"Forbidden"}, [], "{\"message\": \"forbidden\"}"}}
+          end
+        )
 
       assert {:error, %Error{type: :forbidden, status_code: 403}} = result
     end
@@ -93,11 +99,12 @@ defmodule Sykli.K8s.ClientTest do
         ca_cert: nil
       }
 
-      result = Client.request(:get, "/apis/batch/v1/namespaces/default/jobs/nonexistent", nil, config,
-        http_client: fn _, _, _, _, _ ->
-          {:ok, {{~c"HTTP/1.1", 404, ~c"Not Found"}, [], "{\"reason\": \"NotFound\"}"}}
-        end
-      )
+      result =
+        Client.request(:get, "/apis/batch/v1/namespaces/default/jobs/nonexistent", nil, config,
+          http_client: fn _, _, _, _, _ ->
+            {:ok, {{~c"HTTP/1.1", 404, ~c"Not Found"}, [], "{\"reason\": \"NotFound\"}"}}
+          end
+        )
 
       assert {:error, %Error{type: :not_found, status_code: 404}} = result
     end
@@ -109,11 +116,12 @@ defmodule Sykli.K8s.ClientTest do
         ca_cert: nil
       }
 
-      result = Client.request(:post, "/apis/batch/v1/namespaces/default/jobs", %{}, config,
-        http_client: fn _, _, _, _, _ ->
-          {:ok, {{~c"HTTP/1.1", 409, ~c"Conflict"}, [], "{\"reason\": \"AlreadyExists\"}"}}
-        end
-      )
+      result =
+        Client.request(:post, "/apis/batch/v1/namespaces/default/jobs", %{}, config,
+          http_client: fn _, _, _, _, _ ->
+            {:ok, {{~c"HTTP/1.1", 409, ~c"Conflict"}, [], "{\"reason\": \"AlreadyExists\"}"}}
+          end
+        )
 
       assert {:error, %Error{type: :conflict, status_code: 409}} = result
     end
@@ -127,19 +135,21 @@ defmodule Sykli.K8s.ClientTest do
 
       call_count = :counters.new(1, [:atomics])
 
-      result = Client.request(:get, "/api/v1/namespaces", nil, config,
-        http_client: fn _, _, _, _, _ ->
-          :counters.add(call_count, 1, 1)
-          count = :counters.get(call_count, 1)
+      result =
+        Client.request(:get, "/api/v1/namespaces", nil, config,
+          http_client: fn _, _, _, _, _ ->
+            :counters.add(call_count, 1, 1)
+            count = :counters.get(call_count, 1)
 
-          if count < 3 do
-            {:ok, {{~c"HTTP/1.1", 503, ~c"Service Unavailable"}, [], "{}"}}
-          else
-            {:ok, {{~c"HTTP/1.1", 200, ~c"OK"}, [], "{\"items\": []}"}}
-          end
-        end,
-        retry_delays: [10, 20, 40]  # Fast for testing
-      )
+            if count < 3 do
+              {:ok, {{~c"HTTP/1.1", 503, ~c"Service Unavailable"}, [], "{}"}}
+            else
+              {:ok, {{~c"HTTP/1.1", 200, ~c"OK"}, [], "{\"items\": []}"}}
+            end
+          end,
+          # Fast for testing
+          retry_delays: [10, 20, 40]
+        )
 
       assert {:ok, _} = result
       assert :counters.get(call_count, 1) == 3
@@ -152,12 +162,14 @@ defmodule Sykli.K8s.ClientTest do
         ca_cert: nil
       }
 
-      result = Client.request(:get, "/api/v1/namespaces", nil, config,
-        http_client: fn _, _, _, _, _ ->
-          {:ok, {{~c"HTTP/1.1", 503, ~c"Service Unavailable"}, [], "{\"message\": \"overloaded\"}"}}
-        end,
-        retry_delays: [10, 20, 40]
-      )
+      result =
+        Client.request(:get, "/api/v1/namespaces", nil, config,
+          http_client: fn _, _, _, _, _ ->
+            {:ok,
+             {{~c"HTTP/1.1", 503, ~c"Service Unavailable"}, [], "{\"message\": \"overloaded\"}"}}
+          end,
+          retry_delays: [10, 20, 40]
+        )
 
       assert {:error, %Error{type: :api_error, status_code: 503}} = result
     end
@@ -171,16 +183,18 @@ defmodule Sykli.K8s.ClientTest do
 
       call_count = :counters.new(1, [:atomics])
 
-      result = Client.request(:get, "/api/v1/secrets", nil, config,
-        http_client: fn _, _, _, _, _ ->
-          :counters.add(call_count, 1, 1)
-          {:ok, {{~c"HTTP/1.1", 403, ~c"Forbidden"}, [], "{}"}}
-        end,
-        retry_delays: [10, 20, 40]
-      )
+      result =
+        Client.request(:get, "/api/v1/secrets", nil, config,
+          http_client: fn _, _, _, _, _ ->
+            :counters.add(call_count, 1, 1)
+            {:ok, {{~c"HTTP/1.1", 403, ~c"Forbidden"}, [], "{}"}}
+          end,
+          retry_delays: [10, 20, 40]
+        )
 
       assert {:error, %Error{type: :forbidden}} = result
-      assert :counters.get(call_count, 1) == 1  # No retries
+      # No retries
+      assert :counters.get(call_count, 1) == 1
     end
 
     test "handles connection errors" do
@@ -190,31 +204,34 @@ defmodule Sykli.K8s.ClientTest do
         ca_cert: nil
       }
 
-      result = Client.request(:get, "/api/v1/namespaces", nil, config,
-        http_client: fn _, _, _, _, _ ->
-          {:error, :econnrefused}
-        end
-      )
+      result =
+        Client.request(:get, "/api/v1/namespaces", nil, config,
+          http_client: fn _, _, _, _, _ ->
+            {:error, :econnrefused}
+          end
+        )
 
       assert {:error, %Error{type: :connection_error}} = result
     end
 
     test "includes CA cert in TLS options when provided" do
       ca_cert = "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----"
+
       config = %{
         api_url: "https://kubernetes.default.svc",
         auth: {:bearer, "token"},
         ca_cert: ca_cert
       }
 
-      result = Client.request(:get, "/api/v1/namespaces", nil, config,
-        http_client: fn _, _, _, _, opts ->
-          # Verify SSL options include the CA
-          ssl_opts = Keyword.get(opts, :ssl, [])
-          assert Keyword.has_key?(ssl_opts, :cacerts) or Keyword.has_key?(ssl_opts, :verify)
-          {:ok, {{~c"HTTP/1.1", 200, ~c"OK"}, [], "{}"}}
-        end
-      )
+      result =
+        Client.request(:get, "/api/v1/namespaces", nil, config,
+          http_client: fn _, _, _, _, opts ->
+            # Verify SSL options include the CA
+            ssl_opts = Keyword.get(opts, :ssl, [])
+            assert Keyword.has_key?(ssl_opts, :cacerts) or Keyword.has_key?(ssl_opts, :verify)
+            {:ok, {{~c"HTTP/1.1", 200, ~c"OK"}, [], "{}"}}
+          end
+        )
 
       assert {:ok, _} = result
     end
@@ -250,16 +267,17 @@ defmodule Sykli.K8s.ClientTest do
         ca_cert: nil
       }
 
-      result = Client.request(:get, "/api/v1/namespaces", nil, config,
-        http_client: fn _, _, headers, _, opts ->
-          # Should NOT have Authorization header
-          refute Enum.any?(headers, fn {k, _} -> k == ~c"Authorization" end)
-          # Should have client cert in SSL options
-          ssl_opts = Keyword.get(opts, :ssl, [])
-          assert Keyword.has_key?(ssl_opts, :cert) or Keyword.has_key?(ssl_opts, :certfile)
-          {:ok, {{~c"HTTP/1.1", 200, ~c"OK"}, [], "{}"}}
-        end
-      )
+      result =
+        Client.request(:get, "/api/v1/namespaces", nil, config,
+          http_client: fn _, _, headers, _, opts ->
+            # Should NOT have Authorization header
+            refute Enum.any?(headers, fn {k, _} -> k == ~c"Authorization" end)
+            # Should have client cert in SSL options
+            ssl_opts = Keyword.get(opts, :ssl, [])
+            assert Keyword.has_key?(ssl_opts, :cert) or Keyword.has_key?(ssl_opts, :certfile)
+            {:ok, {{~c"HTTP/1.1", 200, ~c"OK"}, [], "{}"}}
+          end
+        )
 
       assert {:ok, _} = result
     end
@@ -270,14 +288,14 @@ defmodule Sykli.K8s.ClientTest do
       config = %{api_url: "https://kubernetes.default.svc"}
 
       assert Client.build_url("/api/v1/namespaces", config) ==
-             "https://kubernetes.default.svc/api/v1/namespaces"
+               "https://kubernetes.default.svc/api/v1/namespaces"
     end
 
     test "handles trailing slash in api_url" do
       config = %{api_url: "https://kubernetes.default.svc/"}
 
       assert Client.build_url("/api/v1/namespaces", config) ==
-             "https://kubernetes.default.svc/api/v1/namespaces"
+               "https://kubernetes.default.svc/api/v1/namespaces"
     end
   end
 end

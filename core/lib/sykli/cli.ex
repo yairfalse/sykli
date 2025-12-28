@@ -131,6 +131,7 @@ defmodule Sykli.CLI do
       sykli delta --dry-run        Show what would run
       sykli delta --dry-run -v     Show what would run and why
     """)
+
     halt(0)
   end
 
@@ -153,6 +154,7 @@ defmodule Sykli.CLI do
             else
               IO.puts("#{IO.ANSI.green()}No tasks affected by changes#{IO.ANSI.reset()}")
             end
+
             halt(0)
 
           {:ok, affected} ->
@@ -177,6 +179,7 @@ defmodule Sykli.CLI do
             else
               IO.puts("#{IO.ANSI.red()}#{Sykli.Delta.format_error(reason)}#{IO.ANSI.reset()}")
             end
+
             halt(1)
         end
 
@@ -186,6 +189,7 @@ defmodule Sykli.CLI do
         else
           IO.puts("#{IO.ANSI.red()}Error: #{inspect(reason)}#{IO.ANSI.reset()}")
         end
+
         halt(1)
     end
   end
@@ -194,14 +198,15 @@ defmodule Sykli.CLI do
     {:ok, changed_files} = Sykli.Delta.get_changed_files(from, path)
 
     output = %{
-      affected: Enum.map(affected, fn a ->
-        %{
-          name: a.name,
-          reason: a.reason,
-          files: a.files,
-          depends_on: a.depends_on
-        }
-      end),
+      affected:
+        Enum.map(affected, fn a ->
+          %{
+            name: a.name,
+            reason: a.reason,
+            files: a.files,
+            depends_on: a.depends_on
+          }
+        end),
       changed_files: changed_files,
       from: from
     }
@@ -229,13 +234,15 @@ defmodule Sykli.CLI do
             IO.puts("  #{IO.ANSI.yellow()}•#{IO.ANSI.reset()} #{task.name}")
             IO.puts("    #{IO.ANSI.faint()}↳ depends on: #{task.depends_on}#{IO.ANSI.reset()}")
           else
-            IO.puts("  #{IO.ANSI.yellow()}•#{IO.ANSI.reset()} #{task.name} #{IO.ANSI.faint()}(via #{task.depends_on})#{IO.ANSI.reset()}")
+            IO.puts(
+              "  #{IO.ANSI.yellow()}•#{IO.ANSI.reset()} #{task.name} #{IO.ANSI.faint()}(via #{task.depends_on})#{IO.ANSI.reset()}"
+            )
           end
       end
     end)
 
-    direct_count = Enum.count(affected, & &1.reason == :direct)
-    dep_count = Enum.count(affected, & &1.reason == :dependent)
+    direct_count = Enum.count(affected, &(&1.reason == :direct))
+    dep_count = Enum.count(affected, &(&1.reason == :dependent))
 
     IO.puts("")
     IO.puts("#{IO.ANSI.faint()}#{direct_count} direct, #{dep_count} dependent#{IO.ANSI.reset()}")
@@ -274,9 +281,11 @@ defmodule Sykli.CLI do
     count = length(affected_names)
 
     IO.puts("#{IO.ANSI.cyan()}Running #{count} affected task(s)#{IO.ANSI.reset()}")
+
     Enum.each(affected_names, fn name ->
       IO.puts("  • #{name}")
     end)
+
     IO.puts("")
 
     # Use Sykli.run with a filter
@@ -285,7 +294,10 @@ defmodule Sykli.CLI do
     case Sykli.run(path, filter: fn task -> MapSet.member?(affected_set, task.name) end) do
       {:ok, results} ->
         duration = System.monotonic_time(:millisecond) - start_time
-        IO.puts("\n#{IO.ANSI.green()}✓ All affected tasks completed in #{format_duration(duration)}#{IO.ANSI.reset()}")
+
+        IO.puts(
+          "\n#{IO.ANSI.green()}✓ All affected tasks completed in #{format_duration(duration)}#{IO.ANSI.reset()}"
+        )
 
         Enum.each(results, fn {name, _, _} ->
           IO.puts("  ✓ #{name}")
@@ -379,6 +391,7 @@ defmodule Sykli.CLI do
   end
 
   defp parse_mounts(nil), do: []
+
   defp parse_mounts(mounts) when is_list(mounts) do
     Enum.map(mounts, fn m ->
       %{

@@ -60,13 +60,18 @@ defmodule Sykli.Runtime.Shell do
     # Convert env map to list of tuples for Port
     env_list = Enum.map(env, fn {k, v} -> {String.to_charlist(k), String.to_charlist(v)} end)
 
-    port = Port.open(
-      {:spawn_executable, "/bin/sh"},
-      [:binary, :exit_status, :stderr_to_stdout,
-       args: ["-c", command],
-       cd: workdir,
-       env: env_list]
-    )
+    port =
+      Port.open(
+        {:spawn_executable, "/bin/sh"},
+        [
+          :binary,
+          :exit_status,
+          :stderr_to_stdout,
+          args: ["-c", command],
+          cd: workdir,
+          env: env_list
+        ]
+      )
 
     try do
       stream_output(port, timeout_ms)

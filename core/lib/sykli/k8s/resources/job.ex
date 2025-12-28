@@ -173,16 +173,21 @@ defmodule Sykli.K8s.Resources.Job do
     container =
       container
       |> then(fn c -> if env_vars != [], do: Map.put(c, "env", env_vars), else: c end)
-      |> then(fn c -> if volume_mounts != [], do: Map.put(c, "volumeMounts", volume_mounts), else: c end)
+      |> then(fn c ->
+        if volume_mounts != [], do: Map.put(c, "volumeMounts", volume_mounts), else: c
+      end)
 
     spec = %{
       "backoffLimit" => backoff_limit,
       "template" => %{
-        "spec" => %{
-          "containers" => [container],
-          "restartPolicy" => "Never"
-        }
-        |> then(fn s -> if volume_specs != [], do: Map.put(s, "volumes", volume_specs), else: s end)
+        "spec" =>
+          %{
+            "containers" => [container],
+            "restartPolicy" => "Never"
+          }
+          |> then(fn s ->
+            if volume_specs != [], do: Map.put(s, "volumes", volume_specs), else: s
+          end)
       }
     }
 
@@ -196,11 +201,12 @@ defmodule Sykli.K8s.Resources.Job do
     %{
       "apiVersion" => "batch/v1",
       "kind" => "Job",
-      "metadata" => %{
-        "name" => name,
-        "namespace" => namespace
-      }
-      |> then(fn m -> if labels != %{}, do: Map.put(m, "labels", labels), else: m end),
+      "metadata" =>
+        %{
+          "name" => name,
+          "namespace" => namespace
+        }
+        |> then(fn m -> if labels != %{}, do: Map.put(m, "labels", labels), else: m end),
       "spec" => spec
     }
   end
@@ -216,8 +222,12 @@ defmodule Sykli.K8s.Resources.Job do
       case get(name, namespace, config, opts) do
         {:ok, job} ->
           case status(job) do
-            :succeeded -> {:ok, :succeeded}
-            :failed -> {:ok, :failed}
+            :succeeded ->
+              {:ok, :succeeded}
+
+            :failed ->
+              {:ok, :failed}
+
             _ ->
               Process.sleep(poll_interval)
               do_wait(name, namespace, config, opts, poll_interval, deadline)
@@ -233,19 +243,47 @@ defmodule Sykli.K8s.Resources.Job do
     do_find_pod(name, namespace, config, pod_client, container, retry_delay, max_retries, 0)
   end
 
-  defp do_find_pod(_name, _namespace, _config, _pod_client, _container, _retry_delay, max_retries, retries)
+  defp do_find_pod(
+         _name,
+         _namespace,
+         _config,
+         _pod_client,
+         _container,
+         _retry_delay,
+         max_retries,
+         retries
+       )
        when retries >= max_retries do
     {:error, :no_pods}
   end
 
-  defp do_find_pod(name, namespace, config, pod_client, container, retry_delay, max_retries, retries) do
+  defp do_find_pod(
+         name,
+         namespace,
+         config,
+         pod_client,
+         container,
+         retry_delay,
+         max_retries,
+         retries
+       ) do
     # List pods with job-name label
     path = "/api/v1/namespaces/#{namespace}/pods?labelSelector=job-name=#{name}"
 
     case pod_client.(:get, path, nil, config, []) do
       {:ok, %{"items" => []}} ->
         Process.sleep(retry_delay)
-        do_find_pod(name, namespace, config, pod_client, container, retry_delay, max_retries, retries + 1)
+
+        do_find_pod(
+          name,
+          namespace,
+          config,
+          pod_client,
+          container,
+          retry_delay,
+          max_retries,
+          retries + 1
+        )
 
       {:ok, %{"items" => [pod | _]}} ->
         pod_name = get_in(pod, ["metadata", "name"])

@@ -20,11 +20,12 @@ defmodule Sykli.Detector do
   def find(path) do
     # For Burrito-bundled binaries, the BEAM's cwd is the temp extraction dir.
     # Use PWD env var to get the actual shell working directory.
-    abs_path = if path == "." do
-      System.get_env("PWD") || File.cwd!()
-    else
-      Path.expand(path)
-    end
+    abs_path =
+      if path == "." do
+        System.get_env("PWD") || File.cwd!()
+      else
+        Path.expand(path)
+      end
 
     @sdk_files
     |> Enum.find_value(fn {file, runner} ->

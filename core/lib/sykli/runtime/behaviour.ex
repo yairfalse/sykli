@@ -72,8 +72,9 @@ defmodule Sykli.Runtime.Behaviour do
         ]
 
   @typedoc "Execution result"
-  @type result :: {:ok, exit_code :: non_neg_integer(), lines :: non_neg_integer(), output :: String.t()}
-                | {:error, term()}
+  @type result ::
+          {:ok, exit_code :: non_neg_integer(), lines :: non_neg_integer(), output :: String.t()}
+          | {:error, term()}
 
   # ─────────────────────────────────────────────────────────────────────────────
   # IDENTITY
@@ -143,7 +144,8 @@ defmodule Sykli.Runtime.Behaviour do
   @doc """
   Create a network for service communication.
   """
-  @callback create_network(name :: String.t()) :: {:ok, network_id :: String.t()} | {:error, term()}
+  @callback create_network(name :: String.t()) ::
+              {:ok, network_id :: String.t()} | {:error, term()}
 
   @doc """
   Remove a network.

@@ -24,11 +24,12 @@ defmodule Sykli do
       expanded_graph = Graph.expand_matrix(graph)
 
       # Apply filter if provided
-      filtered_graph = if filter_fn do
-        filter_graph(expanded_graph, filter_fn)
-      else
-        expanded_graph
-      end
+      filtered_graph =
+        if filter_fn do
+          filter_graph(expanded_graph, filter_fn)
+        else
+          expanded_graph
+        end
 
       case Graph.topo_sort(filtered_graph) do
         {:ok, order} -> Executor.run(order, filtered_graph, workdir: path)

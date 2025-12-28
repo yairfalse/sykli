@@ -13,12 +13,13 @@ defmodule Sykli.K8s.ErrorTest do
     end
 
     test "creates error with all fields" do
-      error = Error.new(:api_error,
-        message: "Internal server error",
-        status_code: 500,
-        reason: "InternalError",
-        details: %{"causes" => []}
-      )
+      error =
+        Error.new(:api_error,
+          message: "Internal server error",
+          status_code: 500,
+          reason: "InternalError",
+          details: %{"causes" => []}
+        )
 
       assert error.type == :api_error
       assert error.status_code == 500
@@ -70,14 +71,15 @@ defmodule Sykli.K8s.ErrorTest do
     end
 
     test "extracts reason from K8s status response" do
-      error = Error.from_status_code(404, %{
-        "kind" => "Status",
-        "apiVersion" => "v1",
-        "status" => "Failure",
-        "message" => "jobs.batch \"nonexistent\" not found",
-        "reason" => "NotFound",
-        "details" => %{"name" => "nonexistent", "kind" => "jobs"}
-      })
+      error =
+        Error.from_status_code(404, %{
+          "kind" => "Status",
+          "apiVersion" => "v1",
+          "status" => "Failure",
+          "message" => "jobs.batch \"nonexistent\" not found",
+          "reason" => "NotFound",
+          "details" => %{"name" => "nonexistent", "kind" => "jobs"}
+        })
 
       assert error.type == :not_found
       assert error.reason == "NotFound"
