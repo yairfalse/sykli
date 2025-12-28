@@ -81,9 +81,14 @@ defmodule Sykli.Watch do
       # Add to pending files
       new_pending = MapSet.put(state.pending_files, file_path)
 
-      # Cancel existing timer
+      # Cancel existing timer and flush any pending :run_delta message
       if state.timer_ref do
-        Process.cancel_timer(state.timer_ref)
+        Process.cancel_timer(state.timer_ref, info: false)
+        receive do
+          :run_delta -> :ok
+        after
+          0 -> :ok
+        end
       end
 
       # Set new debounce timer

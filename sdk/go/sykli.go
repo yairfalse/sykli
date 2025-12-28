@@ -996,6 +996,9 @@ func (t *Task) AfterGroup(groups ...*TaskGroup) *Task {
 //	        Run("go test ./...")
 //	})
 func (p *Pipeline) Matrix(name string, values []string, generator func(string) *Task) *TaskGroup {
+	if len(values) == 0 {
+		panic("Matrix: values must not be empty")
+	}
 	tasks := make([]*Task, 0, len(values))
 	for _, v := range values {
 		task := generator(v)
@@ -1022,6 +1025,9 @@ func (p *Pipeline) Matrix(name string, values []string, generator func(string) *
 //	    return s.Task("deploy-"+env).Run("deploy --host "+host)
 //	})
 func (p *Pipeline) MatrixMap(name string, values map[string]string, generator func(key, value string) *Task) *TaskGroup {
+	if len(values) == 0 {
+		panic("MatrixMap: values must not be empty")
+	}
 	tasks := make([]*Task, 0, len(values))
 	for k, v := range values {
 		task := generator(k, v)
