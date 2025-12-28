@@ -160,8 +160,8 @@ defmodule Sykli.ErrorHints do
   # ----- DID YOU MEAN -----
 
   @doc """
-  Suggests similar items using Jaro-Winkler distance.
-  Returns nil if no good match, or "Did you mean 'closest'?" if found.
+  Suggests similar items using Jaro distance.
+  Returns nil if no good match or exact match, or "Did you mean 'closest'?" if found.
   """
   def did_you_mean(input, candidates, threshold \\ 0.8) when is_list(candidates) do
     input_str = to_string(input)
@@ -172,7 +172,8 @@ defmodule Sykli.ErrorHints do
       |> Enum.max_by(fn {_, score} -> score end, fn -> {nil, 0} end)
 
     case best do
-      {candidate, score} when score >= threshold ->
+      # Don't suggest if exact match (score == 1.0)
+      {candidate, score} when score >= threshold and score < 1.0 ->
         "Did you mean '#{candidate}'?"
 
       _ ->

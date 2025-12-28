@@ -604,13 +604,11 @@ func (t *Task) MountCache(cache *CacheVolume, path string) *Task {
 // MountCwd mounts the current working directory to /work and sets workdir.
 // This is a convenience method that combines Mount + Workdir for the common case.
 func (t *Task) MountCwd() *Task {
-	// Create a directory reference for current directory
-	dir := &Directory{path: "."}
 	t.mounts = append(t.mounts, Mount{
-		resource:   dir.ID(),
+		resource:   "src:.",
 		path:       "/work",
 		mountType:  "directory",
-		sourcePath: dir.path,
+		sourcePath: ".",
 	})
 	t.workdir = "/work"
 	return t
@@ -621,12 +619,11 @@ func (t *Task) MountCwdAt(containerPath string) *Task {
 	if containerPath == "" || containerPath[0] != '/' {
 		log.Panic().Str("task", t.name).Str("path", containerPath).Msg("mount path must be absolute (start with /)")
 	}
-	dir := &Directory{path: "."}
 	t.mounts = append(t.mounts, Mount{
-		resource:   dir.ID(),
+		resource:   "src:.",
 		path:       containerPath,
 		mountType:  "directory",
-		sourcePath: dir.path,
+		sourcePath: ".",
 	})
 	t.workdir = containerPath
 	return t
