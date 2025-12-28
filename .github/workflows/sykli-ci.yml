@@ -27,7 +27,7 @@ jobs:
 
       - name: Install Sykli
         run: |
-          curl -fsSL https://github.com/yairfalse/sykli/releases/latest/download/sykli-linux-amd64 -o sykli
+          curl -fsSL https://github.com/yairfalse/sykli/releases/latest/download/sykli-linux-x86_64 -o sykli
           chmod +x sykli
           sudo mv sykli /usr/local/bin/
 
