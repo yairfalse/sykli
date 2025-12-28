@@ -1655,6 +1655,7 @@ impl Pipeline {
     where
         F: FnMut(&mut Pipeline, &str),
     {
+        assert!(!values.is_empty(), "matrix: values must not be empty");
         let mut task_names = Vec::new();
         let start_len = self.tasks.len();
 

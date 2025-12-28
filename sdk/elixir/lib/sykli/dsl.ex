@@ -439,8 +439,9 @@ defmodule Sykli.DSL do
         after_group versions
       end
   """
+  @spec matrix_tasks(String.t(), [any()], (any() -> Sykli.Task.t() | nil)) :: Sykli.TaskGroup.t()
   def matrix_tasks(name, values, generator)
-      when is_binary(name) and is_list(values) and is_function(generator, 1) do
+      when is_binary(name) and is_list(values) and length(values) > 0 and is_function(generator, 1) do
     tasks =
       values
       |> Enum.map(fn v -> generator.(v) end)
@@ -457,6 +458,7 @@ defmodule Sykli.DSL do
   @doc """
   Sets the container image on a task reference (for use outside task blocks).
   """
+  @spec with_container(Sykli.Task.t(), String.t()) :: Sykli.Task.t()
   def with_container(%Sykli.Task{} = task, image) when is_binary(image) do
     %{task | container: image}
   end
@@ -464,6 +466,7 @@ defmodule Sykli.DSL do
   @doc """
   Sets dependencies on a task reference (for use outside task blocks).
   """
+  @spec with_deps(Sykli.Task.t(), [String.t()]) :: Sykli.Task.t()
   def with_deps(%Sykli.Task{} = task, deps) when is_list(deps) do
     %{task | depends_on: task.depends_on ++ deps}
   end
