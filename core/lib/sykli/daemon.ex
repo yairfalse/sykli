@@ -164,11 +164,18 @@ defmodule Sykli.Daemon do
       {:ok, content} ->
         content |> String.trim() |> String.to_integer()
 
-      {:error, _} ->
+      {:error, :enoent} ->
+        # PID file doesn't exist - normal when daemon not running
+        nil
+
+      {:error, reason} ->
+        Logger.warning("[Sykli.Daemon] Failed to read PID file: #{inspect(reason)}")
         nil
     end
   rescue
-    _ -> nil
+    e ->
+      Logger.warning("[Sykli.Daemon] Error parsing PID file: #{inspect(e)}")
+      nil
   end
 
   defp process_alive?(pid) when is_integer(pid) and pid > 0 do
@@ -325,6 +332,10 @@ defmodule Sykli.Daemon do
     end
   end
 
+  # Starts the daemon in the current process (foreground mode).
+  # This initializes Erlang distribution, writes the PID file, and starts
+  # cluster/coordinator services. Used for debugging or when running under
+  # a process supervisor.
   defp start_foreground(opts) do
     node_name = Keyword.get(opts, :name) || node_name()
     config = config()
@@ -390,7 +401,10 @@ defmodule Sykli.Daemon do
   defp start_distribution(node_name, cookie) do
     case Node.start(node_name, :longnames) do
       {:ok, _} ->
-        Node.set_cookie(String.to_atom(cookie))
+        # Cookie conversion is safe here - cookies are only set once per daemon
+        # start, either from env var or generated. Not a continuous atom leak.
+        cookie_atom = if is_atom(cookie), do: cookie, else: String.to_atom(cookie)
+        Node.set_cookie(cookie_atom)
         :ok
 
       {:error, {:already_started, _}} ->
@@ -403,21 +417,28 @@ defmodule Sykli.Daemon do
 
   defp start_daemon_services do
     # Start cluster discovery
-    case Sykli.Cluster.start_link() do
-      {:ok, _} -> :ok
-      {:error, {:already_started, _}} -> :ok
-      _ -> :ok
-    end
+    start_service(Sykli.Cluster, "Cluster")
 
     # Start coordinator (if we're the coordinator node)
     # For now, every daemon can receive tasks
-    case Sykli.Coordinator.start_link() do
-      {:ok, _} -> :ok
-      {:error, {:already_started, _}} -> :ok
-      _ -> :ok
-    end
+    start_service(Sykli.Coordinator, "Coordinator")
 
     :ok
+  end
+
+  defp start_service(module, name) do
+    case module.start_link() do
+      {:ok, _} ->
+        Logger.debug("[Sykli.Daemon] Started #{name}")
+        :ok
+
+      {:error, {:already_started, _}} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("[Sykli.Daemon] Failed to start #{name}: #{inspect(reason)}")
+        :ok
+    end
   end
 
   @doc """

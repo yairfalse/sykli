@@ -398,10 +398,19 @@ defmodule Sykli.CLI do
           IO.puts("#{IO.ANSI.green()}Daemon running in foreground#{IO.ANSI.reset()}")
           IO.puts("#{IO.ANSI.faint()}Press Ctrl+C to stop#{IO.ANSI.reset()}")
 
-          # Keep the process alive
+          # Trap exit signals to ensure cleanup
+          Process.flag(:trap_exit, true)
+
+          # Keep the process alive until interrupted
           receive do
             :stop -> :ok
+            {:EXIT, _pid, _reason} -> :ok
+          after
+            :infinity -> :ok
           end
+
+          # Cleanup on exit
+          Sykli.Daemon.remove_pid_file()
         else
           IO.puts("#{IO.ANSI.green()}Daemon started#{IO.ANSI.reset()}")
           print_daemon_status()

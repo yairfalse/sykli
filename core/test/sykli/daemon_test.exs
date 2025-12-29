@@ -28,15 +28,17 @@ defmodule Sykli.DaemonTest do
       assert String.contains?(name_str, "@")
     end
 
-    test "generates unique names" do
-      name1 = Daemon.node_name()
-      name2 = Daemon.node_name()
+    test "generates unique names using random suffix" do
+      # Generate multiple names and verify they differ
+      # The 3-byte random suffix provides enough entropy
+      names = for _ <- 1..10, do: Daemon.node_name()
 
-      # Names should be different (include timestamp/random)
-      # Actually they might be same if called in same millisecond
-      # Just verify format
-      assert is_atom(name1)
-      assert is_atom(name2)
+      # All should be atoms with correct format
+      assert Enum.all?(names, &is_atom/1)
+
+      # Should have unique values (duplicates extremely unlikely with 3 random bytes)
+      unique_names = Enum.uniq(names)
+      assert length(unique_names) == length(names)
     end
 
     test "allows custom prefix" do
@@ -172,11 +174,14 @@ defmodule Sykli.DaemonTest do
       assert {:error, :not_running} = Daemon.stop()
     end
 
-    test "returns ok and removes pid file when stopping own process" do
-      # This is tricky - we can't actually stop ourselves
-      # Just test the "not running" case
-      refute Daemon.running?()
+    test "cleans up stale pid file when process is dead" do
+      # Write a PID that doesn't exist
+      File.write!(Daemon.pid_file(), "999999999")
+      assert File.exists?(Daemon.pid_file())
+
+      # Stop should detect dead process, clean up, and return not_running
       assert {:error, :not_running} = Daemon.stop()
+      refute File.exists?(Daemon.pid_file())
     end
   end
 
