@@ -89,7 +89,7 @@ defmodule Sykli.MeshTest do
     end
   end
 
-  describe "select_node/2" do
+  describe "select_node/3" do
     test "returns :local when no nodes connected" do
       task = make_task("any-task")
 
@@ -102,10 +102,10 @@ defmodule Sykli.MeshTest do
       assert {:ok, :local} = Mesh.select_node(task, [:local])
     end
 
-    test "returns error when no candidates provided and no nodes available" do
+    test "falls back to :local when candidates list is empty" do
       task = make_task("any-task")
 
-      # With empty candidates and strategy :any, should return local
+      # With empty candidates and strategy :any, should fall back to local
       assert {:ok, :local} = Mesh.select_node(task, [], strategy: :any)
     end
 
@@ -116,7 +116,7 @@ defmodule Sykli.MeshTest do
     end
   end
 
-  describe "dispatch_to_any/3" do
+  describe "dispatch_to_any/2" do
     test "runs task on first available node" do
       task = make_task("any-node-task", command: "echo dispatched")
 
@@ -147,7 +147,7 @@ defmodule Sykli.MeshTest do
     end
   end
 
-  describe "broadcast_task/3" do
+  describe "broadcast_task/2" do
     test "runs task on all available nodes" do
       task = make_task("broadcast-task", command: "echo broadcast")
 

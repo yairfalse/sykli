@@ -24,7 +24,7 @@ defmodule Sykli.Mesh do
   - Capabilities (does node have Docker? GPU?)
   - Load (future: least loaded node)
 
-      Mesh.select_node(task, candidates, strategy: :round_robin)
+      Mesh.select_node(task, candidates, strategy: :any)
 
   ## Local Fallback
 
@@ -88,7 +88,8 @@ defmodule Sykli.Mesh do
   @doc """
   Dispatch a task to any available node.
 
-  Tries remote nodes first, falls back to local if none available.
+  Runs on the first available node (which is `:local` by default).
+  Use `strategy: :remote` with `select_node/3` to prefer remote nodes.
 
   ## Options
 
@@ -120,8 +121,8 @@ defmodule Sykli.Mesh do
     |> Enum.map(fn node ->
       {node, Task.async(fn -> dispatch_task(task, node, opts) end)}
     end)
-    |> Enum.map(fn {node, async_task} ->
-      {node, Task.await(async_task, :infinity)}
+    |> Enum.map(fn {node, task_handle} ->
+      {node, Task.await(task_handle, :infinity)}
     end)
     |> Map.new()
   end
@@ -209,21 +210,20 @@ defmodule Sykli.Mesh do
   @doc """
   Select a node for task execution.
 
+  Always succeeds - falls back to `:local` when no suitable nodes found.
+
   ## Options
 
     * `:strategy` - Selection strategy:
       - `:any` - First available (default)
       - `:local` - Always local
-      - `:remote` - Prefer remote nodes
-      - `:round_robin` - Rotate through nodes (future)
+      - `:remote` - Prefer remote nodes, fall back to local
 
   ## Returns
 
-    * `{:ok, node}` - Selected node
-    * `{:error, :no_nodes}` - No suitable nodes found
+    * `{:ok, node}` - Selected node (never fails, falls back to `:local`)
   """
-  @spec select_node(Sykli.Graph.Task.t(), [node_ref()], keyword()) ::
-          {:ok, node_ref()} | {:error, :no_nodes}
+  @spec select_node(Sykli.Graph.Task.t(), [node_ref()], keyword()) :: {:ok, node_ref()}
   def select_node(task, candidates, opts \\ [])
 
   def select_node(_task, [], _opts) do
