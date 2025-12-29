@@ -81,11 +81,25 @@ defmodule Sykli.Module do
   defmacro __using__(_opts) do
     quote do
       import Sykli.Module,
-        only: [param: 2, param: 3, requires: 1, tasks: 1]
+        only: [
+          param: 2,
+          param: 3,
+          requires: 1,
+          tasks: 1,
+          task: 2,
+          task: 3,
+          container: 1,
+          command: 1,
+          depends_on: 1,
+          privileged: 1,
+          workdir: 1,
+          env: 2,
+          inputs: 1
+        ]
 
       Module.register_attribute(__MODULE__, :module_params, accumulate: true)
       Module.register_attribute(__MODULE__, :module_requires, [])
-      Module.register_attribute(__MODULE__, :module_tasks_block, [])
+      Module.register_attribute(__MODULE__, :module_tasks, accumulate: true)
       Module.register_attribute(__MODULE__, :module_version, [])
 
       @before_compile Sykli.Module
@@ -128,20 +142,128 @@ defmodule Sykli.Module do
   @doc """
   Define the tasks this module creates.
 
-  Inside the block, you have access to `params()` which returns
-  the user-provided parameters.
-
   ## Examples
 
       tasks do
         task "build" do
-          run "docker build -t \#{params().image} ."
+          container "docker:24-dind"
+          command "docker build -t ${image} ."
+        end
+
+        task "push", when: {:param, :push} do
+          command "docker push ${image}"
+          depends_on ["build"]
         end
       end
+
+  Use `${param_name}` for parameter interpolation in commands.
+  Use `when: {:param, :field}` for conditional tasks.
   """
   defmacro tasks(do: block) do
+    # Just execute the block - task macros will register tasks
+    block
+  end
+
+  @doc """
+  Define a task within a module.
+
+  ## Options
+
+    * `:when` - Condition for task. Use `{:param, :field}` to run only when param is truthy.
+    * `:always` - If true, task always runs (default: true unless :when is set)
+
+  ## Examples
+
+      task "build" do
+        container "docker:24-dind"
+        command "docker build -t ${image} ."
+      end
+
+      task "push", when: {:param, :push} do
+        command "docker push ${image}"
+        depends_on ["build"]
+      end
+  """
+  defmacro task(name, opts \\ [], do: block) do
     quote do
-      @module_tasks_block unquote(Macro.escape(block))
+      # Initialize task builder in process dictionary
+      Process.put(:sykli_task_builder, %{
+        name: unquote(name),
+        container: nil,
+        command: nil,
+        depends_on: [],
+        when: unquote(opts[:when]),
+        privileged: false,
+        workdir: nil,
+        env: %{},
+        inputs: [],
+        outputs: %{}
+      })
+
+      # Execute the block (container, command, etc. will update the builder)
+      unquote(block)
+
+      # Get the built task and register it
+      task_def = Process.get(:sykli_task_builder)
+      Process.delete(:sykli_task_builder)
+      @module_tasks task_def
+    end
+  end
+
+  @doc "Set the container image for current task"
+  defmacro container(image) do
+    quote do
+      task = Process.get(:sykli_task_builder)
+      Process.put(:sykli_task_builder, %{task | container: unquote(image)})
+    end
+  end
+
+  @doc "Set the command for current task. Use ${param} for interpolation."
+  defmacro command(cmd) do
+    quote do
+      task = Process.get(:sykli_task_builder)
+      Process.put(:sykli_task_builder, %{task | command: unquote(cmd)})
+    end
+  end
+
+  @doc "Set dependencies for current task"
+  defmacro depends_on(tasks) do
+    quote do
+      task = Process.get(:sykli_task_builder)
+      Process.put(:sykli_task_builder, %{task | depends_on: unquote(tasks)})
+    end
+  end
+
+  @doc "Set privileged mode for current task"
+  defmacro privileged(value) do
+    quote do
+      task = Process.get(:sykli_task_builder)
+      Process.put(:sykli_task_builder, %{task | privileged: unquote(value)})
+    end
+  end
+
+  @doc "Set working directory for current task"
+  defmacro workdir(path) do
+    quote do
+      task = Process.get(:sykli_task_builder)
+      Process.put(:sykli_task_builder, %{task | workdir: unquote(path)})
+    end
+  end
+
+  @doc "Add environment variable to current task"
+  defmacro env(key, value) do
+    quote do
+      task = Process.get(:sykli_task_builder)
+      new_env = Map.put(task.env, unquote(key), unquote(value))
+      Process.put(:sykli_task_builder, %{task | env: new_env})
+    end
+  end
+
+  @doc "Set input patterns for current task"
+  defmacro inputs(patterns) do
+    quote do
+      task = Process.get(:sykli_task_builder)
+      Process.put(:sykli_task_builder, %{task | inputs: unquote(patterns)})
     end
   end
 
@@ -152,7 +274,7 @@ defmodule Sykli.Module do
   defmacro __before_compile__(env) do
     params = Module.get_attribute(env.module, :module_params) |> Enum.reverse()
     requires = Module.get_attribute(env.module, :module_requires) || []
-    _tasks_block = Module.get_attribute(env.module, :module_tasks_block)
+    tasks = Module.get_attribute(env.module, :module_tasks) |> Enum.reverse()
     version = Module.get_attribute(env.module, :version) || "0.1.0"
 
     # Extract module name for grouping (e.g., "Docker" from "Sykli.Modules.Docker.BuildAndPush")
@@ -191,6 +313,9 @@ defmodule Sykli.Module do
 
       @doc "Required parameter names"
       def __module__(:required_params), do: unquote(required_params)
+
+      @doc "Task definitions"
+      def __module__(:tasks), do: unquote(Macro.escape(tasks))
 
       @doc "Get param type"
       def __param__(name, :type), do: unquote(Macro.escape(types))[name]
@@ -299,9 +424,28 @@ defmodule Sykli.Module do
                 "default" => Keyword.get(opts, :default),
                 "doc" => Keyword.get(opts, :doc)
               }
+            end),
+          "tasks" =>
+            __module__(:tasks)
+            |> Enum.map(fn task ->
+              %{
+                "name" => task.name,
+                "container" => task.container,
+                "command" => task.command,
+                "depends_on" => task.depends_on,
+                "when" => format_when(task.when),
+                "privileged" => task.privileged,
+                "workdir" => task.workdir,
+                "env" => task.env,
+                "inputs" => task.inputs
+              }
             end)
         }
       end
+
+      defp format_when(nil), do: nil
+      defp format_when({:param, field}), do: %{"type" => "param", "field" => to_string(field)}
+      defp format_when(other), do: inspect(other)
 
       defp format_type(:string), do: "string"
       defp format_type(:integer), do: "integer"
