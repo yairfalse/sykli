@@ -41,6 +41,11 @@ defmodule Sykli.Daemon do
   @default_dir Path.expand("~/.sykli")
   @pid_filename "daemon.pid"
 
+  # Timeouts and retry configuration
+  @daemon_startup_delay_ms 500
+  @shutdown_max_retries 50
+  @shutdown_retry_interval_ms 100
+
   # ---------------------------------------------------------------------------
   # NODE NAMING
   # ---------------------------------------------------------------------------
@@ -166,7 +171,7 @@ defmodule Sykli.Daemon do
     _ -> nil
   end
 
-  defp process_alive?(pid) when is_integer(pid) do
+  defp process_alive?(pid) when is_integer(pid) and pid > 0 do
     case platform() do
       :macos -> check_process_macos(pid)
       :linux -> check_process_linux(pid)
@@ -174,8 +179,12 @@ defmodule Sykli.Daemon do
     end
   end
 
+  defp process_alive?(_pid), do: false
+
   defp check_process_macos(pid) do
-    case System.cmd("ps", ["-p", "#{pid}"], stderr_to_stdout: true) do
+    pid_str = Integer.to_string(pid)
+
+    case System.cmd("ps", ["-p", pid_str], stderr_to_stdout: true) do
       {_, 0} -> true
       _ -> false
     end
@@ -188,7 +197,9 @@ defmodule Sykli.Daemon do
   end
 
   defp check_process_generic(pid) do
-    case System.cmd("kill", ["-0", "#{pid}"], stderr_to_stdout: true) do
+    pid_str = Integer.to_string(pid)
+
+    case System.cmd("kill", ["-0", pid_str], stderr_to_stdout: true) do
       {_, 0} -> true
       _ -> false
     end
@@ -236,10 +247,19 @@ defmodule Sykli.Daemon do
   @spec config() :: map()
   def config do
     %{
-      port: System.get_env("SYKLI_PORT", "4369") |> String.to_integer(),
+      port: parse_port(System.get_env("SYKLI_PORT")),
       cookie: System.get_env("SYKLI_COOKIE") || generate_cookie(),
       cluster_strategy: :gossip
     }
+  end
+
+  defp parse_port(nil), do: 4369
+
+  defp parse_port(value) do
+    case Integer.parse(value) do
+      {port, ""} when port > 0 and port <= 65535 -> port
+      _ -> 4369
+    end
   end
 
   defp generate_cookie do
@@ -340,11 +360,11 @@ defmodule Sykli.Daemon do
           env: [{~c"SYKLI_DAEMON", ~c"1"}]
         ])
 
-      # Give it a moment to start
-      Process.sleep(500)
+      # Give daemon time to initialize and write PID file
+      Process.sleep(@daemon_startup_delay_ms)
 
       if running?() do
-        Port.close(port)
+        close_port_safely(port)
         {:ok, read_pid()}
       else
         {:error, :failed_to_start}
@@ -426,32 +446,46 @@ defmodule Sykli.Daemon do
     end
   end
 
-  defp do_stop(pid) do
+  defp do_stop(pid) when is_integer(pid) and pid > 0 do
+    pid_str = Integer.to_string(pid)
+
     # Send SIGTERM
-    case System.cmd("kill", ["#{pid}"], stderr_to_stdout: true) do
+    case System.cmd("kill", [pid_str], stderr_to_stdout: true) do
       {_, 0} ->
-        # Wait for process to die
-        wait_for_death(pid, 50)
+        # Wait for process to die (50 retries * 100ms = 5 seconds max)
+        wait_for_death(pid_str, @shutdown_max_retries)
 
       {error, _} ->
         {:error, {:kill_failed, error}}
     end
   end
 
-  defp wait_for_death(pid, 0) do
-    # Force kill if still alive
-    System.cmd("kill", ["-9", "#{pid}"], stderr_to_stdout: true)
+  defp do_stop(_pid), do: {:error, :invalid_pid}
+
+  defp wait_for_death(pid_str, 0) do
+    # Force kill if still alive after timeout
+    System.cmd("kill", ["-9", pid_str], stderr_to_stdout: true)
     remove_pid_file()
     :ok
   end
 
-  defp wait_for_death(pid, retries) do
+  defp wait_for_death(pid_str, retries) do
+    pid = String.to_integer(pid_str)
+
     if process_alive?(pid) do
-      Process.sleep(100)
-      wait_for_death(pid, retries - 1)
+      Process.sleep(@shutdown_retry_interval_ms)
+      wait_for_death(pid_str, retries - 1)
     else
       remove_pid_file()
       :ok
     end
+  end
+
+  defp close_port_safely(port) do
+    if Port.info(port) != nil do
+      Port.close(port)
+    end
+  rescue
+    _ -> :ok
   end
 end
