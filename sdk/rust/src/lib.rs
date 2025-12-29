@@ -1193,6 +1193,23 @@ impl<'a> Task<'a> {
         self
     }
 
+    /// Sets dependencies on all tasks in a TaskGroup.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// let tests = p.matrix("versions", &["1.21", "1.22"], |p, v| {
+    ///     p.task(&format!("test-{}", v)).run("go test");
+    /// });
+    /// p.task("deploy").after_group(&tests).run("deploy");
+    /// ```
+    #[must_use]
+    pub fn after_group(self, group: &TaskGroup) -> Self {
+        self.pipeline.tasks[self.index]
+            .depends_on
+            .extend(group.task_names.clone());
+        self
+    }
+
     /// Sets a condition for when this task should run.
     ///
     /// The condition is evaluated at runtime based on CI context variables:
@@ -1494,6 +1511,37 @@ pub struct ExplainContext {
 }
 
 // =============================================================================
+// TASK GROUP
+// =============================================================================
+
+/// A group of tasks that can be used as a dependency.
+/// Created by `matrix()` and can be passed to `after()` or `chain()`.
+#[derive(Clone, Debug)]
+pub struct TaskGroup {
+    /// Name of the group (for identification)
+    pub name: String,
+    /// Names of tasks in this group
+    pub task_names: Vec<String>,
+}
+
+impl TaskGroup {
+    /// Creates a new task group.
+    #[must_use]
+    pub fn new(name: impl Into<String>, task_names: Vec<String>) -> Self {
+        TaskGroup {
+            name: name.into(),
+            task_names,
+        }
+    }
+
+    /// Returns the task names in this group.
+    #[must_use]
+    pub fn names(&self) -> &[String] {
+        &self.task_names
+    }
+}
+
+// =============================================================================
 // PIPELINE
 // =============================================================================
 
@@ -1639,24 +1687,25 @@ impl Pipeline {
         }
     }
 
-    /// Creates tasks for each value in the matrix.
+    /// Creates tasks for each value in the matrix, returning a TaskGroup.
     ///
     /// # Example
     /// ```rust,ignore
     /// let mut p = Pipeline::new();
-    /// let tasks = p.matrix(&["1.21", "1.22", "1.23"], |p, version| {
+    /// let tests = p.matrix("go-versions", &["1.21", "1.22", "1.23"], |p, version| {
     ///     p.task(&format!("test-go-{}", version))
     ///         .container(&format!("golang:{}", version))
     ///         .mount_cwd()
-    ///         .run("go test ./...")
+    ///         .run("go test ./...");
     /// });
+    /// // Use the group as a dependency
+    /// p.task("deploy").after_group(&tests).run("deploy");
     /// ```
-    pub fn matrix<F>(&mut self, values: &[&str], mut generator: F) -> Vec<String>
+    pub fn matrix<F>(&mut self, name: &str, values: &[&str], mut generator: F) -> TaskGroup
     where
         F: FnMut(&mut Pipeline, &str),
     {
         assert!(!values.is_empty(), "matrix: values must not be empty");
-        let mut task_names = Vec::new();
         let start_len = self.tasks.len();
 
         for v in values {
@@ -1664,11 +1713,12 @@ impl Pipeline {
         }
 
         // Collect names of newly created tasks
-        for task in &self.tasks[start_len..] {
-            task_names.push(task.name.clone());
-        }
+        let task_names: Vec<String> = self.tasks[start_len..]
+            .iter()
+            .map(|t| t.name.clone())
+            .collect();
 
-        task_names
+        TaskGroup::new(name, task_names)
     }
 
     // =========================================================================
@@ -3872,5 +3922,108 @@ mod tests {
         let result = p.emit_to(&mut buf);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("invalid memory format"));
+    }
+
+    // =========================================================================
+    // MATRIX BUILD TESTS
+    // =========================================================================
+
+    #[test]
+    fn test_matrix_basic() {
+        let mut p = Pipeline::new();
+
+        let group = p.matrix("go-versions", &["1.21", "1.22", "1.23"], |p, version| {
+            p.task(&format!("test-go-{}", version))
+                .container(&format!("golang:{}", version))
+                .run("go test ./...");
+        });
+
+        // Should have 3 task names
+        assert_eq!(group.task_names.len(), 3);
+        assert_eq!(group.name, "go-versions");
+
+        // Verify task names
+        assert!(group.task_names.contains(&"test-go-1.21".to_string()));
+        assert!(group.task_names.contains(&"test-go-1.22".to_string()));
+        assert!(group.task_names.contains(&"test-go-1.23".to_string()));
+
+        // Should emit successfully
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+        let tasks = json["tasks"].as_array().unwrap();
+        assert_eq!(tasks.len(), 3);
+    }
+
+    #[test]
+    #[should_panic(expected = "matrix: values must not be empty")]
+    fn test_matrix_empty_panics() {
+        let mut p = Pipeline::new();
+        p.matrix("empty", &[], |p, v| {
+            p.task(&format!("test-{}", v)).run("test");
+        });
+    }
+
+    #[test]
+    fn test_matrix_as_dependency() {
+        let mut p = Pipeline::new();
+
+        let tests = p.matrix("tests", &["1.21", "1.22"], |p, version| {
+            p.task(&format!("test-{}", version)).run("go test");
+        });
+
+        // Another task depends on the entire matrix
+        p.task("deploy").after_group(&tests).run("deploy");
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        // Find deploy task
+        let tasks = json["tasks"].as_array().unwrap();
+        let deploy = tasks.iter().find(|t| t["name"] == "deploy").unwrap();
+        let deps = deploy["depends_on"].as_array().unwrap();
+
+        // Should depend on both matrix tasks
+        assert_eq!(deps.len(), 2);
+    }
+
+    #[test]
+    fn test_task_group_new() {
+        let group = TaskGroup::new("test-group", vec![
+            "task-a".to_string(),
+            "task-b".to_string(),
+        ]);
+
+        assert_eq!(group.name, "test-group");
+        assert_eq!(group.names(), &["task-a", "task-b"]);
+    }
+
+    #[test]
+    fn test_after_group() {
+        let mut p = Pipeline::new();
+
+        p.task("a").run("echo a");
+        p.task("b").run("echo b");
+
+        let group = TaskGroup::new("prereqs", vec![
+            "a".to_string(),
+            "b".to_string(),
+        ]);
+
+        p.task("c").after_group(&group).run("echo c");
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        let tasks = json["tasks"].as_array().unwrap();
+        let task_c = tasks.iter().find(|t| t["name"] == "c").unwrap();
+        let deps = task_c["depends_on"].as_array().unwrap();
+
+        // Should depend on both a and b
+        assert_eq!(deps.len(), 2);
+        assert!(deps.contains(&serde_json::json!("a")));
+        assert!(deps.contains(&serde_json::json!("b")));
     }
 }

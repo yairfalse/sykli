@@ -34,6 +34,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -1028,9 +1029,17 @@ func (p *Pipeline) MatrixMap(name string, values map[string]string, generator fu
 	if len(values) == 0 {
 		panic("MatrixMap: values must not be empty")
 	}
+
+	// Sort keys for deterministic iteration order
+	keys := make([]string, 0, len(values))
+	for k := range values {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
 	tasks := make([]*Task, 0, len(values))
-	for k, v := range values {
-		task := generator(k, v)
+	for _, k := range keys {
+		task := generator(k, values[k])
 		if task != nil {
 			tasks = append(tasks, task)
 		}

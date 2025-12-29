@@ -643,3 +643,201 @@ func TestInputFromChainPattern(t *testing.T) {
 		t.Errorf("package should depend on build and test, got %v", pkgDeps)
 	}
 }
+
+// =============================================================================
+// MATRIX BUILD TESTS
+// =============================================================================
+
+func TestMatrixBasic(t *testing.T) {
+	p := New()
+
+	// Create tasks for each Go version
+	group := p.Matrix("go-versions", []string{"1.21", "1.22", "1.23"}, func(version string) *Task {
+		return p.Task("test-go-" + version).
+			Container("golang:" + version).
+			Run("go test ./...")
+	})
+
+	result, err := emitJSON(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Should have 3 tasks
+	tasks := result["tasks"].([]interface{})
+	if len(tasks) != 3 {
+		t.Errorf("expected 3 tasks, got %d", len(tasks))
+	}
+
+	// Group should have 3 task names
+	if len(group.TaskNames()) != 3 {
+		t.Errorf("expected 3 task names in group, got %d", len(group.TaskNames()))
+	}
+
+	// Verify each task exists with correct container
+	for _, version := range []string{"1.21", "1.22", "1.23"} {
+		task := getTaskMap(result, "test-go-"+version)
+		if task == nil {
+			t.Errorf("task 'test-go-%s' not found", version)
+			continue
+		}
+		expectedContainer := "golang:" + version
+		if task["container"] != expectedContainer {
+			t.Errorf("expected container '%s', got '%v'", expectedContainer, task["container"])
+		}
+	}
+}
+
+func TestMatrixEmptyPanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for empty matrix values")
+		}
+	}()
+
+	p := New()
+	p.Matrix("empty", []string{}, func(v string) *Task {
+		return p.Task("test-" + v).Run("test")
+	})
+}
+
+func TestMatrixAsDependency(t *testing.T) {
+	p := New()
+
+	// Matrix creates a group of tasks
+	tests := p.Matrix("go-tests", []string{"1.21", "1.22"}, func(version string) *Task {
+		return p.Task("test-" + version).Run("go test")
+	})
+
+	// Another task depends on the entire matrix
+	p.Task("deploy").Run("deploy").AfterGroup(tests)
+
+	result, err := emitJSON(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	deploy := getTaskMap(result, "deploy")
+	deps := getDeps(deploy)
+
+	// Should depend on both matrix tasks
+	if len(deps) != 2 {
+		t.Errorf("expected 2 deps, got %v", deps)
+	}
+}
+
+func TestMatrixMapBasic(t *testing.T) {
+	p := New()
+
+	// Create tasks for each environment
+	group := p.MatrixMap("deploy-envs", map[string]string{
+		"staging": "staging.example.com",
+		"prod":    "prod.example.com",
+	}, func(env, host string) *Task {
+		return p.Task("deploy-" + env).
+			Env("HOST", host).
+			Run("deploy --host $HOST")
+	})
+
+	result, err := emitJSON(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Should have 2 tasks
+	tasks := result["tasks"].([]interface{})
+	if len(tasks) != 2 {
+		t.Errorf("expected 2 tasks, got %d", len(tasks))
+	}
+
+	// Group should have 2 task names
+	if len(group.TaskNames()) != 2 {
+		t.Errorf("expected 2 task names in group, got %d", len(group.TaskNames()))
+	}
+
+	// Verify environments
+	staging := getTaskMap(result, "deploy-staging")
+	if staging == nil {
+		t.Error("task 'deploy-staging' not found")
+	} else {
+		env := staging["env"].(map[string]interface{})
+		if env["HOST"] != "staging.example.com" {
+			t.Errorf("expected HOST='staging.example.com', got '%v'", env["HOST"])
+		}
+	}
+
+	prod := getTaskMap(result, "deploy-prod")
+	if prod == nil {
+		t.Error("task 'deploy-prod' not found")
+	} else {
+		env := prod["env"].(map[string]interface{})
+		if env["HOST"] != "prod.example.com" {
+			t.Errorf("expected HOST='prod.example.com', got '%v'", env["HOST"])
+		}
+	}
+}
+
+func TestMatrixMapDeterministicOrder(t *testing.T) {
+	// Run multiple times to verify ordering is consistent
+	for i := 0; i < 5; i++ {
+		p := New()
+
+		group := p.MatrixMap("envs", map[string]string{
+			"c": "3",
+			"a": "1",
+			"b": "2",
+		}, func(k, v string) *Task {
+			return p.Task("task-" + k).Run("echo " + v)
+		})
+
+		names := group.TaskNames()
+		// Should be sorted alphabetically: a, b, c
+		if len(names) != 3 {
+			t.Fatalf("expected 3 names, got %d", len(names))
+		}
+		if names[0] != "task-a" || names[1] != "task-b" || names[2] != "task-c" {
+			t.Errorf("expected sorted order [task-a, task-b, task-c], got %v", names)
+		}
+	}
+}
+
+func TestMatrixMapEmptyPanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for empty matrix map")
+		}
+	}()
+
+	p := New()
+	p.MatrixMap("empty", map[string]string{}, func(k, v string) *Task {
+		return p.Task("test-" + k).Run("test")
+	})
+}
+
+func TestMatrixWithNilTasks(t *testing.T) {
+	p := New()
+
+	// Generator can return nil to skip a task
+	group := p.Matrix("versions", []string{"1.21", "skip", "1.23"}, func(version string) *Task {
+		if version == "skip" {
+			return nil
+		}
+		return p.Task("test-" + version).Run("go test")
+	})
+
+	result, err := emitJSON(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Should only have 2 tasks (skip was filtered)
+	tasks := result["tasks"].([]interface{})
+	if len(tasks) != 2 {
+		t.Errorf("expected 2 tasks (nil filtered), got %d", len(tasks))
+	}
+
+	// Group should have 2 task names
+	if len(group.TaskNames()) != 2 {
+		t.Errorf("expected 2 task names, got %d", len(group.TaskNames()))
+	}
+}
