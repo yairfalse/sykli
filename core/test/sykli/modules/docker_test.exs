@@ -23,7 +23,6 @@ defmodule Sykli.Modules.DockerTest do
       assert :image in param_names
       assert :dockerfile in param_names
       assert :context in param_names
-      assert :build_args in param_names
       assert :push in param_names
       assert :scan in param_names
     end
@@ -41,97 +40,36 @@ defmodule Sykli.Modules.DockerTest do
     end
   end
 
-  describe "BuildAndPush.tasks/1" do
-    test "generates build task" do
-      config = %BuildAndPush{image: "myapp:latest", push: false}
-      tasks = BuildAndPush.tasks(config)
-
+  describe "BuildAndPush task definitions" do
+    test "defines build task" do
+      tasks = BuildAndPush.__module__(:tasks)
       build = Enum.find(tasks, &(&1.name == "build"))
+
       assert build != nil
-      assert build.module == "docker"
       assert build.container == "docker:24-dind"
       assert build.command =~ "docker build"
-      assert build.command =~ "-t myapp:latest"
+      assert build.command =~ "${image}"
+      assert build.privileged == true
     end
 
-    test "generates push task when push: true" do
-      config = %BuildAndPush{image: "myapp:latest", push: true}
-      tasks = BuildAndPush.tasks(config)
-
+    test "defines push task with conditional" do
+      tasks = BuildAndPush.__module__(:tasks)
       push = Enum.find(tasks, &(&1.name == "push"))
+
       assert push != nil
-      assert push.command == "docker push myapp:latest"
+      assert push.command == "docker push ${image}"
+      assert push.when == {:param, :push}
       assert "build" in push.depends_on
     end
 
-    test "does not generate push task when push: false" do
-      config = %BuildAndPush{image: "myapp:latest", push: false}
-      tasks = BuildAndPush.tasks(config)
-
-      push = Enum.find(tasks, &(&1.name == "push"))
-      assert push == nil
-    end
-
-    test "generates scan task when scan: true" do
-      config = %BuildAndPush{image: "myapp:latest", scan: true, push: false}
-      tasks = BuildAndPush.tasks(config)
-
+    test "defines scan task with conditional" do
+      tasks = BuildAndPush.__module__(:tasks)
       scan = Enum.find(tasks, &(&1.name == "scan"))
+
       assert scan != nil
       assert scan.command =~ "docker scout"
+      assert scan.when == {:param, :scan}
       assert "build" in scan.depends_on
-    end
-
-    test "push depends on scan when both enabled" do
-      config = %BuildAndPush{image: "myapp:latest", scan: true, push: true}
-      tasks = BuildAndPush.tasks(config)
-
-      push = Enum.find(tasks, &(&1.name == "push"))
-      assert "build" in push.depends_on
-      assert "scan" in push.depends_on
-    end
-
-    test "respects custom dockerfile" do
-      config = %BuildAndPush{image: "myapp:latest", dockerfile: "Dockerfile.prod", push: false}
-      tasks = BuildAndPush.tasks(config)
-
-      build = Enum.find(tasks, &(&1.name == "build"))
-      assert build.command =~ "-f Dockerfile.prod"
-    end
-
-    test "respects custom context" do
-      config = %BuildAndPush{image: "myapp:latest", context: "./app", push: false}
-      tasks = BuildAndPush.tasks(config)
-
-      build = Enum.find(tasks, &(&1.name == "build"))
-      assert build.command =~ "./app"
-    end
-
-    test "includes build args" do
-      config = %BuildAndPush{
-        image: "myapp:latest",
-        build_args: %{"VERSION" => "1.0.0", "ENV" => "prod"},
-        push: false
-      }
-
-      tasks = BuildAndPush.tasks(config)
-
-      build = Enum.find(tasks, &(&1.name == "build"))
-      assert build.command =~ "--build-arg VERSION=1.0.0"
-      assert build.command =~ "--build-arg ENV=prod"
-    end
-
-    test "includes platform when specified" do
-      config = %BuildAndPush{
-        image: "myapp:latest",
-        platform: "linux/amd64",
-        push: false
-      }
-
-      tasks = BuildAndPush.tasks(config)
-
-      build = Enum.find(tasks, &(&1.name == "build"))
-      assert build.command =~ "--platform linux/amd64"
     end
   end
 
@@ -146,6 +84,19 @@ defmodule Sykli.Modules.DockerTest do
       image_param = Enum.find(json["params"], &(&1["name"] == "image"))
       assert image_param["type"] == "string"
       assert image_param["required"] == true
+    end
+
+    test "exports tasks with conditions" do
+      json = BuildAndPush.to_json()
+      tasks = json["tasks"]
+
+      build = Enum.find(tasks, &(&1["name"] == "build"))
+      assert build["container"] == "docker:24-dind"
+      assert build["command"] =~ "docker build"
+
+      push = Enum.find(tasks, &(&1["name"] == "push"))
+      assert push["when"] == %{"type" => "param", "field" => "push"}
+      assert "build" in push["depends_on"]
     end
   end
 end

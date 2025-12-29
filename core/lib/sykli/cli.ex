@@ -28,6 +28,9 @@ defmodule Sykli.CLI do
       ["watch" | watch_args] ->
         handle_watch(watch_args)
 
+      ["daemon" | daemon_args] ->
+        handle_daemon(daemon_args)
+
       # Support explicit 'run' command: sykli run [path]
       ["run" | run_args] ->
         run_sykli(run_args)
@@ -43,6 +46,7 @@ defmodule Sykli.CLI do
 
     Usage: sykli [path]
            sykli run [path]
+           sykli daemon <command>
            sykli cache <command>
 
     Options:
@@ -55,12 +59,14 @@ defmodule Sykli.CLI do
       sykli delta      Run only tasks affected by git changes
       sykli watch      Watch files and re-run affected tasks
       sykli graph      Show task graph (see: sykli graph --help)
+      sykli daemon     Manage daemon (see: sykli daemon --help)
       sykli cache      Manage cache (see: sykli cache --help)
 
     Examples:
       sykli                    Run pipeline in current directory
       sykli run                Same as above
       sykli ./my-project       Run pipeline in ./my-project
+      sykli daemon start       Start mesh daemon
       sykli cache stats        Show cache statistics
     """)
   end
@@ -367,6 +373,158 @@ defmodule Sykli.CLI do
       end)
 
     {opts, List.first(rest)}
+  end
+
+  # ----- DAEMON SUBCOMMAND -----
+
+  defp handle_daemon(["--help"]) do
+    print_daemon_help()
+    halt(0)
+  end
+
+  defp handle_daemon(["-h"]) do
+    print_daemon_help()
+    halt(0)
+  end
+
+  defp handle_daemon(["start" | args]) do
+    foreground = "--foreground" in args or "-f" in args
+
+    IO.puts("#{IO.ANSI.cyan()}Starting SYKLI daemon...#{IO.ANSI.reset()}")
+
+    case Sykli.Daemon.start(foreground: foreground) do
+      {:ok, _pid} ->
+        if foreground do
+          IO.puts("#{IO.ANSI.green()}Daemon running in foreground#{IO.ANSI.reset()}")
+          IO.puts("#{IO.ANSI.faint()}Press Ctrl+C to stop#{IO.ANSI.reset()}")
+
+          # Keep the process alive
+          receive do
+            :stop -> :ok
+          end
+        else
+          IO.puts("#{IO.ANSI.green()}Daemon started#{IO.ANSI.reset()}")
+          print_daemon_status()
+          halt(0)
+        end
+
+      {:error, :already_running} ->
+        IO.puts("#{IO.ANSI.yellow()}Daemon is already running#{IO.ANSI.reset()}")
+        print_daemon_status()
+        halt(0)
+
+      {:error, reason} ->
+        IO.puts("#{IO.ANSI.red()}Failed to start daemon: #{inspect(reason)}#{IO.ANSI.reset()}")
+        halt(1)
+    end
+  end
+
+  defp handle_daemon(["stop"]) do
+    IO.puts("#{IO.ANSI.cyan()}Stopping SYKLI daemon...#{IO.ANSI.reset()}")
+
+    case Sykli.Daemon.stop() do
+      :ok ->
+        IO.puts("#{IO.ANSI.green()}Daemon stopped#{IO.ANSI.reset()}")
+        halt(0)
+
+      {:error, :not_running} ->
+        IO.puts("#{IO.ANSI.yellow()}Daemon is not running#{IO.ANSI.reset()}")
+        halt(0)
+
+      {:error, reason} ->
+        IO.puts("#{IO.ANSI.red()}Failed to stop daemon: #{inspect(reason)}#{IO.ANSI.reset()}")
+        halt(1)
+    end
+  end
+
+  defp handle_daemon(["status"]) do
+    print_daemon_status()
+    halt(0)
+  end
+
+  defp handle_daemon(_) do
+    print_daemon_help()
+    halt(1)
+  end
+
+  defp print_daemon_help do
+    IO.puts("""
+    Usage: sykli daemon <command>
+
+    Manage the SYKLI mesh daemon.
+
+    The daemon keeps a BEAM node running that:
+    - Auto-discovers other SYKLI daemons on the network
+    - Receives and executes tasks from other nodes
+    - Reports status to the coordinator
+
+    Commands:
+      start              Start the daemon (backgrounds by default)
+      start --foreground Start in foreground (for debugging)
+      stop               Stop the daemon
+      status             Show daemon status
+
+    Examples:
+      sykli daemon start       Start daemon in background
+      sykli daemon start -f    Start daemon in foreground
+      sykli daemon status      Check if daemon is running
+      sykli daemon stop        Stop the daemon
+    """)
+  end
+
+  defp print_daemon_status do
+    case Sykli.Daemon.status() do
+      {:running, info} ->
+        IO.puts("")
+        IO.puts("#{IO.ANSI.green()}● Daemon is running#{IO.ANSI.reset()}")
+        IO.puts("  PID:      #{info.pid}")
+        IO.puts("  PID file: #{info.pid_file}")
+
+        if info.node do
+          IO.puts("  Node:     #{info.node}")
+        end
+
+        # Show connected nodes - safely handle if cluster is not running
+        nodes = get_cluster_nodes_safely()
+
+        if length(nodes) > 0 do
+          IO.puts("  Mesh:     #{length(nodes)} node(s) connected")
+
+          Enum.each(nodes, fn n ->
+            IO.puts("            • #{n}")
+          end)
+        else
+          IO.puts("  Mesh:     #{IO.ANSI.faint()}no other nodes#{IO.ANSI.reset()}")
+        end
+
+      {:stopped, info} ->
+        IO.puts("")
+        IO.puts("#{IO.ANSI.faint()}○ Daemon is not running#{IO.ANSI.reset()}")
+
+        case info.reason do
+          :process_dead ->
+            IO.puts(
+              "  #{IO.ANSI.yellow()}Stale PID file found (process #{info.stale_pid} is dead)#{IO.ANSI.reset()}"
+            )
+
+            IO.puts("  Run 'sykli daemon start' to start a new daemon")
+
+          _ ->
+            IO.puts("  Run 'sykli daemon start' to start")
+        end
+    end
+  end
+
+  defp get_cluster_nodes_safely do
+    if Node.alive?() do
+      try do
+        Sykli.Cluster.nodes()
+      rescue
+        _ -> []
+      end
+    else
+      []
+    end
   end
 
   # ----- GRAPH SUBCOMMAND -----
