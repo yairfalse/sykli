@@ -1,6 +1,6 @@
 [package]
 name = "sykli"
-version = "0.2.0"
+version = "0.2.7"
 edition = "2021"
 description = "CI pipelines defined in Rust instead of YAML"
 license = "MIT"

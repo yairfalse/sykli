@@ -133,7 +133,7 @@ dependencies = [
 
 [[package]]
 name = "sykli"
-version = "0.2.0"
+version = "0.2.7"
 dependencies = [
  "regex",
  "serde",
