@@ -34,6 +34,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -978,6 +979,76 @@ func (t *Task) AfterGroup(groups ...*TaskGroup) *Task {
 		t.dependsOn = append(t.dependsOn, g.TaskNames()...)
 	}
 	return t
+}
+
+// =============================================================================
+// MATRIX BUILDS
+// =============================================================================
+
+// Matrix creates tasks for each value in the matrix, using a generator function.
+// Useful for testing across multiple versions or configurations.
+//
+// Example:
+//
+//	s.Matrix("test", []string{"1.21", "1.22", "1.23"}, func(version string) *Task {
+//	    return s.Task("test-go-"+version).
+//	        Container("golang:"+version).
+//	        MountCwd().
+//	        Run("go test ./...")
+//	})
+func (p *Pipeline) Matrix(name string, values []string, generator func(string) *Task) *TaskGroup {
+	if len(values) == 0 {
+		panic("Matrix: values must not be empty")
+	}
+	tasks := make([]*Task, 0, len(values))
+	for _, v := range values {
+		task := generator(v)
+		if task != nil {
+			tasks = append(tasks, task)
+		}
+	}
+	return &TaskGroup{
+		pipeline: p,
+		name:     name,
+		tasks:    tasks,
+	}
+}
+
+// MatrixMap creates tasks for each key-value pair in the matrix.
+// The generator receives both the key and value.
+//
+// Example:
+//
+//	s.MatrixMap("deploy", map[string]string{
+//	    "staging": "staging.example.com",
+//	    "prod":    "prod.example.com",
+//	}, func(env, host string) *Task {
+//	    return s.Task("deploy-"+env).Run("deploy --host "+host)
+//	})
+func (p *Pipeline) MatrixMap(name string, values map[string]string, generator func(key, value string) *Task) *TaskGroup {
+	if len(values) == 0 {
+		panic("MatrixMap: values must not be empty")
+	}
+
+	// Sort keys for deterministic iteration order
+	keys := make([]string, 0, len(values))
+	for k := range values {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	tasks := make([]*Task, 0, len(values))
+	for _, k := range keys {
+		task := generator(k, values[k])
+		if task != nil {
+			tasks = append(tasks, task)
+		}
+	}
+	return &TaskGroup{
+		pipeline: p,
+		name:     name,
+		tasks:    tasks,
+	}
 }
 
 // =============================================================================

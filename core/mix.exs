@@ -28,7 +28,8 @@ defmodule Sykli.MixProject do
       {:phoenix_pubsub, "~> 2.2"},
       {:libcluster, "~> 3.3"},
       {:burrito, "~> 1.5"},
-      {:yaml_elixir, "~> 2.9"}
+      {:yaml_elixir, "~> 2.9"},
+      {:file_system, "~> 1.0"}
     ]
   end
 

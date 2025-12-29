@@ -251,7 +251,15 @@ defmodule Sykli.Executor.Local do
     port =
       Port.open(
         {:spawn_executable, "/bin/sh"},
-        [:binary, :exit_status, :stderr_to_stdout, args: ["-c", command], cd: workdir]
+        [
+          :binary,
+          :exit_status,
+          :stderr_to_stdout,
+          args: ["-c", command],
+          cd: workdir,
+          # Don't pass burrito env var to child processes - they shouldn't run CLI on startup
+          env: [{~c"__BURRITO_BIN_PATH", false}]
+        ]
       )
 
     try do
@@ -267,7 +275,14 @@ defmodule Sykli.Executor.Local do
     port =
       Port.open(
         {:spawn_executable, docker_path},
-        [:binary, :exit_status, :stderr_to_stdout, args: args, cd: workdir]
+        [
+          :binary,
+          :exit_status,
+          :stderr_to_stdout,
+          args: args,
+          cd: workdir,
+          env: [{~c"__BURRITO_BIN_PATH", false}]
+        ]
       )
 
     try do

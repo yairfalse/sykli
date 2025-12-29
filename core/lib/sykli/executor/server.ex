@@ -222,7 +222,11 @@ defmodule Sykli.Executor.Server do
         "#{IO.ANSI.cyan()}▶ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{timestamp} #{command}#{IO.ANSI.reset()}"
       )
 
-      case System.cmd("sh", ["-c", command], cd: workdir, stderr_to_stdout: true) do
+      case System.cmd("sh", ["-c", command],
+             cd: workdir,
+             stderr_to_stdout: true,
+             env: [{"__BURRITO_BIN_PATH", nil}]
+           ) do
         {output, 0} ->
           IO.write("  #{IO.ANSI.faint()}#{output}#{IO.ANSI.reset()}")
           IO.puts("#{IO.ANSI.green()}✓ #{task.name}#{IO.ANSI.reset()}")

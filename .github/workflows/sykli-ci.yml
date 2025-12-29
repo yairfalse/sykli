@@ -25,10 +25,11 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Sykli
+      - name: Build Sykli from source
         run: |
-          curl -fsSL https://github.com/yairfalse/sykli/releases/latest/download/sykli-linux-amd64 -o sykli
-          chmod +x sykli
+          cd core
+          mix deps.get
+          mix escript.build
           sudo mv sykli /usr/local/bin/
 
       - name: Run Sykli Pipeline
