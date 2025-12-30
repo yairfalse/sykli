@@ -68,7 +68,8 @@ defmodule Sykli.MeshTest do
       assert is_list(nodes)
     end
 
-    test "always includes :local" do
+    test "includes :local when node can execute" do
+      # Default node role is :full, which can execute
       nodes = Mesh.available_nodes()
 
       assert :local in nodes

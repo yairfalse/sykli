@@ -486,10 +486,14 @@ defmodule Sykli.CLI do
         end
 
     case role_arg do
+      nil -> :full
       "worker" -> :worker
       "coordinator" -> :coordinator
       "full" -> :full
-      _ -> :full
+      invalid ->
+        IO.puts(:stderr, "#{IO.ANSI.red()}Invalid role: #{invalid}#{IO.ANSI.reset()}")
+        IO.puts(:stderr, "Valid roles: full, worker, coordinator")
+        halt(1)
     end
   end
 
