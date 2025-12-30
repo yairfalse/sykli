@@ -5,17 +5,19 @@ defmodule Sykli do
   Direct orchestration: detect SDK file, run it, parse JSON, execute tasks.
   """
 
-  alias Sykli.{Detector, Graph, Executor, Cache}
+  alias Sykli.{Detector, Graph, Executor, Cache, RunHistory}
 
   @doc """
   Run the sykli pipeline.
 
   Options:
     - filter: function to filter tasks (receives task, returns boolean)
+    - save_history: whether to save run history (default: true)
   """
   def run(path \\ ".", opts \\ []) do
     Cache.init()
     filter_fn = Keyword.get(opts, :filter)
+    save_history = Keyword.get(opts, :save_history, true)
 
     with {:ok, sdk_file} <- Detector.find(path),
          {:ok, json} <- Detector.emit(sdk_file),
@@ -32,8 +34,18 @@ defmodule Sykli do
         end
 
       case Graph.topo_sort(filtered_graph) do
-        {:ok, order} -> Executor.run(order, filtered_graph, workdir: path)
-        error -> error
+        {:ok, order} ->
+          result = Executor.run(order, filtered_graph, workdir: path)
+
+          # Save run history if enabled
+          if save_history do
+            save_run_history(path, result, filtered_graph)
+          end
+
+          result
+
+        error ->
+          error
       end
     else
       {:error, :no_sdk_file} ->
@@ -129,5 +141,158 @@ defmodule Sykli do
     new_result = Enum.reduce(new_deps, result, &MapSet.put(&2, &1))
 
     do_add_deps(rest ++ new_deps, new_result, task_map)
+  end
+
+  # Save run history after execution
+  defp save_run_history(path, result, graph) do
+    {overall, task_results} = extract_task_results(result, graph)
+
+    # Add likely cause for failed tasks
+    task_results_with_cause = add_likely_causes(task_results, path)
+
+    run = %RunHistory.Run{
+      id: generate_run_id(),
+      timestamp: DateTime.utc_now(),
+      git_ref: get_git_ref(path),
+      git_branch: get_git_branch(path),
+      tasks: task_results_with_cause,
+      overall: overall
+    }
+
+    RunHistory.save(run, path: path)
+  rescue
+    # Don't fail the run if history saving fails
+    _ -> :ok
+  end
+
+  # Add likely cause to failed tasks by correlating git changes with task inputs
+  defp add_likely_causes(task_results, path) do
+    # Get last good run to compare against
+    case RunHistory.load_last_good(path: path) do
+      {:ok, last_good} ->
+        # Get changed files since last good run
+        changed_files = get_changed_files_since(last_good.git_ref, path)
+
+        if MapSet.size(changed_files) > 0 do
+          Enum.map(task_results, fn task ->
+            if task.status == :failed do
+              add_likely_cause_to_task(task, changed_files, path)
+            else
+              task
+            end
+          end)
+        else
+          task_results
+        end
+
+      {:error, _} ->
+        # No previous good run to compare against
+        task_results
+    end
+  end
+
+  defp add_likely_cause_to_task(task, changed_files, path) do
+    # Expand task inputs to actual file paths
+    task_input_files =
+      (task.inputs || [])
+      |> Enum.flat_map(fn pattern -> expand_glob(pattern, path) end)
+      |> MapSet.new()
+
+    # Find intersection
+    likely_cause = RunHistory.likely_cause(changed_files, task_input_files)
+
+    if MapSet.size(likely_cause) > 0 do
+      %{task | likely_cause: MapSet.to_list(likely_cause)}
+    else
+      task
+    end
+  end
+
+  defp get_changed_files_since(ref, path) do
+    case System.cmd("git", ["diff", "--name-only", ref], cd: path, stderr_to_stdout: true) do
+      {output, 0} ->
+        output
+        |> String.split("\n", trim: true)
+        |> MapSet.new()
+
+      _ ->
+        MapSet.new()
+    end
+  end
+
+  defp expand_glob(pattern, path) do
+    full_pattern = Path.join(path, pattern)
+
+    case Path.wildcard(full_pattern) do
+      [] -> []
+      files -> Enum.map(files, &Path.relative_to(&1, path))
+    end
+  end
+
+  defp extract_task_results({:ok, results}, graph) do
+    task_results =
+      Enum.map(results, fn {name, status, duration_ms} ->
+        task = Map.get(graph, name, %{})
+        inputs = Map.get(task, :inputs, [])
+
+        %RunHistory.TaskResult{
+          name: name,
+          status: if(status == :ok, do: :passed, else: :failed),
+          duration_ms: duration_ms,
+          cached: false,
+          inputs: inputs
+        }
+      end)
+
+    {:passed, task_results}
+  end
+
+  defp extract_task_results({:error, results}, graph) when is_list(results) do
+    task_results =
+      Enum.map(results, fn {name, status, duration_ms} ->
+        task = Map.get(graph, name, %{})
+        inputs = Map.get(task, :inputs, [])
+
+        {result_status, error} =
+          case status do
+            :ok -> {:passed, nil}
+            {:error, reason} -> {:failed, inspect(reason)}
+            _ -> {:failed, inspect(status)}
+          end
+
+        %RunHistory.TaskResult{
+          name: name,
+          status: result_status,
+          duration_ms: duration_ms,
+          cached: false,
+          inputs: inputs,
+          error: error
+        }
+      end)
+
+    {:failed, task_results}
+  end
+
+  defp extract_task_results(_, _graph), do: {:failed, []}
+
+  defp generate_run_id do
+    :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
+  end
+
+  defp get_git_ref(path) do
+    case System.cmd("git", ["rev-parse", "--short", "HEAD"], cd: path, stderr_to_stdout: true) do
+      {ref, 0} -> String.trim(ref)
+      _ -> "unknown"
+    end
+  end
+
+  defp get_git_branch(path) do
+    case System.cmd("git", ["rev-parse", "--abbrev-ref", "HEAD"],
+           cd: path,
+           stderr_to_stdout: true
+         ) do
+      {branch, 0} -> String.trim(branch)
+      _ -> "unknown"
+    end
   end
 end

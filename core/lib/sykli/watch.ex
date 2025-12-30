@@ -26,6 +26,7 @@ defmodule Sykli.Watch do
       {:ok, pid} ->
         # Block until stopped
         ref = Process.monitor(pid)
+
         receive do
           {:DOWN, ^ref, :process, ^pid, reason} ->
             if reason == :normal, do: :ok, else: {:error, reason}
@@ -84,6 +85,7 @@ defmodule Sykli.Watch do
       # Cancel existing timer and flush any pending :run_delta message
       if state.timer_ref do
         Process.cancel_timer(state.timer_ref, info: false)
+
         receive do
           :run_delta -> :ok
         after
@@ -124,28 +126,31 @@ defmodule Sykli.Watch do
 
     # Ignore hidden files, build artifacts, etc.
     String.starts_with?(basename, ".") or
-    String.contains?(dirname, "/_build/") or
-    String.contains?(dirname, "/deps/") or
-    String.contains?(dirname, "/node_modules/") or
-    String.contains?(dirname, "/.git/") or
-    String.contains?(dirname, "/target/") or
-    String.ends_with?(basename, ".beam") or
-    String.ends_with?(basename, ".pyc")
+      String.contains?(dirname, "/_build/") or
+      String.contains?(dirname, "/deps/") or
+      String.contains?(dirname, "/node_modules/") or
+      String.contains?(dirname, "/.git/") or
+      String.contains?(dirname, "/target/") or
+      String.ends_with?(basename, ".beam") or
+      String.ends_with?(basename, ".pyc")
   end
 
   defp run_delta(path, from_ref, changed_files) do
     # Show changed files if any
     if changed_files != [] do
       IO.puts("\n#{IO.ANSI.cyan()}Changed:#{IO.ANSI.reset()}")
+
       changed_files
       |> Enum.take(5)
       |> Enum.each(fn f ->
         rel_path = Path.relative_to(f, path)
         IO.puts("  #{IO.ANSI.faint()}#{rel_path}#{IO.ANSI.reset()}")
       end)
+
       if length(changed_files) > 5 do
         IO.puts("  #{IO.ANSI.faint()}+#{length(changed_files) - 5} more#{IO.ANSI.reset()}")
       end
+
       IO.puts("")
     end
 
@@ -158,9 +163,11 @@ defmodule Sykli.Watch do
 
           {:ok, affected} ->
             IO.puts("#{IO.ANSI.yellow()}Affected tasks:#{IO.ANSI.reset()}")
+
             Enum.each(affected, fn task ->
               IO.puts("  #{task.name}")
             end)
+
             IO.puts("")
 
             # Run affected tasks

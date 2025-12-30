@@ -230,6 +230,102 @@ mix escript.build
 
 ---
 
+## RUN HISTORY & OBSERVABILITY (In Progress)
+
+### Philosophy
+
+CI should be:
+- **Deterministic** - Same inputs → same outputs, every time
+- **Observable** - Know what passed AND what failed (not just failures)
+- **Historical** - Track runs, know "last known good"
+- **Helpful** - Show what changed that likely caused a failure
+
+### RunHistory Module
+
+Stores run manifests for every execution:
+
+```
+.sykli/
+├── cache/                 # Existing content-addressed cache
+└── runs/                  # New run history
+    ├── latest.json        # Symlink to most recent
+    ├── last_good.json     # Most recent all-passing run
+    └── 2024-01-15T10:30:00Z.json
+```
+
+### Run Manifest Schema
+
+```json
+{
+  "id": "abc123",
+  "timestamp": "2024-01-15T10:30:00Z",
+  "git_ref": "abc1234",
+  "git_branch": "main",
+  "tasks": [
+    {
+      "name": "test",
+      "status": "passed",
+      "duration_ms": 1234,
+      "cached": false,
+      "streak": 15
+    },
+    {
+      "name": "build",
+      "status": "failed",
+      "duration_ms": 567,
+      "error": "exit code 1",
+      "streak": 0,
+      "likely_cause": ["src/main.go", "src/lib.go"]
+    }
+  ],
+  "overall": "failed"
+}
+```
+
+### Likely Cause Detection
+
+When a task fails after previously passing:
+
+```elixir
+# 1. Get files changed since last_good
+changed_files = git_diff(last_good.git_ref, current_ref)
+
+# 2. Get failed task's inputs
+task_inputs = expand_globs(task.inputs)
+
+# 3. Intersect = likely cause
+likely_cause = MapSet.intersection(changed_files, task_inputs)
+```
+
+Uses existing `sykli delta` logic to correlate changes with task inputs.
+
+### CLI Commands
+
+```bash
+sykli report           # Show last run summary
+sykli report --last-good  # Show last successful run
+sykli history          # List recent runs
+sykli trends           # Task pass rates over time
+```
+
+### Example Output
+
+```
+╭──────────────────────────────────────────────────╮
+│ Run: 2024-01-15 10:30:00                         │
+│ Commit: abc1234 (main)                           │
+╰──────────────────────────────────────────────────╯
+
+  ✓ lint      12ms   (streak: 23)
+  ✓ test      1.2s   (streak: 15)
+  ✗ build     567ms  (streak: 0 ← was 8)
+    └─ Likely cause: src/main.go changed
+
+Last good: 2024-01-14 18:45:00 (abc1233)
+```
+
+---
+
 ## AGENT INSTRUCTIONS
 
 When working on this codebase:
