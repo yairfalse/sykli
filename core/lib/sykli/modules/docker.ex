@@ -63,24 +63,24 @@ defmodule Sykli.Modules.Docker.BuildAndPush do
   # Declarative task definitions
   tasks do
     task "build" do
-      container "docker:24-dind"
-      command "docker build -t ${image} -f ${dockerfile} ${context}"
-      privileged true
-      inputs ["${dockerfile}", "${context}/**/*"]
+      container("docker:24-dind")
+      command("docker build -t ${image} -f ${dockerfile} ${context}")
+      privileged(true)
+      inputs(["${dockerfile}", "${context}/**/*"])
     end
 
     task "scan", when: {:param, :scan} do
-      container "docker:24-dind"
-      command "docker scout cves ${image}"
-      privileged true
-      depends_on ["build"]
+      container("docker:24-dind")
+      command("docker scout cves ${image}")
+      privileged(true)
+      depends_on(["build"])
     end
 
     task "push", when: {:param, :push} do
-      container "docker:24-dind"
-      command "docker push ${image}"
-      privileged true
-      depends_on ["build"]
+      container("docker:24-dind")
+      command("docker push ${image}")
+      privileged(true)
+      depends_on(["build"])
     end
   end
 end

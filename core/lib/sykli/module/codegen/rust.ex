@@ -169,7 +169,8 @@ defmodule Sykli.Module.Codegen.Rust do
         check =
           case type do
             "string" -> "self.#{name}.is_empty()"
-            _ -> "false" # Other types always have a value in Rust
+            # Other types always have a value in Rust
+            _ -> "false"
           end
 
         """
@@ -314,8 +315,7 @@ defmodule Sykli.Module.Codegen.Rust do
       "\"#{cmd}\""
     else
       # Build format! call
-      format_str =
-        Regex.replace(~r/\$\{(\w+)\}/, cmd, "{}")
+      format_str = Regex.replace(~r/\$\{(\w+)\}/, cmd, "{}")
 
       args =
         param_names

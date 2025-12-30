@@ -110,7 +110,8 @@ defmodule Sykli.Module.Codegen.Go do
           case type do
             "string" -> "m.#{name} == \"\""
             "integer" -> "m.#{name} == 0"
-            "boolean" -> "false" # booleans are never "missing"
+            # booleans are never "missing"
+            "boolean" -> "false"
             _ -> "m.#{name} == nil"
           end
 
@@ -127,7 +128,7 @@ defmodule Sykli.Module.Codegen.Go do
   # Generate default value assignments
   defp generate_defaults(params) do
     params
-    |> Enum.filter(& &1["default"] != nil)
+    |> Enum.filter(&(&1["default"] != nil))
     |> Enum.map(fn param ->
       name = param["name"] |> pascal_case()
       type = param["type"]
@@ -137,7 +138,8 @@ defmodule Sykli.Module.Codegen.Go do
         case type do
           "string" -> "m.#{name} == \"\""
           "integer" -> "m.#{name} == 0"
-          "boolean" -> nil # booleans always have a value
+          # booleans always have a value
+          "boolean" -> nil
           _ -> nil
         end
 
@@ -269,8 +271,7 @@ defmodule Sykli.Module.Codegen.Go do
       "\"#{cmd}\""
     else
       # Build fmt.Sprintf call
-      format_str =
-        Regex.replace(~r/\$\{(\w+)\}/, cmd, "%s")
+      format_str = Regex.replace(~r/\$\{(\w+)\}/, cmd, "%s")
 
       args =
         params

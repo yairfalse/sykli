@@ -338,6 +338,7 @@ defmodule Sykli.CLI do
       sykli watch ./my-project     Watch specific project
       sykli watch --from=main      Compare against main branch
     """)
+
     halt(0)
   end
 
@@ -389,10 +390,18 @@ defmodule Sykli.CLI do
 
   defp handle_daemon(["start" | args]) do
     foreground = "--foreground" in args or "-f" in args
+    role = parse_role_arg(args)
 
-    IO.puts("#{IO.ANSI.cyan()}Starting SYKLI daemon...#{IO.ANSI.reset()}")
+    role_label =
+      case role do
+        :full -> ""
+        :worker -> " (worker mode)"
+        :coordinator -> " (coordinator mode)"
+      end
 
-    case Sykli.Daemon.start(foreground: foreground) do
+    IO.puts("#{IO.ANSI.cyan()}Starting SYKLI daemon#{role_label}...#{IO.ANSI.reset()}")
+
+    case Sykli.Daemon.start(foreground: foreground, role: role) do
       {:ok, _pid} ->
         if foreground do
           IO.puts("#{IO.ANSI.green()}Daemon running in foreground#{IO.ANSI.reset()}")
@@ -456,6 +465,34 @@ defmodule Sykli.CLI do
     halt(1)
   end
 
+  defp parse_role_arg(args) do
+    role_arg =
+      Enum.find_value(args, fn arg ->
+        cond do
+          String.starts_with?(arg, "--role=") ->
+            String.replace_prefix(arg, "--role=", "")
+
+          true ->
+            nil
+        end
+      end)
+
+    # Also check for --role <value> format
+    role_arg =
+      role_arg ||
+        case Enum.find_index(args, &(&1 == "--role")) do
+          nil -> nil
+          idx -> Enum.at(args, idx + 1)
+        end
+
+    case role_arg do
+      "worker" -> :worker
+      "coordinator" -> :coordinator
+      "full" -> :full
+      _ -> :full
+    end
+  end
+
   defp print_daemon_help do
     IO.puts("""
     Usage: sykli daemon <command>
@@ -467,17 +504,25 @@ defmodule Sykli.CLI do
     - Receives and executes tasks from other nodes
     - Reports status to the coordinator
 
+    Roles:
+      --role full         Can execute tasks AND coordinate (default)
+      --role worker       Can only execute tasks
+      --role coordinator  Can only coordinate (run dashboard, aggregate events)
+
     Commands:
       start              Start the daemon (backgrounds by default)
       start --foreground Start in foreground (for debugging)
+      start --role <role> Start with specific role
       stop               Stop the daemon
       status             Show daemon status
 
     Examples:
-      sykli daemon start       Start daemon in background
-      sykli daemon start -f    Start daemon in foreground
-      sykli daemon status      Check if daemon is running
-      sykli daemon stop        Stop the daemon
+      sykli daemon start                  Start full daemon (default)
+      sykli daemon start --role worker    Start worker-only daemon
+      sykli daemon start --role coordinator  Start coordinator-only daemon
+      sykli daemon start -f               Start in foreground
+      sykli daemon status                 Check if daemon is running
+      sykli daemon stop                   Stop the daemon
     """)
   end
 
@@ -490,7 +535,9 @@ defmodule Sykli.CLI do
         IO.puts("  PID file: #{info.pid_file}")
 
         if info.node do
+          role = Sykli.Daemon.node_role(info.node)
           IO.puts("  Node:     #{info.node}")
+          IO.puts("  Role:     #{format_role(role)}")
         end
 
         # Show connected nodes - safely handle if cluster is not running
@@ -500,7 +547,9 @@ defmodule Sykli.CLI do
           IO.puts("  Mesh:     #{length(nodes)} node(s) connected")
 
           Enum.each(nodes, fn n ->
-            IO.puts("            • #{n}")
+            role = Sykli.Daemon.node_role(n)
+            role_badge = format_role_badge(role)
+            IO.puts("            • #{n} #{role_badge}")
           end)
         else
           IO.puts("  Mesh:     #{IO.ANSI.faint()}no other nodes#{IO.ANSI.reset()}")
@@ -523,6 +572,14 @@ defmodule Sykli.CLI do
         end
     end
   end
+
+  defp format_role(:full), do: "full (execute + coordinate)"
+  defp format_role(:worker), do: "worker (execute only)"
+  defp format_role(:coordinator), do: "coordinator (coordinate only)"
+
+  defp format_role_badge(:full), do: ""
+  defp format_role_badge(:worker), do: "#{IO.ANSI.cyan()}[worker]#{IO.ANSI.reset()}"
+  defp format_role_badge(:coordinator), do: "#{IO.ANSI.magenta()}[coordinator]#{IO.ANSI.reset()}"
 
   defp get_cluster_nodes_safely do
     if Node.alive?() do

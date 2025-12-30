@@ -46,6 +46,15 @@ defmodule Sykli.Daemon do
   @shutdown_max_retries 50
   @shutdown_retry_interval_ms 100
 
+  # Node roles
+  @type role :: :full | :worker | :coordinator
+
+  @role_prefixes %{
+    full: "sykli",
+    worker: "worker",
+    coordinator: "coordinator"
+  }
+
   # ---------------------------------------------------------------------------
   # NODE NAMING
   # ---------------------------------------------------------------------------
@@ -55,19 +64,24 @@ defmodule Sykli.Daemon do
 
   ## Options
 
-    * `:prefix` - Name prefix (default: "sykli")
+    * `:role` - Node role: `:full`, `:worker`, or `:coordinator` (default: `:full`)
+    * `:prefix` - Custom name prefix (overrides role-based prefix)
 
   ## Examples
 
       Daemon.node_name()
       # => :"sykli_a1b2c3@mymachine.local"
 
-      Daemon.node_name(prefix: "worker")
+      Daemon.node_name(role: :worker)
       # => :"worker_a1b2c3@mymachine.local"
+
+      Daemon.node_name(role: :coordinator)
+      # => :"coordinator_a1b2c3@mymachine.local"
   """
   @spec node_name(keyword()) :: atom()
   def node_name(opts \\ []) do
-    prefix = Keyword.get(opts, :prefix, "sykli")
+    role = Keyword.get(opts, :role, :full)
+    prefix = Keyword.get(opts, :prefix) || Map.get(@role_prefixes, role, "sykli")
     suffix = :crypto.strong_rand_bytes(3) |> Base.encode16(case: :lower)
     hostname = get_hostname()
 
@@ -100,6 +114,71 @@ defmodule Sykli.Daemon do
       "" -> "localhost"
       h -> h
     end
+  end
+
+  # ---------------------------------------------------------------------------
+  # ROLE DETECTION
+  # ---------------------------------------------------------------------------
+
+  @doc """
+  Get the role of a node from its name.
+
+  ## Examples
+
+      Daemon.node_role(:"sykli_abc123@host")
+      # => :full
+
+      Daemon.node_role(:"worker_abc123@host")
+      # => :worker
+
+      Daemon.node_role(:"coordinator_abc123@host")
+      # => :coordinator
+  """
+  @spec node_role(node()) :: role()
+  def node_role(node_name) do
+    name_str = to_string(node_name)
+
+    cond do
+      String.starts_with?(name_str, "coordinator_") -> :coordinator
+      String.starts_with?(name_str, "worker_") -> :worker
+      true -> :full
+    end
+  end
+
+  @doc """
+  Check if a node is a coordinator.
+  """
+  @spec coordinator?(node()) :: boolean()
+  def coordinator?(node_name) do
+    node_role(node_name) == :coordinator
+  end
+
+  @doc """
+  Check if a node is a worker-only node.
+  """
+  @spec worker?(node()) :: boolean()
+  def worker?(node_name) do
+    node_role(node_name) == :worker
+  end
+
+  @doc """
+  Check if a node can execute tasks.
+
+  Workers and full nodes can execute. Coordinators cannot.
+  """
+  @spec can_execute?(node()) :: boolean()
+  def can_execute?(node_name) do
+    node_role(node_name) in [:full, :worker]
+  end
+
+  @doc """
+  Check if a node can coordinate (run dashboard, aggregate events).
+
+  Coordinators and full nodes can coordinate. Workers cannot.
+  """
+  @spec can_coordinate?(node()) :: boolean()
+  def can_coordinate?(node_name) do
+    node_role(node_name) in [:full, :coordinator]
   end
 
   # ---------------------------------------------------------------------------
@@ -301,12 +380,27 @@ defmodule Sykli.Daemon do
     * `:foreground` - Run in foreground instead of backgrounding (default: false)
     * `:dry_run` - Validate but don't actually start (default: false)
     * `:name` - Custom node name (default: auto-generated)
+    * `:role` - Node role (default: `:full`):
+      - `:full` - Can execute tasks AND coordinate (default, symmetric mesh)
+      - `:worker` - Can only execute tasks, forwards events to coordinator
+      - `:coordinator` - Can only coordinate, does not execute tasks
 
   ## Returns
 
     * `{:ok, pid}` - Daemon started successfully
     * `{:error, :already_running}` - Daemon is already running
     * `{:error, reason}` - Failed to start
+
+  ## Examples
+
+      # Start a full node (can do everything)
+      Daemon.start()
+
+      # Start a worker-only node
+      Daemon.start(role: :worker)
+
+      # Start a coordinator-only node
+      Daemon.start(role: :coordinator)
   """
   @spec start(keyword()) :: {:ok, pid()} | {:error, term()}
   def start(opts \\ []) do
@@ -337,17 +431,18 @@ defmodule Sykli.Daemon do
   # cluster/coordinator services. Used for debugging or when running under
   # a process supervisor.
   defp start_foreground(opts) do
-    node_name = Keyword.get(opts, :name) || node_name()
+    role = Keyword.get(opts, :role, :full)
+    node_name = Keyword.get(opts, :name) || node_name(role: role)
     config = config()
 
     # Start distribution if not already started
     case start_distribution(node_name, config.cookie) do
       :ok ->
         write_pid_file()
-        Logger.info("[Sykli.Daemon] Started as #{node_name}")
+        Logger.info("[Sykli.Daemon] Started as #{node_name} (role: #{role})")
 
-        # Start the application supervision tree
-        start_daemon_services()
+        # Start the application supervision tree based on role
+        start_daemon_services(role)
 
         {:ok, self()}
 
@@ -356,17 +451,21 @@ defmodule Sykli.Daemon do
     end
   end
 
-  defp start_background(_opts) do
+  defp start_background(opts) do
     # Get the path to the sykli executable
     sykli_path = System.find_executable("sykli") || find_escript()
+    role = Keyword.get(opts, :role, :full)
 
     if sykli_path do
+      # Build args with role
+      args = ["daemon", "start", "--foreground", "--role", to_string(role)]
+
       # Spawn a detached process
       port =
         Port.open({:spawn_executable, sykli_path}, [
           :binary,
           :exit_status,
-          args: ["daemon", "start", "--foreground"],
+          args: args,
           # Detach from terminal
           env: [{~c"SYKLI_DAEMON", ~c"1"}]
         ])
@@ -415,13 +514,27 @@ defmodule Sykli.Daemon do
     end
   end
 
-  defp start_daemon_services do
-    # Start cluster discovery
+  defp start_daemon_services(role) do
+    # Cluster discovery is always needed for mesh networking
     start_service(Sykli.Cluster, "Cluster")
 
-    # Start coordinator (if we're the coordinator node)
-    # For now, every daemon can receive tasks
-    start_service(Sykli.Coordinator, "Coordinator")
+    # Start role-specific services
+    case role do
+      :worker ->
+        # Workers only execute tasks - no Coordinator service
+        # The Reporter forwards events to remote coordinator
+        Logger.info("[Sykli.Daemon] Worker mode - will execute tasks only")
+
+      :coordinator ->
+        # Coordinators run the Coordinator service but don't execute tasks
+        start_service(Sykli.Coordinator, "Coordinator")
+        Logger.info("[Sykli.Daemon] Coordinator mode - will not execute tasks")
+
+      :full ->
+        # Full nodes do everything
+        start_service(Sykli.Coordinator, "Coordinator")
+        Logger.info("[Sykli.Daemon] Full mode - can execute and coordinate")
+    end
 
     :ok
   end

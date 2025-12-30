@@ -33,6 +33,7 @@ defmodule Sykli.Mesh do
   """
 
   alias Sykli.Executor.Local
+  alias Sykli.Daemon
 
   @type node_ref :: :local | node()
   @type dispatch_opts :: [workdir: String.t(), timeout: integer()]
@@ -132,22 +133,51 @@ defmodule Sykli.Mesh do
   # ---------------------------------------------------------------------------
 
   @doc """
-  Returns list of available nodes (connected remotes + :local).
+  Returns list of available nodes that can execute tasks.
+
+  Filters out coordinator-only nodes since they cannot execute tasks.
   """
   @spec available_nodes() :: [node_ref()]
   def available_nodes do
+    # :local can always execute (unless this node is a coordinator)
+    local_nodes =
+      if Daemon.can_execute?(node()) do
+        [:local]
+      else
+        []
+      end
+
+    # Filter remote nodes to only those that can execute
+    remote_nodes =
+      Node.list()
+      |> Enum.filter(&Daemon.can_execute?/1)
+
+    local_nodes ++ remote_nodes
+  end
+
+  @doc """
+  Returns list of all connected nodes (including coordinators).
+
+  Use this when you need to see all nodes in the mesh, not just
+  those that can execute tasks.
+  """
+  @spec all_nodes() :: [node_ref()]
+  def all_nodes do
     [:local | Node.list()]
   end
 
   @doc """
   Check if a node is available for task dispatch.
+
+  A node is available if it's connected AND can execute tasks.
+  Coordinator-only nodes are not available for dispatch.
   """
   @spec node_available?(node_ref()) :: boolean()
-  def node_available?(:local), do: true
-  def node_available?(node) when node == node(), do: true
+  def node_available?(:local), do: Daemon.can_execute?(node())
+  def node_available?(node) when node == node(), do: Daemon.can_execute?(node())
 
   def node_available?(node) do
-    node in Node.list()
+    node in Node.list() and Daemon.can_execute?(node)
   end
 
   @doc """
@@ -159,7 +189,10 @@ defmodule Sykli.Mesh do
   def node_info(:local) do
     %{
       name: :local,
+      role: Daemon.node_role(node()),
       capabilities: local_capabilities(),
+      can_execute: Daemon.can_execute?(node()),
+      can_coordinate: Daemon.can_coordinate?(node()),
       load: nil
     }
   end
@@ -169,7 +202,7 @@ defmodule Sykli.Mesh do
   end
 
   def node_info(node) do
-    if node_available?(node) do
+    if node in Node.list() do
       # Query remote node for its capabilities
       case :rpc.call(node, __MODULE__, :local_capabilities, [], 5000) do
         {:badrpc, _reason} ->
@@ -178,7 +211,10 @@ defmodule Sykli.Mesh do
         capabilities ->
           %{
             name: node,
+            role: Daemon.node_role(node),
             capabilities: capabilities,
+            can_execute: Daemon.can_execute?(node),
+            can_coordinate: Daemon.can_coordinate?(node),
             load: nil
           }
       end
