@@ -641,8 +641,12 @@ defmodule Sykli.CLI do
       Enum.reduce(args, {[], []}, fn arg, {opts, rest} ->
         cond do
           String.starts_with?(arg, "--limit=") ->
-            limit = String.replace_prefix(arg, "--limit=", "") |> String.to_integer()
-            {[{:limit, limit} | opts], rest}
+            limit_str = String.replace_prefix(arg, "--limit=", "")
+
+            case Integer.parse(limit_str) do
+              {limit, ""} -> {[{:limit, limit} | opts], rest}
+              _ -> {opts, rest}
+            end
 
           arg == "--json" ->
             {[{:json, true} | opts], rest}

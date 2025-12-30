@@ -184,7 +184,7 @@ defmodule Sykli.RunHistoryTest do
     end
   end
 
-  describe "calculate_streaks/2" do
+  describe "calculate_streak/2" do
     test "calculates consecutive pass streak", %{tmp_dir: tmp_dir} do
       # Save 3 runs where "test" passed each time
       for i <- 1..3 do

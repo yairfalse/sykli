@@ -142,9 +142,11 @@ defmodule Sykli.RunHistory do
           |> Enum.filter(&String.match?(&1, ~r/^\d{4}-\d{2}-\d{2}.*\.json$/))
           |> Enum.sort(:desc)
           |> Enum.take(limit)
-          |> Enum.map(fn file ->
-            {:ok, json} = File.read(Path.join(runs_dir, file))
-            decode_run(json)
+          |> Enum.flat_map(fn file ->
+            case File.read(Path.join(runs_dir, file)) do
+              {:ok, json} -> [decode_run(json)]
+              {:error, _} -> []
+            end
           end)
 
         {:ok, runs}
