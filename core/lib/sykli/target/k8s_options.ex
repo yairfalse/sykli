@@ -446,7 +446,10 @@ defmodule Sykli.Target.K8sOptions do
       dns_policy: task_opts.dns_policy || defaults.dns_policy,
       gpu: task_opts.gpu || defaults.gpu,
       host_network:
-        if(is_nil(task_opts.host_network), do: defaults.host_network, else: task_opts.host_network),
+        if(is_nil(task_opts.host_network),
+          do: defaults.host_network,
+          else: task_opts.host_network
+        ),
 
       # Resources: merge field by field
       resources: merge_resources(defaults.resources, task_opts.resources),

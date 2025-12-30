@@ -28,6 +28,12 @@ defmodule Sykli.CLI do
       ["watch" | watch_args] ->
         handle_watch(watch_args)
 
+      ["report" | report_args] ->
+        handle_report(report_args)
+
+      ["history" | history_args] ->
+        handle_history(history_args)
+
       ["daemon" | daemon_args] ->
         handle_daemon(daemon_args)
 
@@ -59,6 +65,8 @@ defmodule Sykli.CLI do
       sykli delta      Run only tasks affected by git changes
       sykli watch      Watch files and re-run affected tasks
       sykli graph      Show task graph (see: sykli graph --help)
+      sykli report     Show last run summary with task results
+      sykli history    List recent runs
       sykli daemon     Manage daemon (see: sykli daemon --help)
       sykli cache      Manage cache (see: sykli cache --help)
 
@@ -338,6 +346,7 @@ defmodule Sykli.CLI do
       sykli watch ./my-project     Watch specific project
       sykli watch --from=main      Compare against main branch
     """)
+
     halt(0)
   end
 
@@ -373,6 +382,343 @@ defmodule Sykli.CLI do
       end)
 
     {opts, List.first(rest)}
+  end
+
+  # ----- REPORT SUBCOMMAND -----
+
+  defp handle_report(["--help"]) do
+    IO.puts("""
+    Usage: sykli report [options] [path]
+
+    Show the last run summary with task results.
+
+    Options:
+      --last-good     Show last successful run instead
+      --json          Output as JSON
+      --help          Show this help
+
+    Examples:
+      sykli report              Show last run summary
+      sykli report --last-good  Show last passing run
+      sykli report --json       Output as JSON for tooling
+    """)
+
+    halt(0)
+  end
+
+  defp handle_report(args) do
+    {opts, path} = parse_report_args(args)
+    path = path || "."
+    last_good = Keyword.get(opts, :last_good, false)
+    json_output = Keyword.get(opts, :json, false)
+
+    result =
+      if last_good do
+        Sykli.RunHistory.load_last_good(path: path)
+      else
+        Sykli.RunHistory.load_latest(path: path)
+      end
+
+    case result do
+      {:ok, run} ->
+        if json_output do
+          output_report_json(run, path)
+        else
+          output_report(run, path)
+        end
+
+        halt(0)
+
+      {:error, :no_runs} ->
+        if json_output do
+          IO.puts(Jason.encode!(%{error: "No runs found"}))
+        else
+          IO.puts("#{IO.ANSI.yellow()}No runs found#{IO.ANSI.reset()}")
+          IO.puts("#{IO.ANSI.faint()}Run 'sykli' first to create a run record#{IO.ANSI.reset()}")
+        end
+
+        halt(1)
+
+      {:error, :no_passing_runs} ->
+        if json_output do
+          IO.puts(Jason.encode!(%{error: "No passing runs found"}))
+        else
+          IO.puts("#{IO.ANSI.yellow()}No passing runs found#{IO.ANSI.reset()}")
+        end
+
+        halt(1)
+    end
+  end
+
+  defp parse_report_args(args) do
+    {opts, rest} =
+      Enum.reduce(args, {[], []}, fn arg, {opts, rest} ->
+        cond do
+          arg == "--last-good" ->
+            {[{:last_good, true} | opts], rest}
+
+          arg == "--json" ->
+            {[{:json, true} | opts], rest}
+
+          String.starts_with?(arg, "--") ->
+            {opts, rest}
+
+          true ->
+            {opts, rest ++ [arg]}
+        end
+      end)
+
+    {opts, List.first(rest)}
+  end
+
+  defp output_report(run, path) do
+    # Header box
+    border_plain = "╭──────────────────────────────────────────────────╮"
+    inner_width = String.length(border_plain) - 2
+
+    IO.puts("#{IO.ANSI.cyan()}#{border_plain}#{IO.ANSI.reset()}")
+
+    run_content = " Run: #{format_timestamp(run.timestamp)}"
+    run_padding = max(0, inner_width - String.length(run_content))
+
+    IO.puts(
+      "#{IO.ANSI.cyan()}│#{IO.ANSI.reset()}#{run_content}#{String.duplicate(" ", run_padding)}#{IO.ANSI.cyan()}│#{IO.ANSI.reset()}"
+    )
+
+    commit_content = " Commit: #{run.git_ref} (#{run.git_branch})"
+    commit_padding = max(0, inner_width - String.length(commit_content))
+
+    IO.puts(
+      "#{IO.ANSI.cyan()}│#{IO.ANSI.reset()}#{commit_content}#{String.duplicate(" ", commit_padding)}#{IO.ANSI.cyan()}│#{IO.ANSI.reset()}"
+    )
+
+    IO.puts(
+      "#{IO.ANSI.cyan()}╰──────────────────────────────────────────────────╯#{IO.ANSI.reset()}"
+    )
+
+    IO.puts("")
+
+    # Tasks
+    Enum.each(run.tasks, fn task ->
+      output_task_result(task, path)
+    end)
+
+    # Summary
+    IO.puts("")
+
+    case run.overall do
+      :passed ->
+        IO.puts("#{IO.ANSI.green()}All tasks passed#{IO.ANSI.reset()}")
+
+      :failed ->
+        IO.puts("#{IO.ANSI.red()}Run failed#{IO.ANSI.reset()}")
+
+        # Show last good if available
+        case Sykli.RunHistory.load_last_good(path: path) do
+          {:ok, last_good} ->
+            IO.puts(
+              "#{IO.ANSI.faint()}Last good: #{format_timestamp(last_good.timestamp)} (#{last_good.git_ref})#{IO.ANSI.reset()}"
+            )
+
+          _ ->
+            :ok
+        end
+    end
+  end
+
+  defp output_task_result(task, path) do
+    status_icon =
+      case task.status do
+        :passed -> "#{IO.ANSI.green()}✓#{IO.ANSI.reset()}"
+        :failed -> "#{IO.ANSI.red()}✗#{IO.ANSI.reset()}"
+        :skipped -> "#{IO.ANSI.yellow()}○#{IO.ANSI.reset()}"
+      end
+
+    duration = format_duration(task.duration_ms)
+
+    # Get streak for this task
+    {:ok, streak} = Sykli.RunHistory.calculate_streak(task.name, path: path)
+
+    streak_str =
+      if task.status == :passed and streak > 1 do
+        "#{IO.ANSI.faint()}(streak: #{streak})#{IO.ANSI.reset()}"
+      else
+        if task.status == :failed and streak == 0 do
+          "#{IO.ANSI.faint()}(streak: 0)#{IO.ANSI.reset()}"
+        else
+          ""
+        end
+      end
+
+    IO.puts(
+      "  #{status_icon} #{task.name}  #{IO.ANSI.faint()}#{duration}#{IO.ANSI.reset()}  #{streak_str}"
+    )
+
+    # Show likely cause for failed tasks
+    if task.status == :failed and task.likely_cause do
+      Enum.each(task.likely_cause, fn file ->
+        IO.puts("    #{IO.ANSI.faint()}└─ Likely cause: #{file}#{IO.ANSI.reset()}")
+      end)
+    end
+
+    # Show error for failed tasks
+    if task.status == :failed and task.error do
+      IO.puts("    #{IO.ANSI.red()}└─ #{task.error}#{IO.ANSI.reset()}")
+    end
+  end
+
+  defp output_report_json(run, _path) do
+    output = %{
+      id: run.id,
+      timestamp: DateTime.to_iso8601(run.timestamp),
+      git_ref: run.git_ref,
+      git_branch: run.git_branch,
+      overall: Atom.to_string(run.overall),
+      tasks:
+        Enum.map(run.tasks, fn t ->
+          %{
+            name: t.name,
+            status: Atom.to_string(t.status),
+            duration_ms: t.duration_ms,
+            cached: t.cached,
+            streak: t.streak
+          }
+          |> maybe_put(:error, t.error)
+          |> maybe_put(:likely_cause, t.likely_cause)
+        end)
+    }
+
+    IO.puts(Jason.encode!(output, pretty: true))
+  end
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  # ----- HISTORY SUBCOMMAND -----
+
+  defp handle_history(["--help"]) do
+    IO.puts("""
+    Usage: sykli history [options] [path]
+
+    List recent runs.
+
+    Options:
+      --limit=N       Number of runs to show (default: 10)
+      --json          Output as JSON
+      --help          Show this help
+
+    Examples:
+      sykli history              List last 10 runs
+      sykli history --limit=5    List last 5 runs
+      sykli history --json       Output as JSON
+    """)
+
+    halt(0)
+  end
+
+  defp handle_history(args) do
+    {opts, path} = parse_history_args(args)
+    path = path || "."
+    limit = Keyword.get(opts, :limit, 10)
+    json_output = Keyword.get(opts, :json, false)
+
+    case Sykli.RunHistory.list(path: path, limit: limit) do
+      {:ok, []} ->
+        if json_output do
+          IO.puts(Jason.encode!(%{runs: []}))
+        else
+          IO.puts("#{IO.ANSI.yellow()}No runs found#{IO.ANSI.reset()}")
+        end
+
+        halt(0)
+
+      {:ok, runs} ->
+        if json_output do
+          output_history_json(runs)
+        else
+          output_history(runs)
+        end
+
+        halt(0)
+    end
+  end
+
+  defp parse_history_args(args) do
+    {opts, rest} =
+      Enum.reduce(args, {[], []}, fn arg, {opts, rest} ->
+        cond do
+          String.starts_with?(arg, "--limit=") ->
+            limit_str = String.replace_prefix(arg, "--limit=", "")
+
+            case Integer.parse(limit_str) do
+              {limit, ""} -> {[{:limit, limit} | opts], rest}
+              _ -> {opts, rest}
+            end
+
+          arg == "--json" ->
+            {[{:json, true} | opts], rest}
+
+          String.starts_with?(arg, "--") ->
+            {opts, rest}
+
+          true ->
+            {opts, rest ++ [arg]}
+        end
+      end)
+
+    {opts, List.first(rest)}
+  end
+
+  defp output_history(runs) do
+    IO.puts("#{IO.ANSI.cyan()}Recent runs:#{IO.ANSI.reset()}")
+    IO.puts("")
+
+    Enum.each(runs, fn run ->
+      status_icon =
+        case run.overall do
+          :passed -> "#{IO.ANSI.green()}✓#{IO.ANSI.reset()}"
+          :failed -> "#{IO.ANSI.red()}✗#{IO.ANSI.reset()}"
+        end
+
+      passed = Enum.count(run.tasks, &(&1.status == :passed))
+      failed = Enum.count(run.tasks, &(&1.status == :failed))
+      total = length(run.tasks)
+
+      summary =
+        if failed > 0 do
+          "#{IO.ANSI.red()}#{passed}/#{total}#{IO.ANSI.reset()}"
+        else
+          "#{IO.ANSI.green()}#{passed}/#{total}#{IO.ANSI.reset()}"
+        end
+
+      IO.puts(
+        "  #{status_icon} #{format_timestamp(run.timestamp)}  #{run.git_ref |> String.slice(0, 7)}  #{summary}"
+      )
+    end)
+  end
+
+  defp output_history_json(runs) do
+    output = %{
+      runs:
+        Enum.map(runs, fn run ->
+          %{
+            id: run.id,
+            timestamp: DateTime.to_iso8601(run.timestamp),
+            git_ref: run.git_ref,
+            git_branch: run.git_branch,
+            overall: Atom.to_string(run.overall),
+            task_count: length(run.tasks),
+            passed_count: Enum.count(run.tasks, &(&1.status == :passed)),
+            failed_count: Enum.count(run.tasks, &(&1.status == :failed))
+          }
+        end)
+    }
+
+    IO.puts(Jason.encode!(output, pretty: true))
+  end
+
+  defp format_timestamp(%DateTime{} = dt) do
+    Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
   end
 
   # ----- DAEMON SUBCOMMAND -----
