@@ -473,16 +473,23 @@ defmodule Sykli.CLI do
 
   defp output_report(run, path) do
     # Header box
-    IO.puts(
-      "#{IO.ANSI.cyan()}╭──────────────────────────────────────────────────╮#{IO.ANSI.reset()}"
-    )
+    border_plain = "╭──────────────────────────────────────────────────╮"
+    inner_width = String.length(border_plain) - 2
+
+    IO.puts("#{IO.ANSI.cyan()}#{border_plain}#{IO.ANSI.reset()}")
+
+    run_content = " Run: #{format_timestamp(run.timestamp)}"
+    run_padding = max(0, inner_width - String.length(run_content))
 
     IO.puts(
-      "#{IO.ANSI.cyan()}│#{IO.ANSI.reset()} Run: #{format_timestamp(run.timestamp)}#{String.duplicate(" ", 25)}#{IO.ANSI.cyan()}│#{IO.ANSI.reset()}"
+      "#{IO.ANSI.cyan()}│#{IO.ANSI.reset()}#{run_content}#{String.duplicate(" ", run_padding)}#{IO.ANSI.cyan()}│#{IO.ANSI.reset()}"
     )
 
+    commit_content = " Commit: #{run.git_ref} (#{run.git_branch})"
+    commit_padding = max(0, inner_width - String.length(commit_content))
+
     IO.puts(
-      "#{IO.ANSI.cyan()}│#{IO.ANSI.reset()} Commit: #{run.git_ref} (#{run.git_branch})#{String.duplicate(" ", max(0, 32 - String.length(run.git_ref) - String.length(run.git_branch)))}#{IO.ANSI.cyan()}│#{IO.ANSI.reset()}"
+      "#{IO.ANSI.cyan()}│#{IO.ANSI.reset()}#{commit_content}#{String.duplicate(" ", commit_padding)}#{IO.ANSI.cyan()}│#{IO.ANSI.reset()}"
     )
 
     IO.puts(
