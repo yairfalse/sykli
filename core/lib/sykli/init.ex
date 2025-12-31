@@ -197,7 +197,7 @@ defmodule Sykli.Init do
     if File.exists?(go_mod) do
       case File.read(go_mod) do
         {:ok, content} ->
-          case Regex.run(~r/^module\s+(.+)$/m, content) do
+          case Regex.run(~r/^module\s+(\S+)/m, content) do
             [_, module] ->
               module
               |> String.trim()
