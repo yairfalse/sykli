@@ -24,7 +24,9 @@ defmodule Sykli.Init do
   @doc """
   Initialize a sykli file in the given directory.
 
-  Options:
+  init(path, opts \\ [])
+
+  Options (opts keyword list, optional):
     - language: Force a specific language (:go, :rust, :elixir)
     - force: Overwrite existing sykli file (default: false)
   """
