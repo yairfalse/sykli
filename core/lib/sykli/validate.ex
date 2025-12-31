@@ -83,7 +83,10 @@ defmodule Sykli.Validate do
 
   defp validate_data(data) do
     tasks = data["tasks"] || []
-    task_names = Enum.map(tasks, & &1["name"])
+    task_names =
+      tasks
+      |> Enum.map(& &1["name"])
+      |> Enum.filter(&(is_binary(&1) and String.trim(&1) != ""))
 
     errors =
       []
