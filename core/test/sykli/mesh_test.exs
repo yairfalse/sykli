@@ -68,11 +68,21 @@ defmodule Sykli.MeshTest do
       assert is_list(nodes)
     end
 
-    test "includes :local when node can execute" do
-      # Default node role is :full, which can execute
+    test "includes :local when current node can execute tasks" do
+      # Test nodes (nonode@nohost) are treated as :full nodes, which can execute
+      # This test verifies the happy path where the node can execute
       nodes = Mesh.available_nodes()
 
       assert :local in nodes
+    end
+
+    test "excludes :local for coordinator-only nodes" do
+      # Coordinators cannot execute tasks, so :local should not be included
+      # when running on a coordinator node. We verify this by checking the
+      # underlying role detection logic.
+      assert Sykli.Daemon.can_execute?(:coordinator_abc123@host) == false
+      assert Sykli.Daemon.can_execute?(:worker_abc123@host) == true
+      assert Sykli.Daemon.can_execute?(:sykli_abc123@host) == true
     end
   end
 
