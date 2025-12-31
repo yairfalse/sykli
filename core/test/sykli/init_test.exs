@@ -28,11 +28,11 @@ defmodule Sykli.InitTest do
       assert Init.detect_language(tmp_dir) == {:error, :unknown_project}
     end
 
-    test "prefers go.mod over others when multiple present", %{tmp_dir: tmp_dir} do
+    test "returns first match when multiple marker files present", %{tmp_dir: tmp_dir} do
       File.write!(Path.join(tmp_dir, "go.mod"), "module foo")
       File.write!(Path.join(tmp_dir, "Cargo.toml"), "[package]")
 
-      # Go takes precedence (alphabetical? or first found)
+      # Order depends on map iteration - just verify we get a valid result
       assert {:ok, lang} = Init.detect_language(tmp_dir)
       assert lang in [:go, :rust, :elixir]
     end

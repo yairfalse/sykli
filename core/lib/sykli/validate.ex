@@ -116,7 +116,7 @@ defmodule Sykli.Validate do
       tasks
       |> Enum.filter(fn t ->
         name = t["name"]
-        is_nil(name) or name == ""
+        is_nil(name) or not is_binary(name) or String.trim(name) == ""
       end)
 
     if empty_tasks != [] do
@@ -138,13 +138,15 @@ defmodule Sykli.Validate do
     end)
   end
 
+  defp valid_name?(name), do: is_binary(name) and String.trim(name) != ""
+
   defp check_self_deps(errors, tasks) do
     self_deps =
       tasks
       |> Enum.filter(fn t ->
         name = t["name"]
         deps = t["depends_on"] || []
-        name in deps
+        valid_name?(name) and name in deps
       end)
       |> Enum.map(& &1["name"])
 
@@ -158,6 +160,7 @@ defmodule Sykli.Validate do
 
     missing =
       tasks
+      |> Enum.filter(fn t -> valid_name?(t["name"]) end)
       |> Enum.flat_map(fn t ->
         name = t["name"]
         deps = t["depends_on"] || []
@@ -191,9 +194,10 @@ defmodule Sykli.Validate do
     if has_critical_dependency_errors? do
       errors
     else
-      # Build graph for cycle detection
+      # Build graph for cycle detection (only valid tasks)
       graph =
         tasks
+        |> Enum.filter(fn t -> valid_name?(t["name"]) end)
         |> Enum.map(fn t ->
           {t["name"],
            %{

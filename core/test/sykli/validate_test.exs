@@ -80,6 +80,21 @@ defmodule Sykli.ValidateTest do
       assert Enum.any?(result.errors, &(&1.type == :empty_task_name))
     end
 
+    test "detects whitespace-only task name" do
+      json = """
+      {
+        "tasks": [
+          {"name": "   ", "command": "echo test"}
+        ]
+      }
+      """
+
+      result = Validate.validate_json(json)
+
+      assert result.valid == false
+      assert Enum.any?(result.errors, &(&1.type == :empty_task_name))
+    end
+
     test "detects duplicate task names" do
       json = """
       {
