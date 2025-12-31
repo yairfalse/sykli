@@ -181,33 +181,44 @@ defmodule Sykli.Validate do
   end
 
   defp check_cycles(errors, tasks) do
-    # Build graph for cycle detection
-    graph =
-      tasks
-      |> Enum.map(fn t ->
-        {t["name"],
-         %{
-           name: t["name"],
-           depends_on: t["depends_on"] || []
-         }}
+    # Short-circuit cycle detection if there are already critical dependency errors.
+    has_critical_dependency_errors? =
+      Enum.any?(errors, fn
+        %{type: type} when type in [:missing_dependency, :self_dependency] -> true
+        _ -> false
       end)
-      |> Map.new()
 
-    case Graph.topo_sort(graph) do
-      {:ok, _} ->
-        errors
+    if has_critical_dependency_errors? do
+      errors
+    else
+      # Build graph for cycle detection
+      graph =
+        tasks
+        |> Enum.map(fn t ->
+          {t["name"],
+           %{
+             name: t["name"],
+             depends_on: t["depends_on"] || []
+           }}
+        end)
+        |> Map.new()
 
-      {:error, {:cycle_detected, path}} ->
-        cycle_str = Enum.join(path, " -> ")
+      case Graph.topo_sort(graph) do
+        {:ok, _} ->
+          errors
 
-        [
-          %{type: :cycle, path: path, message: "Dependency cycle detected: #{cycle_str}"}
-          | errors
-        ]
+        {:error, {:cycle_detected, path}} ->
+          cycle_str = Enum.join(path, " -> ")
 
-      {:error, _} ->
-        # Generic cycle error
-        [%{type: :cycle, message: "Dependency cycle detected"} | errors]
+          [
+            %{type: :cycle, path: path, message: "Dependency cycle detected: #{cycle_str}"}
+            | errors
+          ]
+
+        {:error, _} ->
+          # Generic cycle error
+          [%{type: :cycle, message: "Dependency cycle detected"} | errors]
+      end
     end
   end
 
