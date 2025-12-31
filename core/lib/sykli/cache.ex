@@ -181,6 +181,7 @@ defmodule Sykli.Cache do
   Returns :ok or {:error, reason}
   """
   def store(key, task, outputs, duration_ms, workdir) do
+    init()
     abs_workdir = Path.expand(workdir)
 
     # Collect output file info

@@ -267,13 +267,16 @@ defmodule Sykli.CacheTest do
     test "handles corrupted meta file" do
       Sykli.Cache.init()
 
-      # Create a corrupted meta file
+      # Create task and get its actual cache key
+      task = make_task("test", "echo test")
+      key = Sykli.Cache.cache_key(task, @test_workdir)
+
+      # Corrupt the meta file for THIS specific task
       meta_dir = Path.join(Sykli.Cache.get_cache_dir(), "meta")
       File.mkdir_p!(meta_dir)
-      File.write!(Path.join(meta_dir, "corrupted.json"), "not valid json")
+      File.write!(Path.join(meta_dir, "#{key}.json"), "not valid json")
 
-      # Should treat as miss
-      task = make_task("test", "echo test")
+      # Should treat as miss due to corrupted meta
       assert {:miss, _} = Sykli.Cache.check(task, @test_workdir)
     end
 

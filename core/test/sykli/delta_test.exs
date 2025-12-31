@@ -25,8 +25,8 @@ defmodule Sykli.DeltaTest do
     File.rm_rf!(@test_workdir)
     File.mkdir_p!(@test_workdir)
 
-    # Initialize git repo
-    System.cmd("git", ["init"], cd: @test_workdir)
+    # Initialize git repo with explicit branch name to avoid warnings
+    System.cmd("git", ["init", "-b", "main"], cd: @test_workdir)
     System.cmd("git", ["config", "user.email", "test@test.com"], cd: @test_workdir)
     System.cmd("git", ["config", "user.name", "Test"], cd: @test_workdir)
 
