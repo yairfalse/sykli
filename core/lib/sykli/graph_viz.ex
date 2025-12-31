@@ -85,18 +85,9 @@ defmodule Sykli.GraphViz do
     "#{id}[#{label}]"
   end
 
-  # Generate label with optional icon based on task type
+  # Generate label - just the task name
   defp task_label(task) do
-    name = task.name
-
-    cond do
-      String.contains?(name, "test") -> "#{name} 🧪"
-      String.contains?(name, "lint") -> "#{name} 🔍"
-      String.contains?(name, "build") -> "#{name} 📦"
-      String.contains?(name, "deploy") -> "#{name} 🚀"
-      String.contains?(name, "fmt") or String.contains?(name, "format") -> "#{name} ✨"
-      true -> name
-    end
+    task.name
   end
 
   # Convert task dependencies to mermaid edges

@@ -44,7 +44,7 @@ defmodule Sykli.GraphVizTest do
       assert result =~ "test --> build"
     end
 
-    test "adds icons based on task name" do
+    test "uses plain task names without decoration" do
       tasks = [
         %{name: "test", depends_on: []},
         %{name: "lint", depends_on: []},
@@ -53,9 +53,9 @@ defmodule Sykli.GraphVizTest do
 
       result = GraphViz.to_mermaid(tasks)
 
-      assert result =~ "🧪"
-      assert result =~ "🔍"
-      assert result =~ "📦"
+      assert result =~ "test[test]"
+      assert result =~ "lint[lint]"
+      assert result =~ "build[build]"
     end
 
     test "sanitizes special characters in task names" do
