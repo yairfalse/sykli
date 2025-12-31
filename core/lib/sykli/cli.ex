@@ -37,6 +37,12 @@ defmodule Sykli.CLI do
       ["daemon" | daemon_args] ->
         handle_daemon(daemon_args)
 
+      ["init" | init_args] ->
+        handle_init(init_args)
+
+      ["validate" | validate_args] ->
+        handle_validate(validate_args)
+
       # Support explicit 'run' command: sykli run [path]
       ["run" | run_args] ->
         run_sykli(run_args)
@@ -62,6 +68,8 @@ defmodule Sykli.CLI do
     Commands:
       sykli [path]     Run pipeline (default: current directory)
       sykli run [path] Run pipeline (explicit form)
+      sykli init       Create a new sykli file (auto-detects language)
+      sykli validate   Check sykli file for errors without running
       sykli delta      Run only tasks affected by git changes
       sykli watch      Watch files and re-run affected tasks
       sykli graph      Show task graph (see: sykli graph --help)
@@ -382,6 +390,205 @@ defmodule Sykli.CLI do
       end)
 
     {opts, List.first(rest)}
+  end
+
+  # ----- INIT SUBCOMMAND -----
+
+  defp handle_init(["--help"]) do
+    IO.puts("""
+    Usage: sykli init [options] [path]
+
+    Create a new sykli configuration file.
+
+    Auto-detects project type from marker files:
+      - go.mod     → sykli.go
+      - Cargo.toml → sykli.rs
+      - mix.exs    → sykli.exs
+
+    Options:
+      --go         Force Go (creates sykli.go)
+      --rust       Force Rust (creates sykli.rs)
+      --elixir     Force Elixir (creates sykli.exs)
+      --force      Overwrite existing sykli file
+      --help       Show this help
+
+    Examples:
+      sykli init              Auto-detect and create sykli file
+      sykli init --go         Create sykli.go
+      sykli init --rust       Create sykli.rs
+      sykli init --force      Overwrite existing file
+    """)
+
+    halt(0)
+  end
+
+  defp handle_init(args) do
+    {opts, path} = parse_init_args(args)
+    path = path || "."
+    language = Keyword.get(opts, :language)
+    force = Keyword.get(opts, :force, false)
+
+    init_opts = [force: force]
+    init_opts = if language, do: [{:language, language} | init_opts], else: init_opts
+
+    case Sykli.Init.init(path, init_opts) do
+      {:ok, lang} ->
+        file = sykli_filename(lang)
+        IO.puts("#{IO.ANSI.green()}Created #{file}#{IO.ANSI.reset()}")
+        IO.puts("")
+        IO.puts("#{IO.ANSI.faint()}Next steps:#{IO.ANSI.reset()}")
+        IO.puts("  1. Edit #{file} to customize your pipeline")
+        IO.puts("  2. Run #{IO.ANSI.cyan()}sykli#{IO.ANSI.reset()} to execute")
+        halt(0)
+
+      {:error, :already_exists} ->
+        IO.puts("#{IO.ANSI.yellow()}Sykli file already exists#{IO.ANSI.reset()}")
+        IO.puts("#{IO.ANSI.faint()}Use --force to overwrite#{IO.ANSI.reset()}")
+        halt(1)
+
+      {:error, :unknown_project} ->
+        IO.puts("#{IO.ANSI.red()}Could not detect project type#{IO.ANSI.reset()}")
+        IO.puts("")
+        IO.puts("No go.mod, Cargo.toml, or mix.exs found.")
+        IO.puts("Use --go, --rust, or --elixir to specify language:")
+        IO.puts("")
+        IO.puts("  #{IO.ANSI.cyan()}sykli init --go#{IO.ANSI.reset()}")
+        halt(1)
+    end
+  end
+
+  defp parse_init_args(args) do
+    {opts, rest} =
+      Enum.reduce(args, {[], []}, fn arg, {opts, rest} ->
+        cond do
+          arg == "--go" ->
+            {[{:language, :go} | opts], rest}
+
+          arg == "--rust" ->
+            {[{:language, :rust} | opts], rest}
+
+          arg == "--elixir" ->
+            {[{:language, :elixir} | opts], rest}
+
+          arg == "--force" or arg == "-f" ->
+            {[{:force, true} | opts], rest}
+
+          String.starts_with?(arg, "--") ->
+            {opts, rest}
+
+          true ->
+            {opts, rest ++ [arg]}
+        end
+      end)
+
+    {opts, List.first(rest)}
+  end
+
+  defp sykli_filename(:go), do: "sykli.go"
+  defp sykli_filename(:rust), do: "sykli.rs"
+  defp sykli_filename(:elixir), do: "sykli.exs"
+
+  # ----- VALIDATE SUBCOMMAND -----
+
+  defp handle_validate(["--help"]) do
+    IO.puts("""
+    Usage: sykli validate [options] [path]
+
+    Check sykli file for errors without running the pipeline.
+
+    Validates:
+      - No dependency cycles
+      - All dependencies exist
+      - No duplicate task names
+      - No self-dependencies
+
+    Options:
+      --json       Output as JSON (for tooling)
+      --help       Show this help
+
+    Examples:
+      sykli validate              Validate current directory
+      sykli validate ./my-project Validate specific project
+      sykli validate --json       Output validation result as JSON
+    """)
+
+    halt(0)
+  end
+
+  defp handle_validate(args) do
+    {opts, path} = parse_validate_args(args)
+    path = path || "."
+    json_output = Keyword.get(opts, :json, false)
+
+    case Sykli.Validate.validate(path) do
+      {:ok, result} ->
+        if json_output do
+          IO.puts(Sykli.Validate.to_json(result))
+        else
+          output_validation_result(result)
+        end
+
+        if result.valid, do: halt(0), else: halt(1)
+
+      {:error, :no_sdk_file} ->
+        if json_output do
+          IO.puts(Jason.encode!(%{valid: false, error: "No sykli file found"}))
+        else
+          IO.puts("#{IO.ANSI.red()}No sykli file found#{IO.ANSI.reset()}")
+        end
+
+        halt(1)
+
+      {:error, reason} ->
+        if json_output do
+          IO.puts(Jason.encode!(%{valid: false, error: inspect(reason)}))
+        else
+          IO.puts("#{IO.ANSI.red()}Error: #{inspect(reason)}#{IO.ANSI.reset()}")
+        end
+
+        halt(1)
+    end
+  end
+
+  defp parse_validate_args(args) do
+    {opts, rest} =
+      Enum.reduce(args, {[], []}, fn arg, {opts, rest} ->
+        cond do
+          arg == "--json" ->
+            {[{:json, true} | opts], rest}
+
+          String.starts_with?(arg, "--") ->
+            {opts, rest}
+
+          true ->
+            {opts, rest ++ [arg]}
+        end
+      end)
+
+    {opts, List.first(rest)}
+  end
+
+  defp output_validation_result(result) do
+    if result.valid do
+      IO.puts("#{IO.ANSI.green()}Valid#{IO.ANSI.reset()}")
+      IO.puts("")
+      IO.puts("#{IO.ANSI.faint()}Tasks: #{Enum.join(result.tasks, ", ")}#{IO.ANSI.reset()}")
+
+      if result.warnings != [] do
+        IO.puts("")
+
+        Enum.each(result.warnings, fn {_type, msg} ->
+          IO.puts("#{IO.ANSI.yellow()}Warning: #{msg}#{IO.ANSI.reset()}")
+        end)
+      end
+    else
+      IO.puts("#{IO.ANSI.red()}Invalid#{IO.ANSI.reset()}")
+      IO.puts("")
+
+      Enum.each(result.errors, fn error ->
+        IO.puts("  #{IO.ANSI.red()}#{IO.ANSI.reset()} #{error.message}")
+      end)
+    end
   end
 
   # ----- REPORT SUBCOMMAND -----
