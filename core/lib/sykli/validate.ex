@@ -73,7 +73,7 @@ defmodule Sykli.Validate do
     %{
       valid: result.valid,
       tasks: result.tasks,
-      errors: Enum.map(result.errors, &Map.from_struct/1),
+      errors: result.errors,
       warnings: Enum.map(result.warnings, fn {type, msg} -> %{type: type, message: msg} end)
     }
     |> Jason.encode!(pretty: true)
