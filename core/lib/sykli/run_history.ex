@@ -159,17 +159,11 @@ defmodule Sykli.RunHistory do
   @doc """
   Calculate the current streak (consecutive passes) for a task.
   """
-  @spec calculate_streak(String.t(), keyword()) ::
-          {:ok, non_neg_integer()} | {:error, term()}
+  @spec calculate_streak(String.t(), keyword()) :: {:ok, non_neg_integer()}
   def calculate_streak(task_name, opts \\ []) do
-    case list(opts) do
-      {:ok, runs} ->
-        streak = count_streak(runs, task_name)
-        {:ok, streak}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
+    {:ok, runs} = list(opts)
+    streak = count_streak(runs, task_name)
+    {:ok, streak}
   end
 
   @doc """
