@@ -735,7 +735,19 @@ defmodule Sykli.CLI do
 
   defp handle_daemon(["start" | args]) do
     foreground = "--foreground" in args or "-f" in args
-    role = parse_role_arg(args)
+
+    role =
+      case parse_role_arg(args) do
+        {:ok, r} ->
+          r
+
+        {:error, invalid_role} ->
+          IO.puts(:stderr, "Invalid daemon role: #{invalid_role}")
+          IO.puts(:stderr, "Valid roles are: full, worker, coordinator")
+          IO.puts(:stderr, "")
+          print_daemon_help()
+          halt(1)
+      end
 
     role_label =
       case role do
@@ -831,14 +843,11 @@ defmodule Sykli.CLI do
         end
 
     case role_arg do
-      nil -> :full
-      "worker" -> :worker
-      "coordinator" -> :coordinator
-      "full" -> :full
-      invalid ->
-        IO.puts(:stderr, "#{IO.ANSI.red()}Invalid role: #{invalid}#{IO.ANSI.reset()}")
-        IO.puts(:stderr, "Valid roles: full, worker, coordinator")
-        halt(1)
+      nil -> {:ok, :full}
+      "worker" -> {:ok, :worker}
+      "coordinator" -> {:ok, :coordinator}
+      "full" -> {:ok, :full}
+      invalid -> {:error, invalid}
     end
   end
 
