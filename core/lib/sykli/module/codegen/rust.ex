@@ -315,8 +315,7 @@ defmodule Sykli.Module.Codegen.Rust do
       "\"#{cmd}\""
     else
       # Build format! call
-      format_str =
-        Regex.replace(~r/\$\{(\w+)\}/, cmd, "{}")
+      format_str = Regex.replace(~r/\$\{(\w+)\}/, cmd, "{}")
 
       args =
         param_names

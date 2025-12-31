@@ -192,4 +192,82 @@ defmodule Sykli.DaemonTest do
       assert platform in [:macos, :linux, :other]
     end
   end
+
+  describe "node_role/1" do
+    test "detects full node from name" do
+      assert :full == Daemon.node_role(:sykli_abc123@myhost)
+      assert :full == Daemon.node_role(:sykli_xyz789@localhost)
+    end
+
+    test "detects worker node from name" do
+      assert :worker == Daemon.node_role(:worker_abc123@myhost)
+      assert :worker == Daemon.node_role(:worker_xyz789@localhost)
+    end
+
+    test "detects coordinator node from name" do
+      assert :coordinator == Daemon.node_role(:coordinator_abc123@myhost)
+      assert :coordinator == Daemon.node_role(:coordinator_xyz789@localhost)
+    end
+
+    test "defaults to full for unknown prefixes" do
+      assert :full == Daemon.node_role(:unknown_abc123@myhost)
+      assert :full == Daemon.node_role(:custom_xyz789@localhost)
+    end
+  end
+
+  describe "role predicates" do
+    test "coordinator?/1 returns true only for coordinator nodes" do
+      assert Daemon.coordinator?(:coordinator_abc@host)
+      refute Daemon.coordinator?(:worker_abc@host)
+      refute Daemon.coordinator?(:sykli_abc@host)
+    end
+
+    test "worker?/1 returns true only for worker nodes" do
+      assert Daemon.worker?(:worker_abc@host)
+      refute Daemon.worker?(:coordinator_abc@host)
+      refute Daemon.worker?(:sykli_abc@host)
+    end
+
+    test "can_execute?/1 returns true for workers and full nodes" do
+      assert Daemon.can_execute?(:worker_abc@host)
+      assert Daemon.can_execute?(:sykli_abc@host)
+      refute Daemon.can_execute?(:coordinator_abc@host)
+    end
+
+    test "can_coordinate?/1 returns true for coordinators and full nodes" do
+      assert Daemon.can_coordinate?(:coordinator_abc@host)
+      assert Daemon.can_coordinate?(:sykli_abc@host)
+      refute Daemon.can_coordinate?(:worker_abc@host)
+    end
+  end
+
+  describe "node_name/1 with roles" do
+    test "generates worker prefix for worker role" do
+      name = Daemon.node_name(role: :worker)
+      name_str = Atom.to_string(name)
+
+      assert String.starts_with?(name_str, "worker_")
+    end
+
+    test "generates coordinator prefix for coordinator role" do
+      name = Daemon.node_name(role: :coordinator)
+      name_str = Atom.to_string(name)
+
+      assert String.starts_with?(name_str, "coordinator_")
+    end
+
+    test "generates sykli prefix for full role (default)" do
+      name = Daemon.node_name(role: :full)
+      name_str = Atom.to_string(name)
+
+      assert String.starts_with?(name_str, "sykli_")
+    end
+
+    test "custom prefix overrides role-based prefix" do
+      name = Daemon.node_name(role: :worker, prefix: "custom")
+      name_str = Atom.to_string(name)
+
+      assert String.starts_with?(name_str, "custom_")
+    end
+  end
 end

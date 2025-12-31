@@ -271,8 +271,7 @@ defmodule Sykli.Module.Codegen.Go do
       "\"#{cmd}\""
     else
       # Build fmt.Sprintf call
-      format_str =
-        Regex.replace(~r/\$\{(\w+)\}/, cmd, "%s")
+      format_str = Regex.replace(~r/\$\{(\w+)\}/, cmd, "%s")
 
       args =
         params
