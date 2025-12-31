@@ -586,7 +586,7 @@ defmodule Sykli.CLI do
       IO.puts("")
 
       Enum.each(result.errors, fn error ->
-        IO.puts("  #{IO.ANSI.red()}#{IO.ANSI.reset()} #{error.message}")
+        IO.puts("  #{IO.ANSI.red()}•#{IO.ANSI.reset()} #{error.message}")
       end)
     end
   end

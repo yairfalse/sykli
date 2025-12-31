@@ -156,16 +156,20 @@ defmodule Sykli.ValidateTest do
         valid: false,
         tasks: ["build"],
         errors: [
-          %{type: :missing_dependency, task: "build", dependency: "test"}
+          %{
+            type: :missing_dependency,
+            task: "build",
+            dependency: "test",
+            message: "Task 'build' depends on unknown task 'test'"
+          }
         ],
         warnings: []
       }
 
       output = Validate.format_errors(result)
 
-      assert output =~ "missing_dependency"
+      assert output =~ "depends on unknown task"
       assert output =~ "build"
-      assert output =~ "test"
     end
   end
 
