@@ -80,15 +80,21 @@ defmodule Sykli.Init do
   @spec generate(String.t(), atom(), keyword()) :: :ok | {:error, term()}
   def generate(path, language, opts \\ []) do
     force = Keyword.get(opts, :force, false)
-    sykli_file = Map.get(@sykli_files, language)
-    sykli_path = Path.join(path, sykli_file)
 
-    if File.exists?(sykli_path) and not force do
-      {:error, :already_exists}
-    else
-      content = generate_content(path, language)
-      File.write!(sykli_path, content)
-      :ok
+    case Map.get(@sykli_files, language) do
+      nil ->
+        {:error, :unsupported_language}
+
+      sykli_file ->
+        sykli_path = Path.join(path, sykli_file)
+
+        if File.exists?(sykli_path) and not force do
+          {:error, :already_exists}
+        else
+          content = generate_content(path, language)
+          File.write!(sykli_path, content)
+          :ok
+        end
     end
   end
 
