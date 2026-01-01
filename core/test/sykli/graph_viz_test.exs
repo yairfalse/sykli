@@ -132,6 +132,17 @@ defmodule Sykli.GraphVizTest do
       # Hyphens get replaced with underscores
       assert result =~ "my_task"
     end
+
+    test "handles nil depends_on" do
+      tasks = [
+        %{name: "test", depends_on: nil},
+        %{name: "build", depends_on: ["test"]}
+      ]
+
+      result = GraphViz.to_mermaid(tasks)
+
+      assert result =~ "test --> build"
+    end
   end
 
   describe "to_dot/1" do

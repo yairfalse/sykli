@@ -51,17 +51,17 @@ defmodule Sykli.GraphViz do
 
   defp build_levels(tasks) do
     task_map = Map.new(tasks, fn t -> {t.name, t} end)
-    deps_map = Map.new(tasks, fn t -> {t.name, Map.get(t, :depends_on, []) || []} end)
 
     # Kahn's algorithm for level assignment
-    in_degree = Map.new(tasks, fn t ->
-      {t.name, length(Map.get(t, :depends_on, []) || [])}
-    end)
+    in_degree =
+      Map.new(tasks, fn t ->
+        {t.name, length(Map.get(t, :depends_on, []) || [])}
+      end)
 
-    build_levels_loop(tasks, task_map, deps_map, in_degree, [])
+    build_levels_loop(tasks, task_map, in_degree, [])
   end
 
-  defp build_levels_loop(tasks, task_map, deps_map, in_degree, levels) do
+  defp build_levels_loop(tasks, task_map, in_degree, levels) do
     # Find tasks with no remaining dependencies
     ready =
       in_degree
@@ -73,8 +73,10 @@ defmodule Sykli.GraphViz do
       Enum.reverse(levels)
     else
       # Get task structs for this level
-      level_tasks = Enum.map(ready, fn name -> Map.get(task_map, name) end)
-      |> Enum.reject(&is_nil/1)
+      level_tasks =
+        ready
+        |> Enum.map(fn name -> Map.get(task_map, name) end)
+        |> Enum.reject(&is_nil/1)
 
       # Remove these from in_degree and decrement dependents
       new_in_degree =
@@ -83,6 +85,7 @@ defmodule Sykli.GraphViz do
         |> then(fn deg ->
           Enum.reduce(tasks, deg, fn task, acc ->
             deps = Map.get(task, :depends_on, []) || []
+
             if Enum.any?(deps, &(&1 in ready)) and Map.has_key?(acc, task.name) do
               Map.update!(acc, task.name, &(&1 - Enum.count(deps, fn d -> d in ready end)))
             else
@@ -91,7 +94,7 @@ defmodule Sykli.GraphViz do
           end)
         end)
 
-      build_levels_loop(tasks, task_map, deps_map, new_in_degree, [level_tasks | levels])
+      build_levels_loop(tasks, task_map, new_in_degree, [level_tasks | levels])
     end
   end
 
