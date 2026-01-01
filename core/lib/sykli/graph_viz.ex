@@ -9,8 +9,8 @@ defmodule Sykli.GraphViz do
 
   Takes tasks and a map of task_name => status (:passed, :failed, :skipped).
 
-  Example output:
-      test ✓ → build ✓ → deploy ✗ (skipped: lint)
+  Example output (skipped tasks are shown dimmed in the main line):
+      lint → test ✓ → build ✓ (skipped: lint)
   """
   def to_status_line(tasks, results) when is_list(tasks) and is_map(results) do
     # Build dependency levels
