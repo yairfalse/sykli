@@ -28,6 +28,20 @@ defmodule Sykli.Executor.Mesh do
       sykli daemon start
 
   Nodes auto-discover via libcluster gossip on the same network.
+
+  ## Limitations
+
+  * **Artifacts are local-only**: Tasks running on remote nodes cannot produce
+    artifacts that are then consumed by dependent tasks, because artifact paths
+    and copy operations are resolved only on the local node.
+
+  * **Services are local-only**: Service containers are started on the local
+    node and are not exposed to tasks executing on remote nodes. Remote tasks
+    cannot connect to services started by this executor.
+
+  These constraints limit which pipelines can safely use mesh execution,
+  particularly those that require cross-task artifact sharing or remote
+  access to service containers.
   """
 
   @behaviour Sykli.Executor.Behaviour
@@ -48,16 +62,34 @@ defmodule Sykli.Executor.Mesh do
     # Get available nodes (includes :local if we can execute)
     candidates = Mesh.available_nodes()
 
-    # Select best node for this task
-    {:ok, node} = Mesh.select_node(task, candidates, strategy: :any)
+    # Select best node for this task (falls back to :local on any error)
+    node =
+      case Mesh.select_node(task, candidates, strategy: :any) do
+        {:ok, n} ->
+          n
+
+        other ->
+          Logger.warning(
+            "[Mesh] Failed to select node for #{task.name} (got #{inspect(other)}), falling back to :local"
+          )
+
+          :local
+      end
 
     # Log which node we're dispatching to
     if node != :local do
       Logger.debug("[Mesh] Dispatching #{task.name} to #{node}")
     end
 
-    # Dispatch to selected node
-    Mesh.dispatch_task(task, node, workdir: workdir)
+    # Dispatch to selected node and handle possible dispatch errors
+    case Mesh.dispatch_task(task, node, workdir: workdir) do
+      :ok ->
+        :ok
+
+      {:error, reason} = error ->
+        Logger.error("[Mesh] Failed to dispatch #{task.name} to #{inspect(node)}: #{inspect(reason)}")
+        error
+    end
   end
 
   @impl true

@@ -164,15 +164,12 @@ defmodule Sykli.CLI do
           arg == "--mesh" ->
             {[{:mesh, true} | opts], rest}
 
-          arg == "--verbose" or arg == "-v" ->
-            {[{:verbose, true} | opts], rest}
-
           String.starts_with?(arg, "--filter=") ->
             filter = String.replace_prefix(arg, "--filter=", "")
             {[{:filter, filter} | opts], rest}
 
           String.starts_with?(arg, "--") ->
-            # Ignore unknown flags
+            IO.puts(:stderr, "#{IO.ANSI.yellow()}Warning: ignoring unknown option #{arg}#{IO.ANSI.reset()}")
             {opts, rest}
 
           true ->

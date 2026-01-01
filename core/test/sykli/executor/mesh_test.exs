@@ -100,4 +100,41 @@ defmodule Sykli.Executor.MeshTest do
       assert {:ok, "test_value"} = result
     end
   end
+
+  describe "artifact handling" do
+    test "copy_artifact delegates to Local" do
+      workdir = Path.join(System.tmp_dir!(), "mesh_artifact_test_#{System.unique_integer([:positive])}")
+      File.mkdir_p!(workdir)
+      on_exit(fn -> File.rm_rf!(workdir) end)
+
+      # Create a source file (using relative path from workdir)
+      source_file = "source.txt"
+      source_abs = Path.join(workdir, source_file)
+      File.write!(source_abs, "test content")
+
+      # Copy artifact (using relative paths - the executor resolves them against workdir)
+      dest_file = "dest.txt"
+      result = Mesh.copy_artifact(source_file, dest_file, workdir)
+
+      assert result == :ok
+      assert File.read!(Path.join(workdir, dest_file)) == "test content"
+    end
+
+    test "copy_artifact returns error for non-existent source" do
+      workdir = System.tmp_dir!()
+      result = Mesh.copy_artifact("nonexistent_file.txt", "dest.txt", workdir)
+
+      assert {:error, _reason} = result
+    end
+
+    test "artifact_path delegates to Local" do
+      workdir = System.tmp_dir!()
+      result = Mesh.artifact_path("my_task", "my_artifact", workdir)
+
+      # Should return a path in the .sykli/artifacts directory
+      assert is_binary(result)
+      assert String.contains?(result, "my_task")
+      assert String.contains?(result, "my_artifact")
+    end
+  end
 end
