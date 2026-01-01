@@ -180,7 +180,7 @@ defmodule Sykli.TaskError do
     ~r/ReferenceError:.*/,
     ~r/SyntaxError:.*/,
     # Python
-    ~r/.*Error:.*/,
+    ~r/^\w+Error:.*/,
     ~r/Traceback \(most recent call last\).*/,
     # Generic test failures
     ~r/FAILED.*/,
