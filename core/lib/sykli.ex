@@ -13,11 +13,13 @@ defmodule Sykli do
   Options:
     - filter: function to filter tasks (receives task, returns boolean)
     - save_history: whether to save run history (default: true)
+    - executor: executor module to use (default: Sykli.Executor.Local)
   """
   def run(path \\ ".", opts \\ []) do
     Cache.init()
     filter_fn = Keyword.get(opts, :filter)
     save_history = Keyword.get(opts, :save_history, true)
+    executor = Keyword.get(opts, :executor)
 
     with {:ok, sdk_file} <- Detector.find(path),
          {:ok, json} <- Detector.emit(sdk_file),
@@ -35,7 +37,9 @@ defmodule Sykli do
 
       case Graph.topo_sort(filtered_graph) do
         {:ok, order} ->
-          result = Executor.run(order, filtered_graph, workdir: path)
+          executor_opts = [workdir: path]
+          executor_opts = if executor, do: [{:executor, executor} | executor_opts], else: executor_opts
+          result = Executor.run(order, filtered_graph, executor_opts)
 
           # Save run history if enabled
           if save_history do
