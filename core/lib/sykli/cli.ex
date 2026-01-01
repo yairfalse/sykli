@@ -56,14 +56,16 @@ defmodule Sykli.CLI do
     IO.puts("""
     sykli - CI pipelines in your language
 
-    Usage: sykli [path]
-           sykli run [path]
+    Usage: sykli [options] [path]
+           sykli run [options] [path]
            sykli daemon <command>
            sykli cache <command>
 
     Options:
       -h, --help       Show this help
       -v, --version    Show version
+      --mesh           Distribute tasks across connected BEAM nodes
+      --filter=NAME    Only run tasks matching NAME
 
     Commands:
       sykli [path]     Run pipeline (default: current directory)
@@ -82,16 +84,38 @@ defmodule Sykli.CLI do
       sykli                    Run pipeline in current directory
       sykli run                Same as above
       sykli ./my-project       Run pipeline in ./my-project
+      sykli --mesh             Run with distributed mesh execution
       sykli daemon start       Start mesh daemon
       sykli cache stats        Show cache statistics
     """)
   end
 
   defp run_sykli(args) do
-    path = List.first(args) || "."
+    {path, opts} = parse_run_args(args)
     start_time = System.monotonic_time(:millisecond)
 
-    case Sykli.run(path) do
+    # Build run options
+    run_opts = []
+
+    # Select executor based on --mesh flag
+    run_opts =
+      if opts[:mesh] do
+        IO.puts("#{IO.ANSI.cyan()}Running with mesh executor#{IO.ANSI.reset()}")
+        [{:executor, Sykli.Executor.Mesh} | run_opts]
+      else
+        run_opts
+      end
+
+    # Add filter if specified
+    run_opts =
+      if opts[:filter] do
+        filter_fn = fn task -> String.contains?(task.name, opts[:filter]) end
+        [{:filter, filter_fn} | run_opts]
+      else
+        run_opts
+      end
+
+    case Sykli.run(path, run_opts) do
       {:ok, results} ->
         duration = System.monotonic_time(:millisecond) - start_time
 
@@ -131,6 +155,33 @@ defmodule Sykli.CLI do
         IO.puts("#{IO.ANSI.red()}Error: #{inspect(reason)}#{IO.ANSI.reset()}")
         halt(1)
     end
+  end
+
+  defp parse_run_args(args) do
+    {opts, rest} =
+      Enum.reduce(args, {[], []}, fn arg, {opts, rest} ->
+        cond do
+          arg == "--mesh" ->
+            {[{:mesh, true} | opts], rest}
+
+          arg == "--verbose" or arg == "-v" ->
+            {[{:verbose, true} | opts], rest}
+
+          String.starts_with?(arg, "--filter=") ->
+            filter = String.replace_prefix(arg, "--filter=", "")
+            {[{:filter, filter} | opts], rest}
+
+          String.starts_with?(arg, "--") ->
+            # Ignore unknown flags
+            {opts, rest}
+
+          true ->
+            {opts, rest ++ [arg]}
+        end
+      end)
+
+    path = List.first(rest) || "."
+    {path, opts}
   end
 
   # ----- DELTA SUBCOMMAND -----
