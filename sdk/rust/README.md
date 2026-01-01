@@ -2,6 +2,87 @@
 
 CI pipelines defined in Rust instead of YAML.
 
+## Setup
+
+### Option 1: Add to Existing Project
+
+1. Add `sykli` to your `Cargo.toml`:
+
+```toml
+[dependencies]
+sykli = "0.2"
+
+[[bin]]
+name = "sykli"
+path = "src/bin/sykli.rs"
+```
+
+2. Create `src/bin/sykli.rs`:
+
+```rust
+use sykli::Pipeline;
+
+fn main() {
+    let mut p = Pipeline::new();
+    p.task("test").run("cargo test");
+    p.task("build").run("cargo build --release").after(&["test"]);
+    p.emit();
+}
+```
+
+3. Create an empty `sykli.rs` file in your project root (sykli looks for this):
+
+```bash
+touch sykli.rs
+```
+
+4. Run:
+
+```bash
+sykli
+```
+
+### Option 2: Workspace Projects
+
+For Cargo workspaces, add to the workspace root `Cargo.toml`:
+
+```toml
+[workspace]
+members = ["crate-a", "crate-b"]
+
+[workspace.dependencies]
+sykli = "0.2"
+
+# Add a workspace-level binary
+[[bin]]
+name = "sykli"
+path = "sykli.rs"
+
+[dependencies]
+sykli = { workspace = true }
+```
+
+Then create `sykli.rs` in the workspace root with your pipeline.
+
+### Option 3: Feature Flag (Recommended for Libraries)
+
+If you don't want sykli as a regular dependency:
+
+```toml
+[features]
+sykli = ["dep:sykli"]
+
+[dependencies]
+sykli = { version = "0.2", optional = true }
+
+[[bin]]
+name = "sykli"
+path = "src/bin/sykli.rs"
+required-features = ["sykli"]
+```
+
+This keeps your release builds clean - `sykli` is only compiled when running the pipeline.
+
 ## Quick Start
 
 ```rust
