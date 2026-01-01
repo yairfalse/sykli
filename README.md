@@ -37,14 +37,17 @@ This release (v0.2.0) focuses on **local execution with Docker containers**. Kub
 
 | Feature | Description |
 |---------|-------------|
+| **`sykli init`** | Auto-detect language and create sykli file |
+| **`sykli validate`** | Check for errors without running |
 | **`sykli delta`** | Run only tasks affected by git changes |
+| **`sykli watch`** | Re-run affected tasks on file changes |
 | **`sykli graph`** | Visualize your pipeline as Mermaid/DOT diagram |
+| **`sykli --mesh`** | Distribute tasks across connected BEAM nodes |
+| **Status graph** | See pipeline status after each run: `lint ✓, test ✓ → build ✗` |
+| **Error highlighting** | Key errors extracted and highlighted in output |
 | **Templates** | DRY - define container config once, reuse everywhere |
 | **Parallel/Chain** | Compose tasks into concurrent groups or sequences |
 | **Artifact passing** | Pass outputs between tasks with `InputFrom` |
-| **Cache visibility** | Know WHY a task ran: `command_changed`, `inputs_changed`, etc. |
-| **Type-safe conditions** | `Branch("main").Or(HasTag())` instead of error-prone strings |
-| **K8s options** | Full K8s config with validation (for future K8s target) |
 
 See [CHANGELOG.md](CHANGELOG.md) for full details.
 
@@ -98,8 +101,9 @@ Output:
 ▶ build  go build -o app
 ✓ build  1.2s
 
-─────────────────────────────────────────
-✓ 2 passed in 1.3s
+test ✓ → build ✓
+
+✓ All tasks completed in 1.3s
 ```
 
 ---
@@ -111,7 +115,34 @@ Output:
 ```bash
 sykli                    # Run all tasks
 sykli --filter=test      # Run only tasks matching "test"
-sykli --verbose          # Show detailed output
+sykli --mesh             # Distribute across connected nodes
+```
+
+### `sykli init` - Create Sykli File
+
+Auto-detects your project language and creates the appropriate sykli file.
+
+```bash
+sykli init               # Auto-detect (go.mod → sykli.go, Cargo.toml → sykli.rs)
+sykli init --go          # Force Go
+sykli init --rust        # Force Rust
+sykli init --elixir      # Force Elixir
+```
+
+### `sykli validate` - Check Without Running
+
+Validate your pipeline for errors without executing tasks.
+
+```bash
+sykli validate           # Check for cycles, missing deps, duplicates
+sykli validate --json    # Output as JSON for tooling
+```
+
+Output:
+```
+Valid
+
+Tasks: lint, test, build, deploy
 ```
 
 ### `sykli delta` - Affected Tasks Only
@@ -161,11 +192,68 @@ graph TD
     build --> deploy
 ```
 
+### `sykli watch` - Live Reload
+
+Watch for file changes and re-run affected tasks automatically.
+
+```bash
+sykli watch              # Watch current directory
+sykli watch --from=main  # Compare against main branch
+```
+
+### `sykli --mesh` - Distributed Execution
+
+Distribute tasks across connected BEAM nodes on your network.
+
+```bash
+# Start daemon on each machine
+sykli daemon start
+
+# Run with mesh distribution
+sykli --mesh
+```
+
+Output:
+```
+Running with mesh executor
+Dispatching build to worker@192.168.1.42
+✓ test (local)
+✓ build (worker@192.168.1.42)
+```
+
+### `sykli report` - Last Run Summary
+
+Show detailed results from the last run.
+
+```bash
+sykli report             # Show last run
+sykli report --last-good # Show last passing run
+sykli report --json      # Output as JSON
+```
+
+### `sykli history` - Run History
+
+List recent pipeline runs.
+
+```bash
+sykli history            # Last 10 runs
+sykli history --limit=5  # Last 5 runs
+```
+
+Output:
+```
+Recent runs:
+  ✓ 2026-01-01 22:30:15  a5bce75  4/4
+  ✗ 2026-01-01 21:15:42  b1f0be0  3/4
+  ✓ 2026-01-01 20:00:01  17cb0ff  4/4
+```
+
 ### `sykli cache` - Cache Management
 
 ```bash
-sykli cache status       # Show cache statistics
+sykli cache stats        # Show cache statistics
 sykli cache clean        # Clear all cached results
+sykli cache clean --older-than 7d  # Clean old entries
 ```
 
 ---
@@ -530,24 +618,24 @@ end
 | **Execution** | |
 | Parallel execution | ✅ |
 | Content-addressed caching | ✅ |
-| Cache miss visibility | ✅ NEW |
+| Mesh distribution (`--mesh`) | ✅ NEW |
 | Cycle detection | ✅ |
 | Retry & timeout | ✅ |
 | **Composition** | |
-| Templates | ✅ NEW |
-| Parallel groups | ✅ NEW |
-| Chain combinator | ✅ NEW |
-| Artifact passing | ✅ NEW |
+| Templates | ✅ |
+| Parallel groups | ✅ |
+| Chain combinator | ✅ |
+| Artifact passing | ✅ |
 | Matrix builds | ✅ |
-| **Conditions & Secrets** | |
-| Conditional execution | ✅ |
-| Type-safe conditions | ✅ |
-| Typed secret references | ✅ |
 | **CLI** | |
-| `sykli delta` (affected tasks) | ✅ NEW |
-| `sykli graph` (visualization) | ✅ NEW |
-| Explain / dry-run mode | ✅ |
-| Helpful error suggestions | ✅ |
+| `sykli init` | ✅ NEW |
+| `sykli validate` | ✅ NEW |
+| `sykli delta` | ✅ |
+| `sykli watch` | ✅ NEW |
+| `sykli graph` | ✅ |
+| `sykli report` / `history` | ✅ NEW |
+| Status graph after runs | ✅ NEW |
+| Error highlighting | ✅ NEW |
 | **Targets** | |
 | Local (Docker) | ✅ |
 | Container tasks | ✅ |
@@ -626,19 +714,21 @@ mix run -e 'Sykli.run(".")'
 
 ## Roadmap
 
-**v0.2.0** (Current) - Local execution foundation
-- ✅ Local Docker execution
+**v0.2.0** (Current) - DX & Distribution
+- ✅ `sykli init` / `sykli validate`
+- ✅ `sykli watch` - file watcher
+- ✅ `sykli report` / `sykli history`
+- ✅ `--mesh` distributed execution
+- ✅ Status graph and error highlighting
 - ✅ Templates, Parallel, Chain composition
-- ✅ Delta & Graph CLI commands
-- ✅ Cache visibility
 
-**v0.3.0** - Kubernetes & Remote
-- 🚧 K8s target execution (API client ready)
+**v0.3.0** - Kubernetes & Remote Cache
+- 🚧 K8s target execution
 - 🚧 Remote cache (S3/GCS)
-- 🚧 `sykli watch` (file watcher)
+- 🚧 Cache garbage collection
 
-**v0.4.0** - Distributed
-- 🔮 BEAM mesh (laptop ↔ CI ↔ teammates)
+**v0.4.0** - Cloud & Observability
+- 🔮 `sykli connect` - hosted dashboard
 - 🔮 Hot config push
 - 🔮 Live process observation
 
