@@ -1,8 +1,99 @@
 defmodule Sykli.GraphViz do
   @moduledoc """
   Generates visual representations of the task graph.
-  Supports Mermaid and DOT (Graphviz) output formats.
+  Supports Mermaid, DOT (Graphviz), and terminal status output.
   """
+
+  @doc """
+  Generates a compact status summary for terminal output.
+
+  Takes tasks and a map of task_name => status (:passed, :failed, :skipped).
+
+  Example output:
+      test ✓ → build ✓ → deploy ✗ (skipped: lint)
+  """
+  def to_status_line(tasks, results) when is_list(tasks) and is_map(results) do
+    # Build dependency levels
+    levels = build_levels(tasks)
+
+    # Format each level
+    level_strs =
+      levels
+      |> Enum.map(fn level_tasks ->
+        level_tasks
+        |> Enum.map(fn task ->
+          status = Map.get(results, task.name, :pending)
+          format_task_status(task.name, status)
+        end)
+        |> Enum.join(", ")
+      end)
+
+    # Join levels with arrows
+    main_line = Enum.join(level_strs, " → ")
+
+    # Note any skipped tasks
+    skipped =
+      results
+      |> Enum.filter(fn {_name, status} -> status == :skipped end)
+      |> Enum.map(fn {name, _} -> name end)
+
+    if skipped == [] do
+      main_line
+    else
+      main_line <> " #{IO.ANSI.faint()}(skipped: #{Enum.join(skipped, ", ")})#{IO.ANSI.reset()}"
+    end
+  end
+
+  defp format_task_status(name, :passed), do: "#{name} #{IO.ANSI.green()}✓#{IO.ANSI.reset()}"
+  defp format_task_status(name, :failed), do: "#{name} #{IO.ANSI.red()}✗#{IO.ANSI.reset()}"
+  defp format_task_status(name, :skipped), do: "#{IO.ANSI.faint()}#{name}#{IO.ANSI.reset()}"
+  defp format_task_status(name, _), do: name
+
+  defp build_levels(tasks) do
+    task_map = Map.new(tasks, fn t -> {t.name, t} end)
+    deps_map = Map.new(tasks, fn t -> {t.name, Map.get(t, :depends_on, []) || []} end)
+
+    # Kahn's algorithm for level assignment
+    in_degree = Map.new(tasks, fn t ->
+      {t.name, length(Map.get(t, :depends_on, []) || [])}
+    end)
+
+    build_levels_loop(tasks, task_map, deps_map, in_degree, [])
+  end
+
+  defp build_levels_loop(tasks, task_map, deps_map, in_degree, levels) do
+    # Find tasks with no remaining dependencies
+    ready =
+      in_degree
+      |> Enum.filter(fn {_name, deg} -> deg == 0 end)
+      |> Enum.map(fn {name, _} -> name end)
+      |> Enum.sort()
+
+    if ready == [] do
+      Enum.reverse(levels)
+    else
+      # Get task structs for this level
+      level_tasks = Enum.map(ready, fn name -> Map.get(task_map, name) end)
+      |> Enum.reject(&is_nil/1)
+
+      # Remove these from in_degree and decrement dependents
+      new_in_degree =
+        in_degree
+        |> Map.drop(ready)
+        |> then(fn deg ->
+          Enum.reduce(tasks, deg, fn task, acc ->
+            deps = Map.get(task, :depends_on, []) || []
+            if Enum.any?(deps, &(&1 in ready)) and Map.has_key?(acc, task.name) do
+              Map.update!(acc, task.name, &(&1 - Enum.count(deps, fn d -> d in ready end)))
+            else
+              acc
+            end
+          end)
+        end)
+
+      build_levels_loop(tasks, task_map, deps_map, new_in_degree, [level_tasks | levels])
+    end
+  end
 
   @doc """
   Generates a Mermaid diagram from a list of tasks.

@@ -3,6 +3,72 @@ defmodule Sykli.GraphVizTest do
 
   alias Sykli.GraphViz
 
+  describe "to_status_line/2" do
+    test "shows single task with status" do
+      tasks = [%{name: "test", depends_on: []}]
+      results = %{"test" => :passed}
+
+      result = GraphViz.to_status_line(tasks, results)
+
+      assert result =~ "test"
+      assert result =~ "✓"
+    end
+
+    test "shows linear pipeline with arrows" do
+      tasks = [
+        %{name: "test", depends_on: []},
+        %{name: "build", depends_on: ["test"]}
+      ]
+      results = %{"test" => :passed, "build" => :passed}
+
+      result = GraphViz.to_status_line(tasks, results)
+
+      assert result =~ "test"
+      assert result =~ "→"
+      assert result =~ "build"
+    end
+
+    test "shows failed task" do
+      tasks = [%{name: "test", depends_on: []}]
+      results = %{"test" => :failed}
+
+      result = GraphViz.to_status_line(tasks, results)
+
+      assert result =~ "test"
+      assert result =~ "✗"
+    end
+
+    test "shows parallel tasks at same level" do
+      tasks = [
+        %{name: "lint", depends_on: []},
+        %{name: "test", depends_on: []},
+        %{name: "build", depends_on: ["lint", "test"]}
+      ]
+      results = %{"lint" => :passed, "test" => :passed, "build" => :passed}
+
+      result = GraphViz.to_status_line(tasks, results)
+
+      # lint and test should be at same level (comma-separated)
+      assert result =~ "lint"
+      assert result =~ "test"
+      assert result =~ "→"
+      assert result =~ "build"
+    end
+
+    test "shows skipped tasks" do
+      tasks = [
+        %{name: "test", depends_on: []},
+        %{name: "deploy", depends_on: ["test"]}
+      ]
+      results = %{"test" => :failed, "deploy" => :skipped}
+
+      result = GraphViz.to_status_line(tasks, results)
+
+      assert result =~ "skipped"
+      assert result =~ "deploy"
+    end
+  end
+
   describe "to_mermaid/1" do
     test "renders empty graph" do
       result = GraphViz.to_mermaid([])

@@ -38,9 +38,9 @@ defmodule Sykli.Executor do
     # Also pass graph for resolving task_inputs and executor for job execution
     result = run_levels(levels, workdir, [], {0, total_tasks}, graph, executor)
 
-    # Print summary
+    # Print summary with status graph
     total_time = System.monotonic_time(:millisecond) - start_time
-    print_summary(result, total_time)
+    print_summary(result, total_time, tasks)
 
     # Return original format
     case result do
@@ -536,16 +536,23 @@ defmodule Sykli.Executor do
 
   # ----- SUMMARY -----
 
-  defp print_summary({:ok, results}, total_time), do: do_print_summary(results, total_time, :ok)
+  defp print_summary({:ok, results}, total_time, tasks),
+    do: do_print_summary(results, total_time, :ok, tasks)
 
-  defp print_summary({:error, results}, total_time),
-    do: do_print_summary(results, total_time, :error)
+  defp print_summary({:error, results}, total_time, tasks),
+    do: do_print_summary(results, total_time, :error, tasks)
 
-  defp do_print_summary(results, total_time, status) do
+  defp do_print_summary(results, total_time, status, tasks) do
     if Enum.empty?(results) do
       :ok
     else
       IO.puts("\n#{IO.ANSI.faint()}─────────────────────────────────────────#{IO.ANSI.reset()}")
+
+      # Show status graph
+      result_map = build_result_map(results, tasks)
+      task_maps = Enum.map(tasks, fn t -> %{name: t.name, depends_on: t.depends_on || []} end)
+      IO.puts(Sykli.GraphViz.to_status_line(task_maps, result_map))
+      IO.puts("")
 
       # Count results
       passed = Enum.count(results, fn {_name, result, _duration} -> result == :ok end)
@@ -581,5 +588,27 @@ defmodule Sykli.Executor do
 
       IO.puts("")
     end
+  end
+
+  # Build a map of task_name => status for the graph visualization
+  defp build_result_map(results, tasks) do
+    # Map results to statuses
+    result_statuses =
+      results
+      |> Enum.map(fn {name, result, _duration} ->
+        status = if result == :ok, do: :passed, else: :failed
+        {name, status}
+      end)
+      |> Map.new()
+
+    # Find tasks that weren't run (skipped)
+    all_task_names = MapSet.new(tasks, & &1.name)
+    run_task_names = MapSet.new(results, fn {name, _, _} -> name end)
+    skipped = MapSet.difference(all_task_names, run_task_names)
+
+    # Add skipped tasks
+    Enum.reduce(skipped, result_statuses, fn name, acc ->
+      Map.put(acc, name, :skipped)
+    end)
   end
 end
