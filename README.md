@@ -639,8 +639,8 @@ end
 | **Targets** | |
 | Local (Docker) | ✅ |
 | Container tasks | ✅ |
+| K8s execution (native Jobs) | ✅ |
 | K8s options with validation | ✅ |
-| K8s execution | 🚧 v0.3.0 |
 | **Integrations** | |
 | GitHub status API | ✅ |
 | Remote cache | 🚧 v0.3.0 |
@@ -719,13 +719,14 @@ mix run -e 'Sykli.run(".")'
 - ✅ `sykli watch` - file watcher
 - ✅ `sykli report` / `sykli history`
 - ✅ `--mesh` distributed execution
+- ✅ K8s target (native Jobs, no CRDs)
 - ✅ Status graph and error highlighting
 - ✅ Templates, Parallel, Chain composition
 
-**v0.3.0** - Kubernetes & Remote Cache
-- 🚧 K8s target execution
+**v0.3.0** - Remote Cache & Polish
 - 🚧 Remote cache (S3/GCS)
 - 🚧 Cache garbage collection
+- 🚧 K8s service mesh integration
 
 **v0.4.0** - Cloud & Observability
 - 🔮 `sykli connect` - hosted dashboard
