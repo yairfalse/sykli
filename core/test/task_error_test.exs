@@ -154,4 +154,93 @@ defmodule Sykli.TaskErrorTest do
       refute formatted =~ "\e["
     end
   end
+
+  describe "error highlighting" do
+    test "highlights error lines in output" do
+      output = """
+      Starting build...
+      Compiling main.go
+      main.go:10: error: undefined variable
+      Build failed
+      """
+
+      error =
+        TaskError.new(
+          task: "build",
+          command: "go build",
+          exit_code: 1,
+          output: output,
+          duration_ms: 100
+        )
+
+      formatted = TaskError.format(error)
+      # Should contain "error" and "failed" (highlighted)
+      assert formatted =~ "error"
+      assert formatted =~ "failed"
+    end
+
+    test "extracts key error for summary" do
+      output = """
+      Running tests...
+      ok test_foo
+      FAILED test_bar - expected 1 but got 2
+      1 test failed
+      """
+
+      error =
+        TaskError.new(
+          task: "test",
+          command: "go test",
+          exit_code: 1,
+          output: output,
+          duration_ms: 100
+        )
+
+      formatted = TaskError.format(error)
+      # Should extract the FAILED line as summary
+      assert formatted =~ "►"
+      assert formatted =~ "FAILED"
+    end
+
+    test "extracts Rust error format" do
+      output = """
+      Compiling myapp v0.1.0
+      error[E0432]: unresolved import `foo`
+       --> src/main.rs:1:5
+      """
+
+      error =
+        TaskError.new(
+          task: "build",
+          command: "cargo build",
+          exit_code: 101,
+          output: output,
+          duration_ms: 100
+        )
+
+      formatted = TaskError.format(error)
+      assert formatted =~ "►"
+      assert formatted =~ "E0432"
+    end
+
+    test "extracts Elixir error format" do
+      output = """
+      Compiling 1 file (.ex)
+      ** (CompileError) lib/foo.ex:10: undefined function bar/0
+      """
+
+      error =
+        TaskError.new(
+          task: "build",
+          command: "mix compile",
+          exit_code: 1,
+          output: output,
+          duration_ms: 100
+        )
+
+      formatted = TaskError.format(error)
+      assert formatted =~ "►"
+      assert formatted =~ "CompileError"
+    end
+  end
 end

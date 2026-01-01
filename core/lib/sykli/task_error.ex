@@ -68,7 +68,7 @@ defmodule Sykli.TaskError do
     command_line = "#{faint}  → #{cyan}#{error.command}#{reset}"
     sections = [command_line | sections]
 
-    # Last N lines of output
+    # Last N lines of output with error highlighting
     sections =
       if error.output && error.output != "" do
         output_lines =
@@ -80,12 +80,26 @@ defmodule Sykli.TaskError do
         if length(output_lines) > 0 do
           output_section =
             output_lines
-            |> Enum.map(&"  #{faint}│#{reset} #{&1}")
+            |> Enum.map(fn line ->
+              highlighted = highlight_errors(line, red, reset)
+              "  #{faint}│#{reset} #{highlighted}"
+            end)
             |> Enum.join("\n")
 
-          ["#{faint}  ─────────────────────────────────#{reset}" | sections]
-          |> then(&[output_section | &1])
-          |> then(&["#{faint}  ─────────────────────────────────#{reset}" | &1])
+          # Extract the key error line for summary
+          key_error = extract_key_error(error.output)
+
+          base_sections =
+            ["#{faint}  ─────────────────────────────────#{reset}" | sections]
+            |> then(&[output_section | &1])
+            |> then(&["#{faint}  ─────────────────────────────────#{reset}" | &1])
+
+          # Add key error summary if found
+          if key_error do
+            ["  #{red}► #{key_error}#{reset}" | base_sections]
+          else
+            base_sections
+          end
         else
           sections
         end
@@ -116,5 +130,76 @@ defmodule Sykli.TaskError do
   defp format_duration(ms) do
     seconds = ms / 1000
     "#{Float.round(seconds, 1)}s"
+  end
+
+  # Error patterns to highlight
+  @error_patterns [
+    ~r/\berror\b/i,
+    ~r/\bfailed\b/i,
+    ~r/\bfailure\b/i,
+    ~r/\bpanic\b/i,
+    ~r/\bexception\b/i,
+    ~r/\bundefined\b/i,
+    ~r/\bsegmentation fault\b/i,
+    ~r/\bcannot\b/i,
+    ~r/\bnot found\b/i,
+    ~r/\bdenied\b/i,
+    ~r/\brejected\b/i,
+    ~r/\btimeout\b/i,
+    ~r/\b✗\b/
+  ]
+
+  # Highlight error keywords in a line
+  defp highlight_errors(line, red, reset) do
+    if contains_error?(line) do
+      "#{red}#{line}#{reset}"
+    else
+      line
+    end
+  end
+
+  defp contains_error?(line) do
+    Enum.any?(@error_patterns, fn pattern ->
+      Regex.match?(pattern, line)
+    end)
+  end
+
+  # Key error patterns - more specific, used for summary
+  @key_error_patterns [
+    # Go
+    ~r/^.*?:\d+:\d+:.*error.*/i,
+    ~r/panic:.*/i,
+    # Rust
+    ~r/^error\[E\d+\]:.*/,
+    ~r/thread '.*' panicked.*/,
+    # Elixir
+    ~r/\*\* \(.+Error\).*/,
+    ~r/\(CompileError\).*/,
+    # JavaScript/TypeScript
+    ~r/TypeError:.*/,
+    ~r/ReferenceError:.*/,
+    ~r/SyntaxError:.*/,
+    # Python
+    ~r/.*Error:.*/,
+    ~r/Traceback \(most recent call last\).*/,
+    # Generic test failures
+    ~r/FAILED.*/,
+    ~r/FAIL:.*/,
+    ~r/assertion failed.*/i,
+    ~r/expected .* but got.*/i
+  ]
+
+  # Extract the most important error line
+  defp extract_key_error(output) do
+    output
+    |> String.split("\n")
+    |> Enum.find(fn line ->
+      line = String.trim(line)
+      line != "" and Enum.any?(@key_error_patterns, &Regex.match?(&1, line))
+    end)
+    |> case do
+      nil -> nil
+      line -> String.trim(line) |> String.slice(0, 100)
+    end
   end
 end
