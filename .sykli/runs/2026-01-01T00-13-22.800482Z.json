@@ -1,0 +1,58 @@
+{
+  "id": "59784e153d3aa6b3",
+  "timestamp": "2026-01-01T00:13:22.800482Z",
+  "tasks": [
+    {
+      "name": "core:deps",
+      "status": "passed",
+      "cached": false,
+      "inputs": [],
+      "duration_ms": 706,
+      "streak": 0
+    },
+    {
+      "name": "sdk:elixir:deps",
+      "status": "passed",
+      "cached": false,
+      "inputs": [],
+      "duration_ms": 673,
+      "streak": 0
+    },
+    {
+      "name": "sdk:go",
+      "status": "passed",
+      "cached": false,
+      "inputs": [],
+      "duration_ms": 1635,
+      "streak": 0
+    },
+    {
+      "name": "sdk:rust",
+      "status": "passed",
+      "cached": false,
+      "inputs": [],
+      "duration_ms": 6863,
+      "streak": 0
+    },
+    {
+      "error": "{:exit_code, 2}",
+      "name": "core:test",
+      "status": "failed",
+      "cached": false,
+      "inputs": [],
+      "duration_ms": 13484,
+      "streak": 0
+    },
+    {
+      "name": "sdk:elixir",
+      "status": "passed",
+      "cached": false,
+      "inputs": [],
+      "duration_ms": 608,
+      "streak": 0
+    }
+  ],
+  "git_ref": "17cb0ff",
+  "git_branch": "feature/init-validate",
+  "overall": "failed"
+}
