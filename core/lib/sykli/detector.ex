@@ -6,7 +6,8 @@ defmodule Sykli.Detector do
   @sdk_files [
     {"sykli.go", &__MODULE__.run_go/1},
     {"sykli.rs", &__MODULE__.run_rust/1},
-    {"sykli.exs", &__MODULE__.run_elixir/1}
+    {"sykli.exs", &__MODULE__.run_elixir/1},
+    {"sykli.ts", &__MODULE__.run_typescript/1}
   ]
 
   # Check if a command exists in PATH
@@ -132,5 +133,34 @@ defmodule Sykli.Detector do
           {:error, {:elixir_failed, error}}
       end
     end
+  end
+
+  def run_typescript(path) do
+    if not command_exists?("npx") do
+      {:error, {:missing_tool, "npx", "Install Node.js from https://nodejs.org/"}}
+    else
+      dir = Path.dirname(path)
+      file = Path.basename(path)
+
+      # Try tsx first (faster), fall back to ts-node
+      runner = if tsx_available?(), do: "tsx", else: "ts-node"
+
+      case System.cmd("npx", [runner, file, "--emit"], cd: dir, stderr_to_stdout: true) do
+        {output, 0} ->
+          extract_json(output)
+
+        {error, _} ->
+          {:error, {:typescript_failed, error}}
+      end
+    end
+  end
+
+  defp tsx_available? do
+    case System.cmd("npx", ["tsx", "--version"], stderr_to_stdout: true) do
+      {_, 0} -> true
+      _ -> false
+    end
+  rescue
+    _ -> false
   end
 end
