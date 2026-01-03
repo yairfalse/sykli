@@ -9,6 +9,7 @@
 **What's Implemented:**
 - Go SDK (~1000 lines) - full fluent API
 - Rust SDK (~1500 lines) - full fluent API
+- TypeScript SDK (~1300 lines) - full fluent API with validation
 - Elixir SDK - DSL macros
 - Parallel execution by dependency level
 - Content-addressed caching (SHA256)
@@ -20,7 +21,7 @@
 
 **Code Stats:**
 - ~3000 lines Elixir (core)
-- ~2500 lines SDK code (Go + Rust + Elixir)
+- ~3800 lines SDK code (Go + Rust + TypeScript + Elixir)
 - 17 core modules
 
 ---
@@ -121,6 +122,23 @@ fn main() {
 }
 ```
 
+### TypeScript
+
+```typescript
+import { Pipeline, branch, ValidationError } from 'sykli';
+
+const p = new Pipeline();
+
+p.task('test').run('npm test').inputs('**/*.ts');
+p.task('build').run('npm run build').after('test');
+p.task('deploy').run('./deploy.sh').after('build').whenCond(branch('main'));
+
+// Dry-run visualization
+console.log(p.explain({ branch: 'feature/foo' }));
+
+p.emit();
+```
+
 ### Elixir
 
 ```elixir
@@ -154,6 +172,7 @@ end
 | Cache | `core/lib/sykli/cache.ex` |
 | Go SDK | `sdk/go/sykli.go` |
 | Rust SDK | `sdk/rust/src/lib.rs` |
+| TypeScript SDK | `sdk/typescript/src/index.ts` |
 | Elixir SDK | `sdk/elixir/lib/sykli/` |
 
 ---
@@ -331,7 +350,7 @@ Last good: 2024-01-14 18:45:00 (abc1233)
 When working on this codebase:
 
 1. **Read first** - Understand existing patterns
-2. **SDK changes** - Update all three SDKs consistently
+2. **SDK changes** - Update all four SDKs consistently
 3. **JSON schema** - Core and SDKs must agree on JSON format
 4. **No shadowing** - Don't alias `Sykli.Graph.Task` (shadows Elixir's Task)
 5. **Run tests** - `cd core && mix test`
