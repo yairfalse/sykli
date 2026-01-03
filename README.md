@@ -6,7 +6,7 @@
 [![Elixir](https://img.shields.io/badge/elixir-1.16%2B-purple.svg)](https://elixir-lang.org)
 [![Version](https://img.shields.io/badge/version-0.2.0-green.svg)](CHANGELOG.md)
 
-A CI orchestrator that lets you define pipelines in Go, Rust, or Elixir. Your pipeline is a real program that outputs a task graph, which Sykli executes in parallel.
+A CI orchestrator that lets you define pipelines in Go, Rust, TypeScript, or Elixir. Your pipeline is a real program that outputs a task graph, which Sykli executes in parallel.
 
 ---
 
@@ -60,7 +60,7 @@ sykli.go  ──run──▶  JSON task graph  ──▶  parallel execution
    SDK                  stdout              Elixir engine
 ```
 
-1. Sykli detects your SDK file (`sykli.go`, `sykli.rs`, or `sykli.exs`)
+1. Sykli detects your SDK file (`sykli.go`, `sykli.rs`, `sykli.ts`, or `sykli.exs`)
 2. Runs it with `--emit` to get a JSON task graph
 3. Executes tasks in parallel by dependency level
 4. Caches results based on input file hashes
@@ -123,9 +123,10 @@ sykli --mesh             # Distribute across connected nodes
 Auto-detects your project language and creates the appropriate sykli file.
 
 ```bash
-sykli init               # Auto-detect (go.mod → sykli.go, Cargo.toml → sykli.rs)
+sykli init               # Auto-detect (go.mod → sykli.go, Cargo.toml → sykli.rs, package.json → sykli.ts)
 sykli init --go          # Force Go
 sykli init --rust        # Force Rust
+sykli init --typescript  # Force TypeScript
 sykli init --elixir      # Force Elixir
 ```
 
@@ -551,7 +552,7 @@ Expected format: "path/to/secret#field" (e.g., "secret/data/db#password")
 
 ---
 
-## All Three SDKs
+## All Four SDKs
 
 ### Go
 
@@ -579,6 +580,23 @@ fn main() {
     p.task("build").run("cargo build --release").after(&["test"]);
     p.emit();
 }
+```
+
+### TypeScript
+
+```typescript
+import { Pipeline, branch, ValidationError } from 'sykli';
+
+const p = new Pipeline();
+
+p.task('test').run('npm test').inputs('**/*.ts');
+p.task('build').run('npm run build').after('test');
+p.task('deploy').run('./deploy.sh').after('build').whenCond(branch('main'));
+
+// Dry-run visualization
+console.log(p.explain({ branch: 'feature/foo' }));
+
+p.emit();
 ```
 
 ### Elixir
@@ -614,6 +632,7 @@ end
 | **SDKs** | |
 | Go SDK | ✅ |
 | Rust SDK | ✅ |
+| TypeScript SDK | ✅ NEW |
 | Elixir SDK | ✅ |
 | **Execution** | |
 | Parallel execution | ✅ |
@@ -681,6 +700,7 @@ sykli/
 ├── sdk/
 │   ├── go/                 # Go SDK (~1000 lines)
 │   ├── rust/               # Rust SDK (~1500 lines)
+│   ├── typescript/         # TypeScript SDK (~1300 lines)
 │   └── elixir/             # Elixir SDK
 └── examples/               # Working examples
 ```
