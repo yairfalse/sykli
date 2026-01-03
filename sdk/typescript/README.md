@@ -358,6 +358,82 @@ See the [examples](./examples/) directory:
 | [05-composition](./examples/05-composition/) | Parallel, chain, artifacts |
 | [06-matrix](./examples/06-matrix/) | Matrix builds and K8s |
 
+## Validation
+
+The SDK validates pipelines at emit time and fails fast with helpful errors:
+
+```typescript
+import { Pipeline, ValidationError } from 'sykli';
+
+// Cycle detection
+const p = new Pipeline();
+p.task('a').run('echo a').after('b');
+p.task('b').run('echo b').after('a');
+p.toJSON(); // throws: "Dependency cycle detected: a → b → a"
+
+// Typo suggestions (Jaro-Winkler similarity)
+p.task('deploy').after('biuld'); // throws: "depends on unknown task 'biuld' (did you mean 'build'?)"
+
+// Missing command
+p.task('test'); // no .run()
+p.toJSON(); // throws: "Task 'test' has no command (did you forget to call .run()?)"
+```
+
+### ValidationError
+
+```typescript
+class ValidationError extends Error {
+  code: 'EMPTY_NAME' | 'DUPLICATE_TASK' | 'UNKNOWN_DEPENDENCY' | 'CYCLE_DETECTED' | 'MISSING_COMMAND';
+  suggestion?: string;
+}
+```
+
+## Dry-Run with explain()
+
+Preview execution without running anything:
+
+```typescript
+const p = new Pipeline();
+p.task('test').run('npm test');
+p.task('build').run('npm build').after('test');
+p.task('deploy').run('deploy.sh').after('build').whenCond(branch('main'));
+
+console.log(p.explain({ branch: 'feature/foo' }));
+```
+
+Output:
+```
+Pipeline Execution Plan
+=======================
+
+1. test
+   Command: npm test
+
+2. build (after: test)
+   Command: npm build
+
+3. deploy (after: build) [SKIPPED: branch is 'feature/foo', not 'main']
+   Command: deploy.sh
+   Condition: branch == 'main'
+```
+
+## Pipeline-Level K8s Defaults
+
+Set K8s defaults for all tasks:
+
+```typescript
+const p = new Pipeline({
+  k8sDefaults: {
+    namespace: 'ci-jobs',
+    serviceAccount: 'ci-runner',
+    resources: { requestMemory: '2Gi' },
+  },
+});
+
+// All tasks inherit defaults, can override per-task
+p.task('build').run('npm build').k8s({ resources: { requestMemory: '4Gi' } });
+```
+
 ## API Reference
 
 ### Pipeline
@@ -372,6 +448,8 @@ See the [examples](./examples/) directory:
 | `chain(...items)` | Create sequential chain |
 | `matrix(name, values, fn)` | Generate tasks from array |
 | `matrixMap(name, obj, fn)` | Generate tasks from object |
+| `validate()` | Validate pipeline (called automatically) |
+| `explain(ctx?)` | Dry-run visualization |
 | `emit()` | Output JSON if --emit flag present |
 
 ### Task
