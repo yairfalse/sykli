@@ -67,12 +67,51 @@ sykli.go  ──run──▶  JSON task graph  ──▶  parallel execution
 
 ---
 
+## Installation
+
+### One-liner (macOS & Linux)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/yairfalse/sykli/main/install.sh | bash
+```
+
+This downloads a prebuilt binary to `~/.local/bin/sykli`.
+
+### Platforms
+
+| OS | Architecture | Binary |
+|----|--------------|--------|
+| macOS | Apple Silicon (M1/M2/M3) | `sykli-macos-aarch64` |
+| macOS | Intel | `sykli-macos-x86_64` |
+| Linux | x86_64 | `sykli-linux-x86_64` |
+| Linux | ARM64 | `sykli-linux-aarch64` |
+
+### Requirements by SDK
+
+| SDK | You need |
+|-----|----------|
+| **Go** | `go` installed |
+| **Rust** | `cargo` installed |
+| **TypeScript** | `node` + `npx` (uses `tsx` or `ts-node`) |
+| **Elixir** | `elixir` installed |
+
+For container tasks, you also need **Docker** running.
+
+### Build from source
+
+```bash
+git clone https://github.com/yairfalse/sykli.git
+cd sykli/core
+mix deps.get
+mix escript.build
+cp sykli ~/.local/bin/  # or anywhere in your PATH
+```
+
+---
+
 ## Quick Start
 
 ```bash
-# Install
-curl -fsSL https://raw.githubusercontent.com/yairfalse/sykli/main/install.sh | bash
-
 # Create sykli.go
 cat > sykli.go << 'EOF'
 package main
