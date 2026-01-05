@@ -52,6 +52,43 @@ defmodule Sykli.Target.Local do
   @default_runtime Sykli.Runtime.Docker
 
   # ─────────────────────────────────────────────────────────────────────────────
+  # STATELESS CONVENIENCE (for RPC / Mesh)
+  # ─────────────────────────────────────────────────────────────────────────────
+
+  @doc """
+  Run a task without requiring external lifecycle management.
+
+  This is a convenience function that handles setup, task execution, and teardown
+  in a single call. Useful for RPC dispatch (e.g., Mesh distributed execution)
+  where the caller doesn't want to manage state.
+
+  ## Options
+
+  Same as `setup/1`:
+  - `:workdir` - Working directory (default: ".")
+  - `:runtime` - Runtime module (default: Docker)
+
+  ## Example
+
+      # Single stateless call - no setup/teardown needed
+      :ok = Target.Local.run_task_stateless(task, workdir: "/tmp/build")
+
+  """
+  def run_task_stateless(task, opts \\ []) do
+    case setup(opts) do
+      {:ok, state} ->
+        try do
+          run_task(task, state, opts)
+        after
+          teardown(state)
+        end
+
+      {:error, reason} ->
+        {:error, {:setup_failed, reason}}
+    end
+  end
+
+  # ─────────────────────────────────────────────────────────────────────────────
   # IDENTITY
   # ─────────────────────────────────────────────────────────────────────────────
 

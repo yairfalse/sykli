@@ -17,6 +17,7 @@ defmodule Sykli.Executor do
 
   - `:workdir` - Working directory (default: ".")
   - `:target` - Target module (default: Sykli.Target.Local)
+  - `:executor` - Legacy executor module (deprecated, use `:target`)
   """
 
   # Note: we DON'T alias Sykli.Graph.Task because it shadows Elixir's Task module
@@ -26,7 +27,8 @@ defmodule Sykli.Executor do
 
   def run(tasks, graph, opts \\ []) do
     workdir = Keyword.get(opts, :workdir, ".")
-    target = Keyword.get(opts, :target, @default_target)
+    # Support both :target (new) and :executor (legacy for Mesh)
+    target = Keyword.get(opts, :target) || Keyword.get(opts, :executor, @default_target)
     start_time = System.monotonic_time(:millisecond)
     total_tasks = length(tasks)
 
