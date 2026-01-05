@@ -173,18 +173,16 @@ defmodule Sykli.Target.LocalTest do
       assert {:error, {:exit_code, 42}} = Local.run_task_stateless(task, workdir: ".")
     end
 
-    test "handles setup failure gracefully" do
+    test "fails when workdir does not exist" do
       task = %Sykli.Graph.Task{
         name: "bad-workdir",
         command: "echo hello",
         container: nil
       }
 
-      # Non-existent workdir with container should fail
-      # (shell commands work from any dir, but this tests the pattern)
+      # Shell commands fail when workdir doesn't exist (can't cd)
       result = Local.run_task_stateless(task, workdir: "/nonexistent/path/xyz")
-      # Should still work for shell commands (they use current dir as fallback)
-      assert result == :ok or match?({:error, _}, result)
+      assert {:error, {:exit_code, _}} = result
     end
   end
 end

@@ -13,6 +13,9 @@ defmodule Sykli.Executor.Mesh do
       # Via API
       Sykli.run(".", target: Sykli.Executor.Mesh)
 
+  Note: This module implements Target.Behaviour but remains in the Executor
+  namespace for backwards compatibility with the `--mesh` CLI flag.
+
   ## How It Works
 
   1. Queries available nodes via `Mesh.available_nodes/0`
