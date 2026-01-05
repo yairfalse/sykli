@@ -97,7 +97,7 @@ defmodule Sykli.GitContext do
     case System.cmd("git", ["status", "--porcelain"], cd: workdir, stderr_to_stdout: true) do
       {"", 0} -> {:ok, false}
       {_, 0} -> {:ok, true}
-      _ -> {:ok, false}
+      _ -> {:error, :not_a_git_repo}
     end
   end
 

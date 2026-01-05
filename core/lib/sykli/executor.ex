@@ -26,14 +26,13 @@ defmodule Sykli.Executor do
   @default_target Sykli.Target.Local
 
   def run(tasks, graph, opts \\ []) do
-    workdir = Keyword.get(opts, :workdir, ".")
     # Support both :target (new) and :executor (legacy for Mesh)
     target = Keyword.get(opts, :target) || Keyword.get(opts, :executor, @default_target)
     start_time = System.monotonic_time(:millisecond)
     total_tasks = length(tasks)
 
-    # Setup target
-    case target.setup(workdir: workdir) do
+    # Setup target with all options
+    case target.setup(opts) do
       {:ok, state} ->
         try do
           # Group tasks by "level" - tasks at same level can run in parallel

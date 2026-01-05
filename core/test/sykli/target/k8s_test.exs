@@ -47,11 +47,11 @@ defmodule Sykli.Target.K8sTest do
       assert git_clone != nil
       assert git_clone["image"] == "alpine/git:latest"
 
-      # Command should include clone and checkout
+      # Command should include clone and checkout (values are now quoted)
       command_str = Enum.at(git_clone["command"], 2)
       assert String.contains?(command_str, "git clone")
-      assert String.contains?(command_str, "https://github.com/org/repo.git")
-      assert String.contains?(command_str, "git checkout abc123def456789")
+      assert String.contains?(command_str, "'https://github.com/org/repo.git'")
+      assert String.contains?(command_str, "git checkout 'abc123def456789'")
     end
 
     test "includes workspace volume when git_context provided", ctx do
@@ -130,7 +130,7 @@ defmodule Sykli.Target.K8sTest do
       git_ctx = %{
         url: "git@github.com:org/private-repo.git",
         branch: "main",
-        sha: "abc123",
+        sha: "abc123def456789",
         dirty: false
       }
 
@@ -177,7 +177,7 @@ defmodule Sykli.Target.K8sTest do
       git_ctx = %{
         url: "https://github.com/org/private-repo.git",
         branch: "main",
-        sha: "abc123",
+        sha: "abc123def456789",
         dirty: false
       }
 

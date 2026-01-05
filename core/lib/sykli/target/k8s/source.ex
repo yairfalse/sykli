@@ -32,6 +32,82 @@ defmodule Sykli.Target.K8s.Source do
   @default_git_image "alpine/git:latest"
   @default_workspace "/workspace"
 
+  # Safe character patterns for shell command arguments
+  # SHA: hex characters only (40 chars full, 7+ chars short)
+  @sha_pattern ~r/^[0-9a-fA-F]{7,40}$/
+  # Branch: alphanumeric, /, -, _, . (no spaces or shell metacharacters)
+  @branch_pattern ~r/^[a-zA-Z0-9\/_.-]+$/
+  # Hostname: alphanumeric, -, . (standard DNS chars)
+  @host_pattern ~r/^[a-zA-Z0-9.-]+$/
+  # Path: alphanumeric, /, -, _, . (no shell metacharacters)
+  @path_pattern ~r/^[a-zA-Z0-9\/_.-]+$/
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # INPUT VALIDATION (shell injection prevention)
+  # ─────────────────────────────────────────────────────────────────────────────
+
+  @doc """
+  Validate that a value is safe for shell command interpolation.
+
+  Returns `{:ok, value}` if safe, `{:error, reason}` otherwise.
+  """
+  def validate_shell_safe(value, type) when is_binary(value) do
+    pattern = case type do
+      :sha -> @sha_pattern
+      :branch -> @branch_pattern
+      :host -> @host_pattern
+      :path -> @path_pattern
+    end
+
+    if Regex.match?(pattern, value) do
+      {:ok, value}
+    else
+      {:error, {:invalid_chars, type, value}}
+    end
+  end
+
+  def validate_shell_safe(nil, _type), do: {:ok, nil}
+
+  @doc """
+  Validate a git URL for shell safety.
+
+  Accepts HTTPS and SSH URLs with safe characters.
+  """
+  def validate_git_url(url) when is_binary(url) do
+    cond do
+      # HTTPS URL
+      String.starts_with?(url, "https://") ->
+        # Check the rest of the URL has safe chars
+        rest = String.replace_prefix(url, "https://", "")
+        if Regex.match?(~r/^[a-zA-Z0-9\/_.-]+$/, rest) do
+          {:ok, url}
+        else
+          {:error, {:invalid_url, url}}
+        end
+
+      # SSH URL
+      String.starts_with?(url, "git@") ->
+        # git@host:path format
+        if Regex.match?(~r/^git@[a-zA-Z0-9.-]+:[a-zA-Z0-9\/_.-]+$/, url) do
+          {:ok, url}
+        else
+          {:error, {:invalid_url, url}}
+        end
+
+      true ->
+        {:error, {:invalid_url, url}}
+    end
+  end
+
+  def validate_git_url(nil), do: {:ok, nil}
+
+  # Shell-quote a string (single quotes, escaping embedded single quotes)
+  defp shell_quote(nil), do: "''"
+  defp shell_quote(value) when is_binary(value) do
+    escaped = String.replace(value, "'", "'\"'\"'")
+    "'#{escaped}'"
+  end
+
   # ─────────────────────────────────────────────────────────────────────────────
   # STRATEGY
   # ─────────────────────────────────────────────────────────────────────────────
@@ -135,6 +211,96 @@ defmodule Sykli.Target.K8s.Source do
   end
 
   defp build_simple_clone_command(url, branch, sha, workspace, depth) do
+    # Validate all inputs to prevent shell injection
+    :ok = validate_inputs!(url, branch, sha, workspace)
+
+    clone_parts = ["git clone"]
+
+    clone_parts =
+      if depth != :full and is_integer(depth) do
+        clone_parts ++ ["--depth=#{depth}"]
+      else
+        clone_parts
+      end
+
+    # Use shell quoting for branch (even though validated, defense in depth)
+    clone_parts =
+      if branch do
+        clone_parts ++ ["--branch=#{shell_quote(branch)}"]
+      else
+        clone_parts
+      end
+
+    # Quote URL and workspace
+    clone_parts = clone_parts ++ [shell_quote(url), shell_quote(workspace)]
+    clone_cmd = Enum.join(clone_parts, " ")
+
+    # Quote workspace and sha in checkout command
+    "#{clone_cmd} && cd #{shell_quote(workspace)} && git checkout #{shell_quote(sha)}"
+  end
+
+  defp build_ssh_clone_command(url, branch, sha, workspace, depth) do
+    # Validate inputs first
+    :ok = validate_inputs!(url, branch, sha, workspace)
+
+    # Extract and validate host from URL for ssh-keyscan
+    host =
+      case GitContext.parse_remote_url(url) do
+        {:ok, %{host: h}} -> h
+        _ -> "github.com"
+      end
+
+    # Validate host separately
+    case validate_shell_safe(host, :host) do
+      {:ok, _} -> :ok
+      {:error, reason} -> raise "Invalid host for ssh-keyscan: #{inspect(reason)}"
+    end
+
+    # Use shell quoting for host (defense in depth)
+    ssh_setup = """
+    mkdir -p ~/.ssh && \
+    echo "$GIT_SSH_KEY" > ~/.ssh/id_rsa && \
+    chmod 600 ~/.ssh/id_rsa && \
+    ssh-keyscan #{shell_quote(host)} >> ~/.ssh/known_hosts
+    """
+
+    clone_cmd = build_simple_clone_command(url, branch, sha, workspace, depth)
+
+    String.trim(ssh_setup) <> " && " <> clone_cmd
+  end
+
+  defp build_token_clone_command(url, branch, sha, workspace, depth) do
+    # Validate base inputs
+    :ok = validate_inputs!(url, branch, sha, workspace)
+
+    # Convert URL to include token
+    # https://github.com/org/repo.git → https://${GIT_TOKEN}@github.com/org/repo.git
+    authed_url =
+      case GitContext.parse_remote_url(url) do
+        {:ok, %{host: host, owner: owner, repo: repo}} ->
+          # Validate extracted components
+          case validate_shell_safe(host, :host) do
+            {:ok, _} -> :ok
+            {:error, reason} -> raise "Invalid host in URL: #{inspect(reason)}"
+          end
+
+          case validate_shell_safe(owner, :path) do
+            {:ok, _} -> :ok
+            {:error, reason} -> raise "Invalid owner in URL: #{inspect(reason)}"
+          end
+
+          case validate_shell_safe(repo, :path) do
+            {:ok, _} -> :ok
+            {:error, reason} -> raise "Invalid repo in URL: #{inspect(reason)}"
+          end
+
+          "https://${GIT_TOKEN}@#{host}/#{owner}/#{repo}.git"
+
+        _ ->
+          raise "Cannot parse git URL for token authentication: #{url}"
+      end
+
+    # Build clone command (validation already done, authed_url is constructed safely)
     clone_parts = ["git clone"]
 
     clone_parts =
@@ -146,51 +312,41 @@ defmodule Sykli.Target.K8s.Source do
 
     clone_parts =
       if branch do
-        clone_parts ++ ["--branch=#{branch}"]
+        clone_parts ++ ["--branch=#{shell_quote(branch)}"]
       else
         clone_parts
       end
 
-    clone_parts = clone_parts ++ [url, workspace]
+    # Don't quote authed_url as it contains ${GIT_TOKEN} which needs shell expansion
+    clone_parts = clone_parts ++ [authed_url, shell_quote(workspace)]
     clone_cmd = Enum.join(clone_parts, " ")
 
-    "#{clone_cmd} && cd #{workspace} && git checkout #{sha}"
+    "#{clone_cmd} && cd #{shell_quote(workspace)} && git checkout #{shell_quote(sha)}"
   end
 
-  defp build_ssh_clone_command(url, branch, sha, workspace, depth) do
-    # Extract host from URL for ssh-keyscan
-    host =
-      case GitContext.parse_remote_url(url) do
-        {:ok, %{host: h}} -> h
-        _ -> "github.com"
-      end
+  # Validate all git context inputs, raise on failure
+  defp validate_inputs!(url, branch, sha, workspace) do
+    case validate_git_url(url) do
+      {:ok, _} -> :ok
+      {:error, reason} -> raise "Invalid git URL: #{inspect(reason)}"
+    end
 
-    ssh_setup = """
-    mkdir -p ~/.ssh && \
-    echo "$GIT_SSH_KEY" > ~/.ssh/id_rsa && \
-    chmod 600 ~/.ssh/id_rsa && \
-    ssh-keyscan #{host} >> ~/.ssh/known_hosts
-    """
+    case validate_shell_safe(branch, :branch) do
+      {:ok, _} -> :ok
+      {:error, reason} -> raise "Invalid branch name: #{inspect(reason)}"
+    end
 
-    clone_cmd = build_simple_clone_command(url, branch, sha, workspace, depth)
+    case validate_shell_safe(sha, :sha) do
+      {:ok, _} -> :ok
+      {:error, reason} -> raise "Invalid git SHA: #{inspect(reason)}"
+    end
 
-    String.trim(ssh_setup) <> " && " <> clone_cmd
-  end
+    case validate_shell_safe(workspace, :path) do
+      {:ok, _} -> :ok
+      {:error, reason} -> raise "Invalid workspace path: #{inspect(reason)}"
+    end
 
-  defp build_token_clone_command(url, branch, sha, workspace, depth) do
-    # Convert URL to include token
-    # https://github.com/org/repo.git → https://${GIT_TOKEN}@github.com/org/repo.git
-    authed_url =
-      case GitContext.parse_remote_url(url) do
-        {:ok, %{host: host, owner: owner, repo: repo}} ->
-          "https://${GIT_TOKEN}@#{host}/#{owner}/#{repo}.git"
-
-        _ ->
-          # Fallback: try simple replacement
-          String.replace(url, "https://", "https://${GIT_TOKEN}@")
-      end
-
-    build_simple_clone_command(authed_url, branch, sha, workspace, depth)
+    :ok
   end
 
   defp add_secret_env(container, ssh_secret, token_secret) do

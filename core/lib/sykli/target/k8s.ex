@@ -53,7 +53,11 @@ defmodule Sykli.Target.K8s do
     :namespace,
     :auth_config,
     :artifact_pvc,
-    :in_cluster
+    :in_cluster,
+    # Git context for source mounting (from setup opts)
+    :git_context,
+    :git_ssh_secret,
+    :git_token_secret
   ]
 
   # ─────────────────────────────────────────────────────────────────────────────
@@ -95,7 +99,11 @@ defmodule Sykli.Target.K8s do
           namespace: final_namespace,
           auth_config: auth_config,
           in_cluster: mode == :in_cluster,
-          artifact_pvc: Keyword.get(opts, :artifact_pvc, "sykli-artifacts")
+          artifact_pvc: Keyword.get(opts, :artifact_pvc, "sykli-artifacts"),
+          # Store git opts for use in run_task
+          git_context: Keyword.get(opts, :git_context),
+          git_ssh_secret: Keyword.get(opts, :git_ssh_secret),
+          git_token_secret: Keyword.get(opts, :git_token_secret)
         }
 
         mode_str = if state.in_cluster, do: "in-cluster", else: "kubeconfig"
@@ -288,9 +296,10 @@ defmodule Sykli.Target.K8s do
     k8s_opts = task.k8s || %K8sOptions{}
     namespace = k8s_opts.namespace || state.namespace
     services = Keyword.get(opts, :services, [])
-    git_ctx = Keyword.get(opts, :git_context)
-    git_ssh_secret = Keyword.get(opts, :git_ssh_secret)
-    git_token_secret = Keyword.get(opts, :git_token_secret)
+    # Git opts from state (populated during setup) with opts as fallback
+    git_ctx = Keyword.get(opts, :git_context) || state.git_context
+    git_ssh_secret = Keyword.get(opts, :git_ssh_secret) || state.git_ssh_secret
+    git_token_secret = Keyword.get(opts, :git_token_secret) || state.git_token_secret
 
     # Build container spec (with workspace mount if git_ctx)
     container = build_container_spec(task, k8s_opts, git_ctx)

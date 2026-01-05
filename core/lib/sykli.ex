@@ -19,7 +19,6 @@ defmodule Sykli do
     Cache.init()
     filter_fn = Keyword.get(opts, :filter)
     save_history = Keyword.get(opts, :save_history, true)
-    target = Keyword.get(opts, :target)
 
     with {:ok, sdk_file} <- Detector.find(path),
          {:ok, json} <- Detector.emit(sdk_file),
@@ -37,10 +36,8 @@ defmodule Sykli do
 
       case Graph.topo_sort(filtered_graph) do
         {:ok, order} ->
-          executor_opts = [workdir: path]
-
-          executor_opts =
-            if target, do: [{:target, target} | executor_opts], else: executor_opts
+          # Pass all opts to executor, ensuring workdir is set
+          executor_opts = Keyword.merge(opts, workdir: path)
 
           result = Executor.run(order, filtered_graph, executor_opts)
 

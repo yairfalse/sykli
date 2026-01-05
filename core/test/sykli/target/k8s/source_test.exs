@@ -8,11 +8,14 @@ defmodule Sykli.Target.K8s.SourceTest do
   # ─────────────────────────────────────────────────────────────────────────────
 
   describe "build_init_container/2" do
+    # Use valid 7+ char hex SHA for all tests
+    @valid_sha "abc123def456789"
+
     test "builds git clone init container" do
       git_ctx = %{
         url: "https://github.com/org/repo.git",
         branch: "main",
-        sha: "abc123def456789"
+        sha: @valid_sha
       }
 
       container = Source.build_init_container(git_ctx, [])
@@ -31,13 +34,14 @@ defmodule Sykli.Target.K8s.SourceTest do
       git_ctx = %{
         url: "https://github.com/org/repo.git",
         branch: "main",
-        sha: "abc123"
+        sha: @valid_sha
       }
 
       container = Source.build_init_container(git_ctx, [])
 
       command_str = Enum.at(container["command"], 2)
-      assert String.contains?(command_str, "https://github.com/org/repo.git")
+      # URL is now quoted
+      assert String.contains?(command_str, "'https://github.com/org/repo.git'")
     end
 
     test "includes SHA checkout in command" do
@@ -50,14 +54,15 @@ defmodule Sykli.Target.K8s.SourceTest do
       container = Source.build_init_container(git_ctx, [])
 
       command_str = Enum.at(container["command"], 2)
-      assert String.contains?(command_str, "git checkout abc123def456")
+      # SHA is now quoted
+      assert String.contains?(command_str, "git checkout 'abc123def456'")
     end
 
     test "uses shallow clone by default" do
       git_ctx = %{
         url: "https://github.com/org/repo.git",
         branch: "main",
-        sha: "abc123"
+        sha: @valid_sha
       }
 
       container = Source.build_init_container(git_ctx, [])
@@ -70,7 +75,7 @@ defmodule Sykli.Target.K8s.SourceTest do
       git_ctx = %{
         url: "https://github.com/org/repo.git",
         branch: "main",
-        sha: "abc123"
+        sha: @valid_sha
       }
 
       container = Source.build_init_container(git_ctx, depth: 10)
@@ -83,7 +88,7 @@ defmodule Sykli.Target.K8s.SourceTest do
       git_ctx = %{
         url: "https://github.com/org/repo.git",
         branch: "main",
-        sha: "abc123"
+        sha: @valid_sha
       }
 
       container = Source.build_init_container(git_ctx, depth: :full)
@@ -98,11 +103,13 @@ defmodule Sykli.Target.K8s.SourceTest do
   # ─────────────────────────────────────────────────────────────────────────────
 
   describe "build_init_container/2 with SSH auth" do
+    @valid_sha "abc123def456789"
+
     test "adds SSH key setup when secret specified" do
       git_ctx = %{
         url: "git@github.com:org/private-repo.git",
         branch: "main",
-        sha: "abc123"
+        sha: @valid_sha
       }
 
       container = Source.build_init_container(git_ctx, git_ssh_secret: "git-ssh-key")
@@ -123,14 +130,14 @@ defmodule Sykli.Target.K8s.SourceTest do
       git_ctx = %{
         url: "git@github.com:org/repo.git",
         branch: "main",
-        sha: "abc123"
+        sha: @valid_sha
       }
 
       container = Source.build_init_container(git_ctx, git_ssh_secret: "key")
 
       command_str = Enum.at(container["command"], 2)
-      # Should use SSH URL, not HTTPS
-      assert String.contains?(command_str, "git@github.com:org/repo.git")
+      # Should use SSH URL (quoted), not HTTPS
+      assert String.contains?(command_str, "'git@github.com:org/repo.git'")
     end
   end
 
@@ -139,11 +146,13 @@ defmodule Sykli.Target.K8s.SourceTest do
   # ─────────────────────────────────────────────────────────────────────────────
 
   describe "build_init_container/2 with token auth" do
+    @valid_sha "abc123def456789"
+
     test "embeds token in URL when secret specified" do
       git_ctx = %{
         url: "https://github.com/org/private-repo.git",
         branch: "main",
-        sha: "abc123"
+        sha: @valid_sha
       }
 
       container = Source.build_init_container(git_ctx, git_token_secret: "git-token")
@@ -154,7 +163,7 @@ defmodule Sykli.Target.K8s.SourceTest do
       assert token_env != nil
       assert token_env["valueFrom"]["secretKeyRef"]["name"] == "git-token"
 
-      # Command should use token in URL
+      # Command should use token in URL (not quoted because of shell expansion)
       command_str = Enum.at(container["command"], 2)
       assert String.contains?(command_str, "https://${GIT_TOKEN}@github.com")
     end
