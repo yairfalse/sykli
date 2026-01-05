@@ -103,7 +103,9 @@ defmodule Sykli.Executor.MeshTest do
 
   describe "artifact handling" do
     test "copy_artifact delegates to Local" do
-      workdir = Path.join(System.tmp_dir!(), "mesh_artifact_test_#{System.unique_integer([:positive])}")
+      workdir =
+        Path.join(System.tmp_dir!(), "mesh_artifact_test_#{System.unique_integer([:positive])}")
+
       File.mkdir_p!(workdir)
       on_exit(fn -> File.rm_rf!(workdir) end)
 

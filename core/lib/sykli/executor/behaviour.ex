@@ -1,14 +1,34 @@
 defmodule Sykli.Executor.Behaviour do
   @moduledoc """
-  Behaviour defining the executor interface.
+  **DEPRECATED**: Use `Sykli.Target.Behaviour` instead.
+
+  This behaviour is kept for backwards compatibility with `Sykli.Executor.Mesh`,
+  which uses it for RPC dispatch to remote nodes. New code should use
+  `Sykli.Target.Behaviour` which has a proper lifecycle (setup/teardown) and
+  passes state through all callbacks.
+
+  ## Migration
+
+  Replace:
+      @behaviour Sykli.Executor.Behaviour
+      def run_job(task, opts), do: ...
+
+  With:
+      @behaviour Sykli.Target.Behaviour
+      def setup(opts), do: {:ok, state}
+      def run_task(task, state, opts), do: ...
+      def teardown(state), do: :ok
+
+  ---
+
+  Behaviour defining the executor interface (legacy).
 
   Executors handle the actual running of tasks. Different implementations:
-  - `Sykli.Executor.Local` - Docker containers + shell commands (default)
-  - `Sykli.Executor.K8s` - Kubernetes pods + PVCs (future)
+  - `Sykli.Executor.Local` - Docker containers + shell commands
+  - `Sykli.Executor.Mesh` - Distributed execution across BEAM nodes
 
   The orchestration layer (Sykli.Executor) handles DAG execution, parallelism,
-  caching, and progress tracking. It delegates actual task execution to the
-  configured executor backend.
+  caching, and progress tracking. It now delegates to Target modules by default.
   """
 
   @type job :: Sykli.Graph.Task.t()

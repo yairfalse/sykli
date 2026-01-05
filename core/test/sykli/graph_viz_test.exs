@@ -19,6 +19,7 @@ defmodule Sykli.GraphVizTest do
         %{name: "test", depends_on: []},
         %{name: "build", depends_on: ["test"]}
       ]
+
       results = %{"test" => :passed, "build" => :passed}
 
       result = GraphViz.to_status_line(tasks, results)
@@ -44,6 +45,7 @@ defmodule Sykli.GraphVizTest do
         %{name: "test", depends_on: []},
         %{name: "build", depends_on: ["lint", "test"]}
       ]
+
       results = %{"lint" => :passed, "test" => :passed, "build" => :passed}
 
       result = GraphViz.to_status_line(tasks, results)
@@ -60,6 +62,7 @@ defmodule Sykli.GraphVizTest do
         %{name: "test", depends_on: []},
         %{name: "deploy", depends_on: ["test"]}
       ]
+
       results = %{"test" => :failed, "deploy" => :skipped}
 
       result = GraphViz.to_status_line(tasks, results)

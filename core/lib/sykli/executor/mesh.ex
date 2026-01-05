@@ -87,7 +87,10 @@ defmodule Sykli.Executor.Mesh do
         :ok
 
       {:error, reason} = error ->
-        Logger.error("[Mesh] Failed to dispatch #{task.name} to #{inspect(node)}: #{inspect(reason)}")
+        Logger.error(
+          "[Mesh] Failed to dispatch #{task.name} to #{inspect(node)}: #{inspect(reason)}"
+        )
+
         error
     end
   end

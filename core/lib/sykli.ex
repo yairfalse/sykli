@@ -5,7 +5,7 @@ defmodule Sykli do
   Direct orchestration: detect SDK file, run it, parse JSON, execute tasks.
   """
 
-  alias Sykli.{Detector, Graph, Executor, Cache, RunHistory}
+  alias Sykli.{Detector, Graph, Executor, Cache, RunHistory, GitContext}
 
   @doc """
   Run the sykli pipeline.
@@ -13,13 +13,13 @@ defmodule Sykli do
   Options:
     - filter: function to filter tasks (receives task, returns boolean)
     - save_history: whether to save run history (default: true)
-    - executor: executor module to use (default: Sykli.Executor.Local)
+    - target: target module to use (default: Sykli.Target.Local)
   """
   def run(path \\ ".", opts \\ []) do
     Cache.init()
     filter_fn = Keyword.get(opts, :filter)
     save_history = Keyword.get(opts, :save_history, true)
-    executor = Keyword.get(opts, :executor)
+    target = Keyword.get(opts, :target)
 
     with {:ok, sdk_file} <- Detector.find(path),
          {:ok, json} <- Detector.emit(sdk_file),
@@ -38,7 +38,10 @@ defmodule Sykli do
       case Graph.topo_sort(filtered_graph) do
         {:ok, order} ->
           executor_opts = [workdir: path]
-          executor_opts = if executor, do: [{:executor, executor} | executor_opts], else: executor_opts
+
+          executor_opts =
+            if target, do: [{:target, target} | executor_opts], else: executor_opts
+
           result = Executor.run(order, filtered_graph, executor_opts)
 
           # Save run history if enabled
@@ -297,6 +300,90 @@ defmodule Sykli do
          ) do
       {branch, 0} -> String.trim(branch)
       _ -> "unknown"
+    end
+  end
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # GIT CONTEXT FOR K8S EXECUTION
+  # ─────────────────────────────────────────────────────────────────────────────
+
+  @doc """
+  Prepare git context for K8s execution.
+
+  Detects git context from workdir or uses explicitly provided context.
+  Validates that workdir is clean unless `allow_dirty: true`.
+
+  ## Options
+
+  - `:git_context` - Use explicit context instead of detecting
+  - `:allow_dirty` - Allow dirty workdir (default: false)
+  - `:git_ssh_secret` - K8s Secret name for SSH key
+  - `:git_token_secret` - K8s Secret name for HTTPS token
+
+  ## Returns
+
+  - `{:ok, git_context}` on success
+  - `{:error, :not_a_git_repo}` if not in a git repo
+  - `{:error, :dirty_workdir}` if workdir has uncommitted changes
+  """
+  def prepare_git_context(path, opts) do
+    # Use explicit context if provided, otherwise detect
+    ctx =
+      case Keyword.get(opts, :git_context) do
+        nil -> GitContext.detect(path)
+        explicit -> explicit
+      end
+
+    case ctx do
+      {:error, reason} ->
+        {:error, reason}
+
+      ctx when is_map(ctx) ->
+        case validate_git_context(ctx, opts) do
+          :ok -> {:ok, ctx}
+          error -> error
+        end
+    end
+  end
+
+  @doc """
+  Prepare git context and return pass-through options.
+
+  Like `prepare_git_context/2` but also returns the git-related options
+  that should be passed to the K8s target.
+  """
+  def prepare_git_context_with_opts(path, opts) do
+    case prepare_git_context(path, opts) do
+      {:ok, ctx} ->
+        # Extract git-related options to pass through
+        pass_through = [
+          git_context: ctx,
+          git_ssh_secret: Keyword.get(opts, :git_ssh_secret),
+          git_token_secret: Keyword.get(opts, :git_token_secret)
+        ]
+
+        # Remove nil values
+        pass_through = Enum.reject(pass_through, fn {_k, v} -> is_nil(v) end)
+
+        {:ok, ctx, pass_through}
+
+      error ->
+        error
+    end
+  end
+
+  @doc """
+  Validate git context for K8s execution.
+
+  Returns `:ok` or `{:error, :dirty_workdir}`.
+  """
+  def validate_git_context(ctx, opts) do
+    allow_dirty = Keyword.get(opts, :allow_dirty, false)
+
+    if ctx.dirty and not allow_dirty do
+      {:error, :dirty_workdir}
+    else
+      :ok
     end
   end
 end

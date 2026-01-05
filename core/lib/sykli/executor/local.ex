@@ -1,8 +1,19 @@
 defmodule Sykli.Executor.Local do
   @moduledoc """
-  Local executor using Docker containers and shell commands.
+  **DEPRECATED**: Use `Sykli.Target.Local` instead.
 
-  This is the default executor for development and local CI runs.
+  This module is kept for backwards compatibility with `Sykli.Executor.Mesh`,
+  which dispatches tasks to this module via RPC on remote nodes.
+
+  For new code, use `Sykli.Target.Local` which provides:
+  - Proper lifecycle (setup/teardown)
+  - State management across callbacks
+  - Runtime composition (Docker, Shell, Podman)
+
+  ---
+
+  Local executor using Docker containers and shell commands (legacy).
+
   Tasks with containers run via `docker run`, others run directly via shell.
   Artifacts are stored as files in the workdir.
   Secrets are read from environment variables.
