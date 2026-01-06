@@ -1,7 +1,7 @@
 //! Example 05: Composition
 //!
 //! This example demonstrates:
-//! - `.parallel()` for concurrent task groups
+//! - `TaskGroup` for grouping related tasks
 //! - `.chain()` for sequential pipelines
 //! - `.input_from()` for artifact passing
 //! - `.after_group()` for depending on task groups
@@ -10,7 +10,7 @@
 //!
 //! Run with: sykli run
 
-use sykli::Pipeline;
+use sykli::{Pipeline, TaskGroup, Template};
 
 fn main() {
     let mut p = Pipeline::new();
@@ -21,25 +21,34 @@ fn main() {
     let target_cache = p.cache("cargo-target");
 
     // === TEMPLATE ===
-    let rust = p.template("rust")
+    let rust = Template::new()
         .container("rust:1.75")
-        .mount(&src, "/src")
+        .mount_dir(&src, "/src")
         .mount_cache(&registry_cache, "/usr/local/cargo/registry")
         .mount_cache(&target_cache, "/src/target")
         .workdir("/src");
 
     // === PARALLEL GROUP ===
-    // All checks run concurrently
-    let lint = p.task("lint").from(&rust).run("cargo clippy -- -D warnings");
-    let fmt = p.task("fmt").from(&rust).run("cargo fmt --check");
-    let test = p.task("test").from(&rust).run("cargo test");
-    let audit = p.task("audit").from(&rust).run("cargo audit");
+    // All checks run concurrently (no dependencies between them)
+    p.task("lint").from(&rust).run("cargo clippy -- -D warnings");
+    p.task("fmt").from(&rust).run("cargo fmt --check");
+    p.task("test").from(&rust).run("cargo test");
+    p.task("audit").from(&rust).run("cargo audit");
 
-    let checks = p.parallel("checks", vec![&lint, &fmt, &test, &audit]);
+    // Create a TaskGroup to reference these tasks
+    let checks = TaskGroup::new(
+        "checks",
+        vec![
+            "lint".to_string(),
+            "fmt".to_string(),
+            "test".to_string(),
+            "audit".to_string(),
+        ],
+    );
 
     // === BUILD ===
     // Depends on all checks passing
-    let build = p.task("build")
+    p.task("build")
         .from(&rust)
         .env("RUSTFLAGS", "-C target-cpu=native")
         .run("cargo build --release")
@@ -57,21 +66,20 @@ fn main() {
         .input_from("build", "binary", "./app");
 
     // === CHAIN ===
-    // Alternative way to express sequential dependencies
-    let integration = p.task("integration")
+    // Sequential dependencies using task names
+    p.task("integration")
         .from(&rust)
         .run("cargo test --features integration")
-        .after(&[build.name()]);
+        .after(&["build"]);
 
-    let e2e = p.task("e2e")
-        .run("./scripts/e2e.sh");
+    p.task("e2e").run("./scripts/e2e.sh");
 
-    let deploy = p.task("deploy")
+    p.task("deploy")
         .run("./scripts/deploy.sh")
         .when("branch == 'main'");
 
     // Chain creates: integration -> e2e -> deploy
-    p.chain(&[&integration, &e2e, &deploy]);
+    p.chain(&["integration", "e2e", "deploy"]);
 
     p.emit();
 }

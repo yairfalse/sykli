@@ -1,7 +1,7 @@
 //! Example 04: Templates
 //!
 //! This example demonstrates:
-//! - `.template()` for reusable configurations
+//! - `Template::new()` for reusable configurations
 //! - `.from()` to inherit template settings
 //! - Override template settings per-task
 //!
@@ -10,7 +10,7 @@
 //!
 //! Run with: sykli run
 
-use sykli::Pipeline;
+use sykli::{Pipeline, Template};
 
 fn main() {
     let mut p = Pipeline::new();
@@ -24,18 +24,18 @@ fn main() {
     // === TEMPLATES ===
 
     // Rust template - common config for all Rust tasks
-    let rust = p.template("rust")
+    let rust = Template::new()
         .container("rust:1.75")
-        .mount(&src, "/src")
+        .mount_dir(&src, "/src")
         .mount_cache(&registry_cache, "/usr/local/cargo/registry")
         .mount_cache(&target_cache, "/src/target")
         .workdir("/src")
         .env("CARGO_INCREMENTAL", "0");
 
     // Node template - for JS tooling
-    let node = p.template("node")
+    let node = Template::new()
         .container("node:20-slim")
-        .mount(&src, "/src")
+        .mount_dir(&src, "/src")
         .mount_cache(&npm_cache, "/root/.npm")
         .workdir("/src");
 
@@ -49,26 +49,24 @@ fn main() {
     // Override template settings when needed
     p.task("build")
         .from(&rust)
-        .env("RUSTFLAGS", "-C target-cpu=native")  // Adds to template env
+        .env("RUSTFLAGS", "-C target-cpu=native") // Adds to template env
         .run("cargo build --release")
         .output("binary", "target/release/app")
         .after(&["lint", "test"]);
 
     // Different template for JS tasks
-    p.task("docs")
-        .from(&node)
-        .run("npm run build:docs");
+    p.task("docs").from(&node).run("npm run build:docs");
 
     p.emit();
 }
 
 // Without templates (repetitive):
-//   p.task("lint").container("rust:1.75").mount(&src, "/src")...
-//   p.task("test").container("rust:1.75").mount(&src, "/src")...
-//   p.task("build").container("rust:1.75").mount(&src, "/src")...
+//   p.task("lint").container("rust:1.75").mount_dir(&src, "/src")...
+//   p.task("test").container("rust:1.75").mount_dir(&src, "/src")...
+//   p.task("build").container("rust:1.75").mount_dir(&src, "/src")...
 //
 // With templates (DRY):
-//   let rust = p.template("rust").container("rust:1.75").mount(&src, "/src")...
+//   let rust = Template::new().container("rust:1.75").mount_dir(&src, "/src")...
 //   p.task("lint").from(&rust).run("cargo clippy");
 //   p.task("test").from(&rust).run("cargo test");
 //   p.task("build").from(&rust).run("cargo build");

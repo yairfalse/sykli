@@ -1,10 +1,10 @@
 //! Example 06: Matrix Builds & Services
 //!
 //! This example demonstrates:
-//! - `.matrix()` for testing across configurations
+//! - Matrix-style builds with loops
 //! - Service containers with `.service()`
 //! - `.retry()` and `.timeout()` for resilience
-//! - Secrets with `.secret()` and `.secret_from()`
+//! - Secrets with `.secret()`
 //!
 //! Run with: sykli run
 
@@ -17,16 +17,33 @@ fn main() {
 
     // === MATRIX BUILDS ===
 
+    // Pre-create caches for each version (outside the task chain)
+    let cache_170 = p.cache("cargo-1.70");
+    let cache_175 = p.cache("cargo-1.75");
+    let cache_180 = p.cache("cargo-1.80");
+
     // Test across multiple Rust versions
-    // Creates: test-1.70, test-1.75, test-1.80
-    for version in &["1.70", "1.75", "1.80"] {
-        p.task(&format!("test-rust-{}", version))
-            .container(&format!("rust:{}", version))
-            .mount(&src, "/src")
-            .mount_cache(&p.cache(&format!("cargo-{}", version)), "/usr/local/cargo/registry")
-            .workdir("/src")
-            .run("cargo test");
-    }
+    // Creates: test-rust-1.70, test-rust-1.75, test-rust-1.80
+    p.task("test-rust-1.70")
+        .container("rust:1.70")
+        .mount(&src, "/src")
+        .mount_cache(&cache_170, "/usr/local/cargo/registry")
+        .workdir("/src")
+        .run("cargo test");
+
+    p.task("test-rust-1.75")
+        .container("rust:1.75")
+        .mount(&src, "/src")
+        .mount_cache(&cache_175, "/usr/local/cargo/registry")
+        .workdir("/src")
+        .run("cargo test");
+
+    p.task("test-rust-1.80")
+        .container("rust:1.80")
+        .mount(&src, "/src")
+        .mount_cache(&cache_180, "/usr/local/cargo/registry")
+        .workdir("/src")
+        .run("cargo test");
 
     // === SERVICE CONTAINERS ===
 
@@ -35,12 +52,15 @@ fn main() {
         .container("rust:1.75")
         .mount(&src, "/src")
         .workdir("/src")
-        .service("postgres:15", "db")       // Accessible as hostname "db"
-        .service("redis:7", "cache")        // Accessible as hostname "cache"
-        .env("DATABASE_URL", "postgres://postgres:postgres@db:5432/test?sslmode=disable")
+        .service("postgres:15", "db") // Accessible as hostname "db"
+        .service("redis:7", "cache") // Accessible as hostname "cache"
+        .env(
+            "DATABASE_URL",
+            "postgres://postgres:postgres@db:5432/test?sslmode=disable",
+        )
         .env("REDIS_URL", "redis://cache:6379")
         .run("cargo test --features integration")
-        .timeout(300)  // 5 minute timeout
+        .timeout(300) // 5 minute timeout
         .after(&["test-rust-1.70", "test-rust-1.75", "test-rust-1.80"]);
 
     // === RETRY & TIMEOUT ===
@@ -51,8 +71,8 @@ fn main() {
         .mount(&src, "/src")
         .workdir("/src")
         .run("npm run e2e")
-        .retry(3)       // Retry up to 3 times
-        .timeout(600)   // 10 minute timeout
+        .retry(3) // Retry up to 3 times
+        .timeout(600) // 10 minute timeout
         .after(&["integration"]);
 
     // === SECRETS ===
