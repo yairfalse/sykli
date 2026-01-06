@@ -27,12 +27,15 @@ defmodule Sykli.GitContextTest do
       assert Regex.match?(~r/^[0-9a-f]+$/, ctx.sha)
     end
 
-    test "returns branch as string" do
+    test "returns branch as string or nil for detached HEAD" do
       ctx = GitContext.detect(".")
 
-      # Could be "main", "HEAD" (detached), or feature branch
-      assert is_binary(ctx.branch)
-      assert String.length(ctx.branch) > 0
+      # Could be "main", feature branch, or nil (detached HEAD in CI)
+      assert is_nil(ctx.branch) or is_binary(ctx.branch)
+
+      if is_binary(ctx.branch) do
+        assert String.length(ctx.branch) > 0
+      end
     end
 
     test "returns dirty as boolean" do
