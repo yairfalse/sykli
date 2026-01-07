@@ -6,6 +6,9 @@ defmodule Sykli.Mesh do
   Nodes auto-discover via libcluster (see `Sykli.Cluster`), and
   tasks can be dispatched to any connected node.
 
+  Task execution uses `Target.Local.run_task_stateless/2` which handles
+  the full lifecycle (setup → run → teardown) in a single call.
+
   ## Usage
 
       # Run on a specific node
@@ -32,7 +35,7 @@ defmodule Sykli.Mesh do
   If no remote nodes are connected, operations fall back to local.
   """
 
-  alias Sykli.Executor.Local
+  alias Sykli.Target.Local
   alias Sykli.Daemon
 
   @type node_ref :: :local | node()
@@ -295,15 +298,15 @@ defmodule Sykli.Mesh do
   defp run_locally(task, opts) do
     workdir = Keyword.get(opts, :workdir, ".")
 
-    Local.run_job(task, workdir: workdir)
+    Local.run_task_stateless(task, workdir: workdir)
   end
 
   defp run_remotely(task, node, opts) do
     workdir = Keyword.get(opts, :workdir, ".")
     timeout = Keyword.get(opts, :timeout, 300_000)
 
-    # RPC call to run task on remote node
-    case :rpc.call(node, Local, :run_job, [task, [workdir: workdir]], timeout) do
+    # RPC call to run task on remote node using Target.Local
+    case :rpc.call(node, Local, :run_task_stateless, [task, [workdir: workdir]], timeout) do
       {:badrpc, :nodedown} ->
         {:error, {:node_not_connected, node}}
 

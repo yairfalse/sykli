@@ -9,43 +9,56 @@ defmodule Sykli.Executor do
   - Progress tracking
   - Retry logic
 
-  Actual task execution is delegated to an executor backend:
-  - `Sykli.Executor.Local` - Docker/shell (default)
-  - `Sykli.Executor.K8s` - Kubernetes pods (future)
+  Actual task execution is delegated to a Target:
+  - `Sykli.Target.Local` - Docker/shell (default)
+  - `Sykli.Target.K8s` - Kubernetes Jobs (future)
 
   ## Options
 
   - `:workdir` - Working directory (default: ".")
-  - `:executor` - Executor module (default: Sykli.Executor.Local)
+  - `:target` - Target module (default: Sykli.Target.Local)
+  - `:executor` - Legacy executor module (deprecated, use `:target`)
   """
 
   # Note: we DON'T alias Sykli.Graph.Task because it shadows Elixir's Task module
   # Use full path: %Sykli.Graph.Task{}
 
-  @default_executor Sykli.Executor.Local
+  @default_target Sykli.Target.Local
 
   def run(tasks, graph, opts \\ []) do
-    workdir = Keyword.get(opts, :workdir, ".")
-    executor = Keyword.get(opts, :executor, @default_executor)
+    # Support both :target (new) and :executor (legacy for Mesh)
+    target = Keyword.get(opts, :target) || Keyword.get(opts, :executor, @default_target)
     start_time = System.monotonic_time(:millisecond)
     total_tasks = length(tasks)
 
-    # Group tasks by "level" - tasks at same level can run in parallel
-    levels = group_by_level(tasks, graph)
+    # Setup target with all options
+    case target.setup(opts) do
+      {:ok, state} ->
+        try do
+          # Group tasks by "level" - tasks at same level can run in parallel
+          levels = group_by_level(tasks, graph)
 
-    # Execute level by level, collecting results with timing
-    # Pass progress state: {completed_count, total_count}
-    # Also pass graph for resolving task_inputs and executor for job execution
-    result = run_levels(levels, workdir, [], {0, total_tasks}, graph, executor)
+          # Execute level by level, collecting results with timing
+          # Pass progress state: {completed_count, total_count}
+          # Also pass graph for resolving task_inputs
+          result = run_levels(levels, state, [], {0, total_tasks}, graph, target)
 
-    # Print summary with status graph
-    total_time = System.monotonic_time(:millisecond) - start_time
-    print_summary(result, total_time, tasks)
+          # Print summary with status graph
+          total_time = System.monotonic_time(:millisecond) - start_time
+          print_summary(result, total_time, tasks)
 
-    # Return original format
-    case result do
-      {:ok, results} -> {:ok, results}
-      {:error, results} -> {:error, results}
+          # Return original format
+          case result do
+            {:ok, results} -> {:ok, results}
+            {:error, results} -> {:error, results}
+          end
+        after
+          target.teardown(state)
+        end
+
+      {:error, reason} ->
+        IO.puts("#{IO.ANSI.red()}✗ Target setup failed: #{inspect(reason)}#{IO.ANSI.reset()}")
+        {:error, {:target_setup_failed, reason}}
     end
   end
 
@@ -105,9 +118,9 @@ defmodule Sykli.Executor do
 
   # ----- EXECUTING LEVELS -----
 
-  defp run_levels([], _workdir, acc, _progress, _graph, _executor), do: {:ok, Enum.reverse(acc)}
+  defp run_levels([], _state, acc, _progress, _graph, _target), do: {:ok, Enum.reverse(acc)}
 
-  defp run_levels([level | rest], workdir, acc, {completed, total}, graph, executor) do
+  defp run_levels([level | rest], state, acc, {completed, total}, graph, target) do
     level_size = length(level)
     next_tasks = rest |> List.flatten() |> Enum.map(& &1.name)
 
@@ -137,9 +150,9 @@ defmodule Sykli.Executor do
           task_num = Agent.get_and_update(counter, fn n -> {n + 1, n + 1} end)
           start_time = System.monotonic_time(:millisecond)
           # Resolve task_inputs before running the task
-          case resolve_task_inputs(task, graph, workdir, executor) do
+          case resolve_task_inputs(task, graph, state, target) do
             :ok ->
-              result = run_single(task, workdir, {task_num, total}, executor)
+              result = run_single(task, state, {task_num, total}, target)
               duration = System.monotonic_time(:millisecond) - start_time
               {task.name, result, duration}
 
@@ -167,24 +180,24 @@ defmodule Sykli.Executor do
       # Continue to next level
       run_levels(
         rest,
-        workdir,
+        state,
         Enum.reverse(results) ++ acc,
         {new_completed, total},
         graph,
-        executor
+        target
       )
     end
   end
 
   # ----- RUNNING A SINGLE TASK -----
 
-  defp run_single(%Sykli.Graph.Task{} = task, workdir, progress, executor) do
+  defp run_single(%Sykli.Graph.Task{} = task, state, progress, target) do
     # Check condition first
     if should_run?(task) do
-      # Validate required secrets are present (via executor)
-      case validate_secrets(task, executor) do
+      # Validate required secrets are present (via target)
+      case validate_secrets(task, state, target) do
         :ok ->
-          run_task_with_cache(task, workdir, progress, executor)
+          run_task_with_cache(task, state, progress, target)
 
         {:error, missing} ->
           IO.puts(
@@ -203,8 +216,9 @@ defmodule Sykli.Executor do
     end
   end
 
-  defp run_task_with_cache(%Sykli.Graph.Task{} = task, workdir, progress, executor) do
+  defp run_task_with_cache(%Sykli.Graph.Task{} = task, state, progress, target) do
     prefix = progress_prefix(progress)
+    workdir = state.workdir
 
     # Check cache first (with detailed reason)
     case Sykli.Cache.check_detailed(task, workdir) do
@@ -224,7 +238,7 @@ defmodule Sykli.Executor do
               "#{prefix}#{IO.ANSI.yellow()}⚠ Cache restore failed for #{task.name}: #{inspect(reason)}#{IO.ANSI.reset()}"
             )
 
-            run_with_retry(task, workdir, nil, progress, executor)
+            run_with_retry(task, state, nil, progress, target)
         end
 
       {:miss, cache_key, reason} ->
@@ -235,18 +249,18 @@ defmodule Sykli.Executor do
           "#{prefix}#{IO.ANSI.cyan()}▶ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(#{reason_str})#{IO.ANSI.reset()}"
         )
 
-        run_with_retry(task, workdir, cache_key, progress, executor)
+        run_with_retry(task, state, cache_key, progress, target)
     end
   end
 
   # Run task with retry logic
-  defp run_with_retry(task, workdir, cache_key, progress, executor) do
+  defp run_with_retry(task, state, cache_key, progress, target) do
     max_attempts = (task.retry || 0) + 1
-    do_run_with_retry(task, workdir, cache_key, 1, max_attempts, progress, executor)
+    do_run_with_retry(task, state, cache_key, 1, max_attempts, progress, target)
   end
 
-  defp do_run_with_retry(task, workdir, cache_key, attempt, max_attempts, progress, executor) do
-    case run_and_cache(task, workdir, cache_key, progress, executor) do
+  defp do_run_with_retry(task, state, cache_key, attempt, max_attempts, progress, target) do
+    case run_and_cache(task, state, cache_key, progress, target) do
       :ok ->
         :ok
 
@@ -256,7 +270,7 @@ defmodule Sykli.Executor do
             "#{IO.ANSI.faint()}(retry #{attempt}/#{max_attempts - 1})#{IO.ANSI.reset()}"
         )
 
-        do_run_with_retry(task, workdir, cache_key, attempt + 1, max_attempts, progress, executor)
+        do_run_with_retry(task, state, cache_key, attempt + 1, max_attempts, progress, target)
 
       {:error, reason} ->
         {:error, reason}
@@ -265,16 +279,18 @@ defmodule Sykli.Executor do
 
   defp run_and_cache(
          %Sykli.Graph.Task{name: name, outputs: outputs_raw, services: services} = task,
-         workdir,
+         state,
          cache_key,
          progress,
-         executor
+         target
        ) do
+    workdir = state.workdir
+
     # Convert outputs to list of paths for cache storage (handle both map and list formats)
     outputs = normalize_outputs_to_list(outputs_raw)
 
-    # Start services if any (via executor)
-    case executor.start_services(name, services || []) do
+    # Start services if any (via target)
+    case target.start_services(name, services || [], state) do
       {:ok, network_info} ->
         try do
           # Post pending status to GitHub
@@ -286,13 +302,14 @@ defmodule Sykli.Executor do
           # Extract network name for job execution
           network =
             case network_info do
+              {net, _containers, _runtime} -> net
               {net, _containers} -> net
               _ -> nil
             end
 
-          # Run job via executor
+          # Run task via target
           run_opts = [workdir: workdir, network: network, progress: progress]
-          result = executor.run_job(task, run_opts)
+          result = target.run_task(task, state, run_opts)
 
           duration_ms = System.monotonic_time(:millisecond) - start_time
 
@@ -312,7 +329,7 @@ defmodule Sykli.Executor do
           end
         after
           # Always stop services, even on failure
-          executor.stop_services(network_info)
+          target.stop_services(network_info, state)
         end
 
       {:error, reason} ->
@@ -332,15 +349,15 @@ defmodule Sykli.Executor do
 
   # ----- SECRET VALIDATION -----
 
-  # Validates that all required secrets are present (via executor)
-  defp validate_secrets(%Sykli.Graph.Task{secrets: nil}, _executor), do: :ok
-  defp validate_secrets(%Sykli.Graph.Task{secrets: []}, _executor), do: :ok
+  # Validates that all required secrets are present (via target)
+  defp validate_secrets(%Sykli.Graph.Task{secrets: nil}, _state, _target), do: :ok
+  defp validate_secrets(%Sykli.Graph.Task{secrets: []}, _state, _target), do: :ok
 
-  defp validate_secrets(%Sykli.Graph.Task{secrets: secrets}, executor) do
+  defp validate_secrets(%Sykli.Graph.Task{secrets: secrets}, state, target) do
     missing =
       secrets
       |> Enum.filter(fn name ->
-        case executor.resolve_secret(name) do
+        case target.resolve_secret(name, state) do
           {:ok, _} -> false
           {:error, _} -> true
         end
@@ -373,20 +390,18 @@ defmodule Sykli.Executor do
   # ----- TASK INPUT RESOLUTION -----
 
   # Resolve and copy task_inputs (artifact passing between tasks)
-  defp resolve_task_inputs(%Sykli.Graph.Task{task_inputs: nil}, _graph, _workdir, _executor),
+  defp resolve_task_inputs(%Sykli.Graph.Task{task_inputs: nil}, _graph, _state, _target),
     do: :ok
 
-  defp resolve_task_inputs(%Sykli.Graph.Task{task_inputs: []}, _graph, _workdir, _executor),
+  defp resolve_task_inputs(%Sykli.Graph.Task{task_inputs: []}, _graph, _state, _target),
     do: :ok
 
   defp resolve_task_inputs(
          %Sykli.Graph.Task{name: task_name, task_inputs: task_inputs},
          graph,
-         workdir,
-         executor
+         state,
+         target
        ) do
-    abs_workdir = Path.expand(workdir)
-
     results =
       task_inputs
       |> Enum.map(fn %Sykli.Graph.TaskInput{from_task: from_task, output: output_name, dest: dest} ->
@@ -396,8 +411,8 @@ defmodule Sykli.Executor do
           output_name,
           dest,
           graph,
-          abs_workdir,
-          executor
+          state,
+          target
         )
       end)
 
@@ -407,7 +422,9 @@ defmodule Sykli.Executor do
     end
   end
 
-  defp resolve_single_input(task_name, from_task, output_name, dest, graph, workdir, executor) do
+  defp resolve_single_input(task_name, from_task, output_name, dest, graph, state, target) do
+    workdir = state.workdir
+
     # Find the source task
     case Map.get(graph, from_task) do
       nil ->
@@ -430,8 +447,8 @@ defmodule Sykli.Executor do
             {:error, {:output_not_found, from_task, output_name}}
 
           source_path ->
-            # Copy artifact via executor
-            case executor.copy_artifact(source_path, dest, workdir) do
+            # Copy artifact via target
+            case target.copy_artifact(source_path, dest, workdir, state) do
               :ok ->
                 IO.puts("  #{IO.ANSI.faint()}← #{source_path} → #{dest}#{IO.ANSI.reset()}")
                 :ok

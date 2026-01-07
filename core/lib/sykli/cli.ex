@@ -62,10 +62,14 @@ defmodule Sykli.CLI do
            sykli cache <command>
 
     Options:
-      -h, --help       Show this help
-      -v, --version    Show version
-      --mesh           Distribute tasks across connected BEAM nodes
-      --filter=NAME    Only run tasks matching NAME
+      -h, --help                Show this help
+      -v, --version             Show version
+      --mesh                    Distribute tasks across connected BEAM nodes
+      --filter=NAME             Only run tasks matching NAME
+      --target=TARGET           Execution target: local (default), k8s
+      --allow-dirty             Allow running with uncommitted changes (K8s)
+      --git-ssh-secret=NAME     K8s Secret for SSH git auth
+      --git-token-secret=NAME   K8s Secret for HTTPS git auth
 
     Commands:
       sykli [path]     Run pipeline (default: current directory)
@@ -81,12 +85,14 @@ defmodule Sykli.CLI do
       sykli cache      Manage cache (see: sykli cache --help)
 
     Examples:
-      sykli                    Run pipeline in current directory
-      sykli run                Same as above
-      sykli ./my-project       Run pipeline in ./my-project
-      sykli --mesh             Run with distributed mesh execution
-      sykli daemon start       Start mesh daemon
-      sykli cache stats        Show cache statistics
+      sykli                           Run pipeline in current directory
+      sykli run                       Same as above
+      sykli ./my-project              Run pipeline in ./my-project
+      sykli --mesh                    Run with distributed mesh execution
+      sykli --target=k8s              Run tasks as Kubernetes Jobs
+      sykli --target=k8s --allow-dirty  Run K8s even with uncommitted changes
+      sykli daemon start              Start mesh daemon
+      sykli cache stats               Show cache statistics
     """)
   end
 
@@ -97,6 +103,68 @@ defmodule Sykli.CLI do
     # Build run options
     run_opts = []
 
+    # Handle K8s target - prepare git context first
+    case prepare_target_context(path, opts) do
+      {:ok, target_opts} ->
+        run_opts = target_opts ++ run_opts
+        do_run_sykli(path, opts, run_opts, start_time)
+
+      {:error, :dirty_workdir} ->
+        IO.puts(
+          "#{IO.ANSI.red()}Error: Uncommitted changes in working directory#{IO.ANSI.reset()}"
+        )
+
+        IO.puts("")
+        IO.puts("K8s execution requires a clean git state to ensure reproducibility.")
+
+        IO.puts(
+          "Either commit your changes or use #{IO.ANSI.cyan()}--allow-dirty#{IO.ANSI.reset()} to proceed anyway."
+        )
+
+        halt(1)
+
+      {:error, :not_a_git_repo} ->
+        IO.puts("#{IO.ANSI.red()}Error: Not a git repository#{IO.ANSI.reset()}")
+        IO.puts("")
+        IO.puts("K8s execution requires git to clone source code into Jobs.")
+        halt(1)
+
+      {:error, reason} ->
+        IO.puts("#{IO.ANSI.red()}Error: #{inspect(reason)}#{IO.ANSI.reset()}")
+        halt(1)
+    end
+  end
+
+  defp prepare_target_context(path, opts) do
+    case opts[:target] do
+      :k8s ->
+        # Prepare git context for K8s
+        git_opts = [
+          allow_dirty: opts[:allow_dirty] || false,
+          git_ssh_secret: opts[:git_ssh_secret],
+          git_token_secret: opts[:git_token_secret]
+        ]
+
+        case Sykli.prepare_git_context_with_opts(path, git_opts) do
+          {:ok, _ctx, pass_through} ->
+            IO.puts("#{IO.ANSI.cyan()}Target: k8s#{IO.ANSI.reset()}")
+            {:ok, [{:target, Sykli.Target.K8s} | pass_through]}
+
+          error ->
+            error
+        end
+
+      :local ->
+        # Explicit local target
+        {:ok, [{:target, Sykli.Target.Local}]}
+
+      _ ->
+        # Default local execution - no special setup needed
+        {:ok, []}
+    end
+  end
+
+  defp do_run_sykli(path, opts, run_opts, start_time) do
     # Select executor based on --mesh flag
     run_opts =
       if opts[:mesh] do
@@ -157,7 +225,8 @@ defmodule Sykli.CLI do
     end
   end
 
-  defp parse_run_args(args) do
+  @doc false
+  def parse_run_args(args) do
     {opts, rest} =
       Enum.reduce(args, {[], []}, fn arg, {opts, rest} ->
         cond do
@@ -168,8 +237,29 @@ defmodule Sykli.CLI do
             filter = String.replace_prefix(arg, "--filter=", "")
             {[{:filter, filter} | opts], rest}
 
+          # K8s target flags
+          String.starts_with?(arg, "--target=") ->
+            target_str = String.replace_prefix(arg, "--target=", "")
+            target = parse_target(target_str)
+            {[{:target, target} | opts], rest}
+
+          arg == "--allow-dirty" ->
+            {[{:allow_dirty, true} | opts], rest}
+
+          String.starts_with?(arg, "--git-ssh-secret=") ->
+            secret = String.replace_prefix(arg, "--git-ssh-secret=", "")
+            {[{:git_ssh_secret, secret} | opts], rest}
+
+          String.starts_with?(arg, "--git-token-secret=") ->
+            secret = String.replace_prefix(arg, "--git-token-secret=", "")
+            {[{:git_token_secret, secret} | opts], rest}
+
           String.starts_with?(arg, "--") ->
-            IO.puts(:stderr, "#{IO.ANSI.yellow()}Warning: ignoring unknown option #{arg}#{IO.ANSI.reset()}")
+            IO.puts(
+              :stderr,
+              "#{IO.ANSI.yellow()}Warning: ignoring unknown option #{arg}#{IO.ANSI.reset()}"
+            )
+
             {opts, rest}
 
           true ->
@@ -180,6 +270,10 @@ defmodule Sykli.CLI do
     path = List.first(rest) || "."
     {path, opts}
   end
+
+  defp parse_target("k8s"), do: :k8s
+  defp parse_target("local"), do: :local
+  defp parse_target(_), do: :local
 
   # ----- DELTA SUBCOMMAND -----
 

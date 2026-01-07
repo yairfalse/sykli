@@ -43,6 +43,7 @@ defmodule Sykli.Target.K8s do
   @behaviour Sykli.Target.Behaviour
 
   alias Sykli.Target.K8sOptions
+  alias Sykli.Target.K8s.Source
   alias Sykli.K8s.Auth
   alias Sykli.K8s.Client
   alias Sykli.K8s.Error
@@ -52,7 +53,11 @@ defmodule Sykli.Target.K8s do
     :namespace,
     :auth_config,
     :artifact_pvc,
-    :in_cluster
+    :in_cluster,
+    # Git context for source mounting (from setup opts)
+    :git_context,
+    :git_ssh_secret,
+    :git_token_secret
   ]
 
   # ─────────────────────────────────────────────────────────────────────────────
@@ -94,7 +99,11 @@ defmodule Sykli.Target.K8s do
           namespace: final_namespace,
           auth_config: auth_config,
           in_cluster: mode == :in_cluster,
-          artifact_pvc: Keyword.get(opts, :artifact_pvc, "sykli-artifacts")
+          artifact_pvc: Keyword.get(opts, :artifact_pvc, "sykli-artifacts"),
+          # Store git opts for use in run_task
+          git_context: Keyword.get(opts, :git_context),
+          git_ssh_secret: Keyword.get(opts, :git_ssh_secret),
+          git_token_secret: Keyword.get(opts, :git_token_secret)
         }
 
         mode_str = if state.in_cluster, do: "in-cluster", else: "kubeconfig"
@@ -287,9 +296,13 @@ defmodule Sykli.Target.K8s do
     k8s_opts = task.k8s || %K8sOptions{}
     namespace = k8s_opts.namespace || state.namespace
     services = Keyword.get(opts, :services, [])
+    # Git opts from state (populated during setup) with opts as fallback
+    git_ctx = Keyword.get(opts, :git_context) || state.git_context
+    git_ssh_secret = Keyword.get(opts, :git_ssh_secret) || state.git_ssh_secret
+    git_token_secret = Keyword.get(opts, :git_token_secret) || state.git_token_secret
 
-    # Build container spec
-    container = build_container_spec(task, k8s_opts)
+    # Build container spec (with workspace mount if git_ctx)
+    container = build_container_spec(task, k8s_opts, git_ctx)
 
     # Build sidecar containers for services
     sidecars = Enum.map(services, &build_sidecar_spec/1)
@@ -299,6 +312,23 @@ defmodule Sykli.Target.K8s do
       "restartPolicy" => "Never",
       "containers" => [container | sidecars]
     }
+
+    # Add git clone init container if git context provided
+    pod_spec =
+      if git_ctx do
+        init_opts = [
+          git_ssh_secret: git_ssh_secret,
+          git_token_secret: git_token_secret
+        ]
+
+        init_container = Source.build_init_container(git_ctx, init_opts)
+        Map.put(pod_spec, "initContainers", [init_container])
+      else
+        pod_spec
+      end
+
+    # Build volumes (including workspace if git_ctx)
+    volumes = build_volumes(task, k8s_opts, git_ctx)
 
     # Add optional pod spec fields
     pod_spec =
@@ -310,7 +340,7 @@ defmodule Sykli.Target.K8s do
       |> maybe_add("priorityClassName", k8s_opts.priority_class_name)
       |> maybe_add("hostNetwork", k8s_opts.host_network)
       |> maybe_add("dnsPolicy", k8s_opts.dns_policy)
-      |> maybe_add("volumes", build_volumes(task, k8s_opts))
+      |> maybe_add("volumes", volumes)
 
     # Build Job manifest
     manifest = %{
@@ -343,19 +373,24 @@ defmodule Sykli.Target.K8s do
     manifest
   end
 
-  defp build_container_spec(task, k8s_opts) do
+  defp build_container_spec(task, k8s_opts, git_ctx) do
     container = %{
       "name" => "task",
       "image" => task.container || "alpine:latest",
       "command" => ["sh", "-c", task.command]
     }
 
-    # Add workdir
+    # Add workdir - default to /workspace if git context provided
     container =
-      if task.workdir do
-        Map.put(container, "workingDir", task.workdir)
-      else
-        container
+      cond do
+        task.workdir ->
+          Map.put(container, "workingDir", task.workdir)
+
+        git_ctx != nil ->
+          Map.put(container, "workingDir", "/workspace")
+
+        true ->
+          container
       end
 
     # Add environment variables
@@ -389,14 +424,28 @@ defmodule Sykli.Target.K8s do
       end
 
     # Add volume mounts - use unique_volume_name to match volume definitions
-    container =
+    task_mounts =
       if task.mounts && length(task.mounts) > 0 do
-        mounts =
-          Enum.map(task.mounts, fn m ->
-            %{"name" => unique_volume_name(m.resource), "mountPath" => m.path}
-          end)
+        Enum.map(task.mounts, fn m ->
+          %{"name" => unique_volume_name(m.resource), "mountPath" => m.path}
+        end)
+      else
+        []
+      end
 
-        Map.put(container, "volumeMounts", mounts)
+    # Add workspace mount if git context provided
+    workspace_mount =
+      if git_ctx do
+        [Source.workspace_mount()]
+      else
+        []
+      end
+
+    all_mounts = task_mounts ++ workspace_mount
+
+    container =
+      if length(all_mounts) > 0 do
+        Map.put(container, "volumeMounts", all_mounts)
       else
         container
       end
@@ -524,7 +573,7 @@ defmodule Sykli.Target.K8s do
     ctx
   end
 
-  defp build_volumes(task, k8s_opts) do
+  defp build_volumes(task, k8s_opts, git_ctx) do
     # Volumes from task mounts - use unique_volume_name to prevent collisions
     mount_volumes =
       (task.mounts || [])
@@ -551,7 +600,15 @@ defmodule Sykli.Target.K8s do
       (k8s_opts.volumes || [])
       |> Enum.map(&build_k8s_volume/1)
 
-    mount_volumes ++ k8s_volumes
+    # Workspace volume for git clone
+    workspace_volumes =
+      if git_ctx do
+        [Source.workspace_volume()]
+      else
+        []
+      end
+
+    mount_volumes ++ k8s_volumes ++ workspace_volumes
   end
 
   defp build_k8s_volume(%K8sOptions.Volume{} = v) do
