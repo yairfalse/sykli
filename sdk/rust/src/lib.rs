@@ -58,12 +58,10 @@ use std::sync::LazyLock;
 use tracing::debug;
 
 // K8s resource validation patterns
-static K8S_MEMORY_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^[0-9]+(\.[0-9]+)?(Ki|Mi|Gi|Ti|Pi|Ei|k|M|G|T|P|E)?$").unwrap()
-});
-static K8S_CPU_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^[0-9]+(\.[0-9]+)?m?$").unwrap()
-});
+static K8S_MEMORY_PATTERN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^[0-9]+(\.[0-9]+)?(Ki|Mi|Gi|Ti|Pi|Ei|k|M|G|T|P|E)?$").unwrap());
+static K8S_CPU_PATTERN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^[0-9]+(\.[0-9]+)?m?$").unwrap());
 
 // =============================================================================
 // RESOURCES
@@ -468,7 +466,11 @@ pub struct K8sValidationError {
 
 impl std::fmt::Display for K8sValidationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "k8s.{}: {} (got {:?})", self.field, self.message, self.value)
+        write!(
+            f,
+            "k8s.{}: {} (got {:?})",
+            self.field, self.message, self.value
+        )
     }
 }
 
@@ -922,19 +924,19 @@ struct TaskData {
     workdir: Option<String>,
     env: HashMap<String, String>,
     mounts: Vec<Mount>,
-    inputs: Vec<String>,          // v1-style file patterns
-    task_inputs: Vec<TaskInput>,  // v2-style inputs from other tasks
+    inputs: Vec<String>,         // v1-style file patterns
+    task_inputs: Vec<TaskInput>, // v2-style inputs from other tasks
     outputs: HashMap<String, String>,
     depends_on: Vec<String>,
     condition: Option<String>,
-    when_cond: Option<Condition>,  // Type-safe condition (alternative to string)
-    secrets: Vec<String>,          // v1-style secret names
-    secret_refs: Vec<SecretRef>,   // v2-style typed secret references
+    when_cond: Option<Condition>, // Type-safe condition (alternative to string)
+    secrets: Vec<String>,         // v1-style secret names
+    secret_refs: Vec<SecretRef>,  // v2-style typed secret references
     matrix: HashMap<String, Vec<String>>,
     services: Vec<Service>,
     // Robustness features
-    retry: Option<u32>,            // Number of retries on failure
-    timeout: Option<u32>,          // Timeout in seconds
+    retry: Option<u32>,   // Number of retries on failure
+    timeout: Option<u32>, // Timeout in seconds
     // K8s options
     k8s_options: Option<K8sOptions>,
     // Per-task target override
@@ -1137,9 +1139,18 @@ impl<'a> Task<'a> {
     /// Panics if any argument is empty.
     #[must_use]
     pub fn input_from(self, from_task: &str, output_name: &str, dest_path: &str) -> Self {
-        assert!(!from_task.is_empty(), "input_from: from_task cannot be empty");
-        assert!(!output_name.is_empty(), "input_from: output_name cannot be empty");
-        assert!(!dest_path.is_empty(), "input_from: dest_path cannot be empty");
+        assert!(
+            !from_task.is_empty(),
+            "input_from: from_task cannot be empty"
+        );
+        assert!(
+            !output_name.is_empty(),
+            "input_from: output_name cannot be empty"
+        );
+        assert!(
+            !dest_path.is_empty(),
+            "input_from: dest_path cannot be empty"
+        );
 
         let task = &mut self.pipeline.tasks[self.index];
 
@@ -1757,7 +1768,11 @@ impl Pipeline {
             }
 
             // Check if task would be skipped
-            let condition = t.when_cond.as_ref().map(|c| c.to_string()).or_else(|| t.condition.clone());
+            let condition = t
+                .when_cond
+                .as_ref()
+                .map(|c| c.to_string())
+                .or_else(|| t.condition.clone());
             if let Some(ref cond) = condition {
                 if let Some(reason) = self.would_skip(cond, ctx) {
                     header.push_str(&format!(" [SKIPPED: {}]", reason));
@@ -1772,14 +1787,18 @@ impl Pipeline {
             }
 
             if !t.secret_refs.is_empty() {
-                let secrets: Vec<_> = t.secret_refs.iter().map(|sr| {
-                    let source = match sr.source {
-                        SecretSource::Env => "env",
-                        SecretSource::File => "file",
-                        SecretSource::Vault => "vault",
-                    };
-                    format!("{} ({}:{})", sr.name, source, sr.key)
-                }).collect();
+                let secrets: Vec<_> = t
+                    .secret_refs
+                    .iter()
+                    .map(|sr| {
+                        let source = match sr.source {
+                            SecretSource::Env => "env",
+                            SecretSource::File => "file",
+                            SecretSource::Vault => "vault",
+                        };
+                        format!("{} ({}:{})", sr.name, source, sr.key)
+                    })
+                    .collect();
                 writeln!(w, "   Secrets: {}", secrets.join(", ")).ok();
             } else if !t.secrets.is_empty() {
                 writeln!(w, "   Secrets: {}", t.secrets.join(", ")).ok();
@@ -1846,7 +1865,8 @@ impl Pipeline {
             .map(|(n, _)| *n)
             .collect();
 
-        let task_map: HashMap<&str, &TaskData> = self.tasks.iter().map(|t| (t.name.as_str(), t)).collect();
+        let task_map: HashMap<&str, &TaskData> =
+            self.tasks.iter().map(|t| (t.name.as_str(), t)).collect();
         let mut sorted = Vec::new();
 
         while let Some(name) = queue.pop() {
@@ -2065,7 +2085,11 @@ impl Pipeline {
                     } else {
                         Some(t.depends_on.clone())
                     },
-                    condition: t.when_cond.as_ref().map(|c| c.to_string()).or_else(|| t.condition.clone()),
+                    condition: t
+                        .when_cond
+                        .as_ref()
+                        .map(|c| c.to_string())
+                        .or_else(|| t.condition.clone()),
                     secrets: if t.secrets.is_empty() {
                         None
                     } else {
@@ -2118,7 +2142,9 @@ impl Pipeline {
                             (None, Some(task)) => Some(task.clone()),
                             (Some(defaults), Some(task)) => Some(K8sOptions::merge(defaults, task)),
                         };
-                        merged.filter(|o| !o.is_empty()).map(|o| convert_k8s_options(&o))
+                        merged
+                            .filter(|o| !o.is_empty())
+                            .map(|o| convert_k8s_options(&o))
                     },
                 })
                 .collect(),
@@ -2483,12 +2509,16 @@ fn convert_k8s_options(opts: &K8sOptions) -> JsonK8sOptions {
     JsonK8sOptions {
         namespace: opts.namespace.clone(),
         node_selector: opts.node_selector.clone(),
-        tolerations: opts.tolerations.iter().map(|t| JsonK8sToleration {
-            key: t.key.clone(),
-            operator: t.operator.clone(),
-            value: t.value.clone(),
-            effect: t.effect.clone(),
-        }).collect(),
+        tolerations: opts
+            .tolerations
+            .iter()
+            .map(|t| JsonK8sToleration {
+                key: t.key.clone(),
+                operator: t.operator.clone(),
+                value: t.value.clone(),
+                effect: t.effect.clone(),
+            })
+            .collect(),
         affinity: opts.affinity.as_ref().map(|a| JsonK8sAffinity {
             node_affinity: a.node_affinity.as_ref().map(|n| JsonK8sNodeAffinity {
                 required_labels: n.required_labels.clone(),
@@ -2504,9 +2534,13 @@ fn convert_k8s_options(opts: &K8sOptions) -> JsonK8sOptions {
             }),
         }),
         priority_class_name: opts.priority_class_name.clone(),
-        resources: if opts.resources.cpu.is_some() || opts.resources.memory.is_some()
-            || opts.resources.request_cpu.is_some() || opts.resources.request_memory.is_some()
-            || opts.resources.limit_cpu.is_some() || opts.resources.limit_memory.is_some() {
+        resources: if opts.resources.cpu.is_some()
+            || opts.resources.memory.is_some()
+            || opts.resources.request_cpu.is_some()
+            || opts.resources.request_memory.is_some()
+            || opts.resources.limit_cpu.is_some()
+            || opts.resources.limit_memory.is_some()
+        {
             Some(JsonK8sResources {
                 request_cpu: opts.resources.request_cpu.clone(),
                 request_memory: opts.resources.request_memory.clone(),
@@ -2520,32 +2554,39 @@ fn convert_k8s_options(opts: &K8sOptions) -> JsonK8sOptions {
         },
         gpu: opts.gpu,
         service_account: opts.service_account.clone(),
-        security_context: opts.security_context.as_ref().map(|s| JsonK8sSecurityContext {
-            run_as_user: s.run_as_user,
-            run_as_group: s.run_as_group,
-            run_as_non_root: s.run_as_non_root,
-            privileged: s.privileged,
-            read_only_root_filesystem: s.read_only_root_filesystem,
-            add_capabilities: s.add_capabilities.clone(),
-            drop_capabilities: s.drop_capabilities.clone(),
-        }),
+        security_context: opts
+            .security_context
+            .as_ref()
+            .map(|s| JsonK8sSecurityContext {
+                run_as_user: s.run_as_user,
+                run_as_group: s.run_as_group,
+                run_as_non_root: s.run_as_non_root,
+                privileged: s.privileged,
+                read_only_root_filesystem: s.read_only_root_filesystem,
+                add_capabilities: s.add_capabilities.clone(),
+                drop_capabilities: s.drop_capabilities.clone(),
+            }),
         host_network: opts.host_network,
         dns_policy: opts.dns_policy.clone(),
-        volumes: opts.volumes.iter().map(|v| JsonK8sVolume {
-            name: v.name.clone(),
-            mount_path: v.mount_path.clone(),
-            config_map: v.config_map.clone(),
-            secret: v.secret.clone(),
-            empty_dir: v.empty_dir.as_ref().map(|e| JsonK8sEmptyDir {
-                medium: e.medium.clone(),
-                size_limit: e.size_limit.clone(),
-            }),
-            host_path: v.host_path.as_ref().map(|h| JsonK8sHostPath {
-                path: h.path.clone(),
-                type_: h.type_.clone(),
-            }),
-            pvc: v.pvc.clone(),
-        }).collect(),
+        volumes: opts
+            .volumes
+            .iter()
+            .map(|v| JsonK8sVolume {
+                name: v.name.clone(),
+                mount_path: v.mount_path.clone(),
+                config_map: v.config_map.clone(),
+                secret: v.secret.clone(),
+                empty_dir: v.empty_dir.as_ref().map(|e| JsonK8sEmptyDir {
+                    medium: e.medium.clone(),
+                    size_limit: e.size_limit.clone(),
+                }),
+                host_path: v.host_path.as_ref().map(|h| JsonK8sHostPath {
+                    path: h.path.clone(),
+                    type_: h.type_.clone(),
+                }),
+                pvc: v.pvc.clone(),
+            })
+            .collect(),
         labels: opts.labels.clone(),
         annotations: opts.annotations.clone(),
     }
@@ -3431,7 +3472,10 @@ mod tests {
             .env("FOO", "from-template");
 
         // Task overrides env
-        p.task("test").from(&tmpl).env("FOO", "from-task").run("echo $FOO");
+        p.task("test")
+            .from(&tmpl)
+            .env("FOO", "from-task")
+            .run("echo $FOO");
 
         let mut buf = Vec::new();
         p.emit_to(&mut buf).unwrap();
@@ -3453,7 +3497,10 @@ mod tests {
 
         p.task("lint").from(&rust).run("cargo clippy");
         p.task("test").from(&rust).run("cargo test");
-        p.task("build").from(&rust).run("cargo build").after(&["lint", "test"]);
+        p.task("build")
+            .from(&rust)
+            .run("cargo build")
+            .after(&["lint", "test"]);
 
         let mut buf = Vec::new();
         p.emit_to(&mut buf).unwrap();
@@ -3631,7 +3678,9 @@ mod tests {
         let mut p = Pipeline::new();
 
         p.task("build").run("cargo build").output("binary", "./app");
-        p.task("package").input_from("build", "binary", "/app").run("docker build");
+        p.task("package")
+            .input_from("build", "binary", "/app")
+            .run("docker build");
 
         let mut buf = Vec::new();
         p.emit_to(&mut buf).unwrap();
@@ -3647,8 +3696,12 @@ mod tests {
     fn test_input_from_multiple() {
         let mut p = Pipeline::new();
 
-        p.task("build-linux").run("cargo build").output("binary", "./linux");
-        p.task("build-darwin").run("cargo build").output("binary", "./darwin");
+        p.task("build-linux")
+            .run("cargo build")
+            .output("binary", "./linux");
+        p.task("build-darwin")
+            .run("cargo build")
+            .output("binary", "./darwin");
         p.task("package")
             .input_from("build-linux", "binary", "/linux")
             .input_from("build-darwin", "binary", "/darwin")
@@ -3716,15 +3769,13 @@ mod tests {
         ];
         for (mem, expected_hint) in cases {
             let mut p = Pipeline::new();
-            p.task("test")
-                .run("echo test")
-                .k8s(K8sOptions {
-                    resources: K8sResources {
-                        memory: Some(mem.to_string()),
-                        ..Default::default()
-                    },
+            p.task("test").run("echo test").k8s(K8sOptions {
+                resources: K8sResources {
+                    memory: Some(mem.to_string()),
                     ..Default::default()
-                });
+                },
+                ..Default::default()
+            });
             let mut buf = Vec::new();
             let result = p.emit_to(&mut buf);
             assert!(result.is_err(), "expected {} to fail", mem);
@@ -3760,15 +3811,13 @@ mod tests {
         let cases = ["100cores", "2 cores", "fast"];
         for cpu in cases {
             let mut p = Pipeline::new();
-            p.task("test")
-                .run("echo test")
-                .k8s(K8sOptions {
-                    resources: K8sResources {
-                        cpu: Some(cpu.to_string()),
-                        ..Default::default()
-                    },
+            p.task("test").run("echo test").k8s(K8sOptions {
+                resources: K8sResources {
+                    cpu: Some(cpu.to_string()),
                     ..Default::default()
-                });
+                },
+                ..Default::default()
+            });
             let mut buf = Vec::new();
             let result = p.emit_to(&mut buf);
             assert!(result.is_err(), "expected {} to fail", cpu);
@@ -3793,21 +3842,22 @@ mod tests {
 
         // Invalid operator
         let mut p = Pipeline::new();
-        p.task("test")
-            .run("echo test")
-            .k8s(K8sOptions {
-                tolerations: vec![K8sToleration {
-                    key: "key".to_string(),
-                    operator: "Invalid".to_string(),
-                    value: None,
-                    effect: "NoSchedule".to_string(),
-                }],
-                ..Default::default()
-            });
+        p.task("test").run("echo test").k8s(K8sOptions {
+            tolerations: vec![K8sToleration {
+                key: "key".to_string(),
+                operator: "Invalid".to_string(),
+                value: None,
+                effect: "NoSchedule".to_string(),
+            }],
+            ..Default::default()
+        });
         let mut buf = Vec::new();
         let result = p.emit_to(&mut buf);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("'Exists' or 'Equal'"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("'Exists' or 'Equal'"));
     }
 
     #[test]
@@ -3828,17 +3878,15 @@ mod tests {
 
         // Invalid effect
         let mut p = Pipeline::new();
-        p.task("test")
-            .run("echo test")
-            .k8s(K8sOptions {
-                tolerations: vec![K8sToleration {
-                    key: "key".to_string(),
-                    operator: "Exists".to_string(),
-                    value: None,
-                    effect: "Invalid".to_string(),
-                }],
-                ..Default::default()
-            });
+        p.task("test").run("echo test").k8s(K8sOptions {
+            tolerations: vec![K8sToleration {
+                key: "key".to_string(),
+                operator: "Exists".to_string(),
+                value: None,
+                effect: "Invalid".to_string(),
+            }],
+            ..Default::default()
+        });
         let mut buf = Vec::new();
         let result = p.emit_to(&mut buf);
         assert!(result.is_err());
@@ -3894,12 +3942,10 @@ mod tests {
 
         // Invalid policy
         let mut p = Pipeline::new();
-        p.task("test")
-            .run("echo test")
-            .k8s(K8sOptions {
-                dns_policy: Some("InvalidPolicy".to_string()),
-                ..Default::default()
-            });
+        p.task("test").run("echo test").k8s(K8sOptions {
+            dns_policy: Some("InvalidPolicy".to_string()),
+            ..Default::default()
+        });
         let mut buf = Vec::new();
         let result = p.emit_to(&mut buf);
         assert!(result.is_err());
@@ -3921,7 +3967,10 @@ mod tests {
         let mut buf = Vec::new();
         let result = p.emit_to(&mut buf);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("invalid memory format"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("invalid memory format"));
     }
 
     // =========================================================================
@@ -3990,10 +4039,10 @@ mod tests {
 
     #[test]
     fn test_task_group_new() {
-        let group = TaskGroup::new("test-group", vec![
-            "task-a".to_string(),
-            "task-b".to_string(),
-        ]);
+        let group = TaskGroup::new(
+            "test-group",
+            vec!["task-a".to_string(), "task-b".to_string()],
+        );
 
         assert_eq!(group.name, "test-group");
         assert_eq!(group.names(), &["task-a", "task-b"]);
@@ -4006,10 +4055,7 @@ mod tests {
         p.task("a").run("echo a");
         p.task("b").run("echo b");
 
-        let group = TaskGroup::new("prereqs", vec![
-            "a".to_string(),
-            "b".to_string(),
-        ]);
+        let group = TaskGroup::new("prereqs", vec!["a".to_string(), "b".to_string()]);
 
         p.task("c").after_group(&group).run("echo c");
 

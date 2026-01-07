@@ -43,7 +43,9 @@ fn main() {
 
     // All Rust tasks inherit from the rust template
     // Only task-specific config needed now!
-    p.task("lint").from(&rust).run("cargo clippy -- -D warnings");
+    p.task("lint")
+        .from(&rust)
+        .run("cargo clippy -- -D warnings");
     p.task("test").from(&rust).run("cargo test");
 
     // Override template settings when needed

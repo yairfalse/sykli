@@ -96,7 +96,10 @@ impl Error {
     }
 
     /// Creates an error with a source cause.
-    pub fn with_source(message: impl Into<String>, source: impl StdError + Send + Sync + 'static) -> Self {
+    pub fn with_source(
+        message: impl Into<String>,
+        source: impl StdError + Send + Sync + 'static,
+    ) -> Self {
         Self {
             message: message.into(),
             source: Some(Box::new(source)),
@@ -382,7 +385,8 @@ pub struct VolumeOptions {
 /// - Persist build outputs
 pub trait Storage {
     /// Create a storage volume.
-    fn create_volume(&self, name: &str, opts: &VolumeOptions) -> std::result::Result<Volume, Error>;
+    fn create_volume(&self, name: &str, opts: &VolumeOptions)
+        -> std::result::Result<Volume, Error>;
 
     /// Get the path where an artifact should be stored.
     fn artifact_path(&self, task_name: &str, artifact_name: &str) -> String;
@@ -406,7 +410,11 @@ pub struct NetworkInfo {
 /// (databases, caches) that tasks can connect to.
 pub trait Services {
     /// Start service containers for a task.
-    fn start_services(&self, task_name: &str, services: &[ServiceSpec]) -> std::result::Result<NetworkInfo, Error>;
+    fn start_services(
+        &self,
+        task_name: &str,
+        services: &[ServiceSpec],
+    ) -> std::result::Result<NetworkInfo, Error>;
 
     /// Stop and clean up service containers.
     fn stop_services(&self, network_info: &NetworkInfo) -> std::result::Result<(), Error>;

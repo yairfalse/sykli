@@ -59,7 +59,7 @@ fn main() {
     // mount_cwd() is shorthand for mounting . to /work
     p.task("check-format")
         .container("rust:1.75")
-        .mount_cwd()  // Mounts current dir to /work, sets workdir
+        .mount_cwd() // Mounts current dir to /work, sets workdir
         .run("cargo fmt --check");
 
     p.emit();

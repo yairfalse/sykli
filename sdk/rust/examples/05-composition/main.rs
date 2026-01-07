@@ -30,7 +30,9 @@ fn main() {
 
     // === PARALLEL GROUP ===
     // All checks run concurrently (no dependencies between them)
-    p.task("lint").from(&rust).run("cargo clippy -- -D warnings");
+    p.task("lint")
+        .from(&rust)
+        .run("cargo clippy -- -D warnings");
     p.task("fmt").from(&rust).run("cargo fmt --check");
     p.task("test").from(&rust).run("cargo test");
     p.task("audit").from(&rust).run("cargo audit");
