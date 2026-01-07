@@ -35,7 +35,10 @@ defmodule Sykli.Application do
     result = Supervisor.start_link(children, opts)
 
     # If running as Burrito binary, invoke CLI
+    # Clear the env var immediately to prevent subprocess inheritance
+    # (otherwise mix test would trigger CLI.main too!)
     if burrito?() do
+      System.delete_env("__BURRITO_BIN_PATH")
       args = Burrito.Util.Args.argv()
       Sykli.CLI.main(args)
     end
