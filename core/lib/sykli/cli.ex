@@ -1098,6 +1098,14 @@ defmodule Sykli.CLI do
           halt(1)
       end
 
+    # Parse and set labels if provided
+    case parse_labels_arg(args) do
+      {:ok, labels} when labels != nil ->
+        System.put_env("SYKLI_LABELS", labels)
+      _ ->
+        :ok
+    end
+
     role_label =
       case role do
         :full -> ""
@@ -1200,6 +1208,32 @@ defmodule Sykli.CLI do
     end
   end
 
+  defp parse_labels_arg(args) do
+    labels_arg =
+      Enum.find_value(args, fn arg ->
+        cond do
+          String.starts_with?(arg, "--labels=") ->
+            String.replace_prefix(arg, "--labels=", "")
+
+          String.starts_with?(arg, "-l=") ->
+            String.replace_prefix(arg, "-l=", "")
+
+          true ->
+            nil
+        end
+      end)
+
+    # Also check for --labels <value> format
+    labels_arg =
+      labels_arg ||
+        case Enum.find_index(args, &(&1 in ["--labels", "-l"])) do
+          nil -> nil
+          idx -> Enum.at(args, idx + 1)
+        end
+
+    {:ok, labels_arg}
+  end
+
   defp print_daemon_help do
     IO.puts("""
     Usage: sykli daemon <command>
@@ -1216,20 +1250,28 @@ defmodule Sykli.CLI do
       --role worker       Can only execute tasks
       --role coordinator  Can only coordinate (run dashboard, aggregate events)
 
+    Labels:
+      --labels=<list>     Comma-separated node labels for task placement
+                          Also settable via SYKLI_LABELS env var
+
     Commands:
       start              Start the daemon (backgrounds by default)
       start --foreground Start in foreground (for debugging)
       start --role <role> Start with specific role
+      start --labels=<l>  Start with node labels
       stop               Stop the daemon
       status             Show daemon status
 
     Examples:
       sykli daemon start                  Start full daemon (default)
       sykli daemon start --role worker    Start worker-only daemon
-      sykli daemon start --role coordinator  Start coordinator-only daemon
+      sykli daemon start --labels=docker,gpu  Start with labels
       sykli daemon start -f               Start in foreground
       sykli daemon status                 Check if daemon is running
       sykli daemon stop                   Stop the daemon
+
+    Labels help with task placement. Tasks can require labels:
+      .requires("gpu")  → only runs on nodes with "gpu" label
     """)
   end
 

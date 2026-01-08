@@ -230,16 +230,16 @@ defmodule Sykli.Mesh do
   Get capabilities of the local node.
 
   Called locally or via RPC from remote nodes.
+  Delegates to `Sykli.NodeProfile.capabilities/0` for labels,
+  adds docker detection for backwards compatibility.
   """
   @spec local_capabilities() :: map()
   def local_capabilities do
-    %{
-      docker: has_docker?(),
-      platform: :os.type() |> elem(1) |> to_string(),
-      arch: :erlang.system_info(:system_architecture) |> to_string(),
-      cpus: System.schedulers_online(),
-      memory_mb: total_memory_mb()
-    }
+    # Get base capabilities from NodeProfile
+    caps = Sykli.NodeProfile.capabilities()
+
+    # Add docker detection (legacy field, also in labels now)
+    Map.put(caps, :docker, has_docker?())
   end
 
   # ---------------------------------------------------------------------------
@@ -332,29 +332,4 @@ defmodule Sykli.Mesh do
     end
   end
 
-  defp total_memory_mb do
-    case :os.type() do
-      {:unix, :darwin} ->
-        {output, 0} = System.cmd("sysctl", ["-n", "hw.memsize"])
-        bytes = output |> String.trim() |> String.to_integer()
-        div(bytes, 1024 * 1024)
-
-      {:unix, _} ->
-        case File.read("/proc/meminfo") do
-          {:ok, content} ->
-            case Regex.run(~r/MemTotal:\s+(\d+)\s+kB/, content) do
-              [_, kb] -> div(String.to_integer(kb), 1024)
-              _ -> 0
-            end
-
-          _ ->
-            0
-        end
-
-      _ ->
-        0
-    end
-  rescue
-    _ -> 0
-  end
 end
