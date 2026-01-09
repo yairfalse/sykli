@@ -489,6 +489,7 @@ type Task struct {
 	timeout      int                    // seconds
 	k8sOptions   *K8sTaskOptions        // Target-specific K8s options
 	targetName   string                 // Per-task target override
+	requires     []string               // Required node labels for placement
 }
 
 // Task creates a new task with the given name.
@@ -753,6 +754,28 @@ func (t *Task) Secrets(names ...string) *Task {
 		}
 	}
 	t.secrets = append(t.secrets, names...)
+	return t
+}
+
+// Requires declares node labels that must be present for this task to run.
+// Tasks with requires will only run on nodes that have all specified labels.
+//
+// Example:
+//
+//	s.Task("train").
+//	    Run("python train.py").
+//	    Requires("gpu", "docker")
+//
+//	s.Task("build").
+//	    Run("docker build .").
+//	    Requires("docker")
+func (t *Task) Requires(labels ...string) *Task {
+	for _, label := range labels {
+		if label == "" {
+			log.Panic().Str("task", t.name).Msg("label cannot be empty")
+		}
+	}
+	t.requires = append(t.requires, labels...)
 	return t
 }
 
@@ -1555,6 +1578,7 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 		Timeout    int                 `json:"timeout,omitempty"`
 		Target     string              `json:"target,omitempty"`       // Per-task target override
 		K8s        *jsonK8sOptions     `json:"k8s,omitempty"`          // K8s-specific options
+		Requires   []string            `json:"requires,omitempty"`     // Required node labels
 	}
 
 	type jsonResource struct {
@@ -1798,6 +1822,12 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 				return svcs
 			}(),
 			K8s: convertK8sOptions(MergeK8sOptions(p.k8sDefaults, t.k8sOptions)),
+			Requires: func() []string {
+				if len(t.requires) == 0 {
+					return nil
+				}
+				return t.requires
+			}(),
 		}
 	}
 

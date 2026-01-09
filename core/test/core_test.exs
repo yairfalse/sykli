@@ -327,4 +327,27 @@ defmodule SykliTest do
     assert task.outputs["output_0"] == "./app"
     assert task.outputs["output_1"] == "./lib"
   end
+
+  # ----- TASK REQUIREMENTS (NODE LABELS) -----
+
+  test "parses requires from JSON" do
+    json = ~s({"tasks":[{"name":"train","command":"python train.py","requires":["gpu","docker"]}]})
+    {:ok, graph} = Sykli.Graph.parse(json)
+    task = Map.get(graph, "train")
+    assert task.requires == ["gpu", "docker"]
+  end
+
+  test "requires is empty list when not set" do
+    json = ~s({"tasks":[{"name":"test","command":"go test"}]})
+    {:ok, graph} = Sykli.Graph.parse(json)
+    task = Map.get(graph, "test")
+    assert task.requires == []
+  end
+
+  test "requires handles single label" do
+    json = ~s({"tasks":[{"name":"build","command":"make","requires":["docker"]}]})
+    {:ok, graph} = Sykli.Graph.parse(json)
+    task = Map.get(graph, "build")
+    assert task.requires == ["docker"]
+  end
 end

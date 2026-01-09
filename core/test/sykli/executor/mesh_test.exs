@@ -44,7 +44,10 @@ defmodule Sykli.Executor.MeshTest do
 
       result = Mesh.run_task(task, state, [])
 
-      assert {:error, {:exit_code, 1}} = result
+      # Mesh wraps failures in PlacementError with details of which nodes were tried
+      assert {:error, %Sykli.NodeSelector.PlacementError{} = error} = result
+      assert error.task_name == "fail"
+      assert {:local, {:exit_code, 1}} in error.failures
       Mesh.teardown(state)
     end
 
@@ -54,7 +57,10 @@ defmodule Sykli.Executor.MeshTest do
 
       result = Mesh.run_task(task, state, [])
 
-      assert {:error, :timeout} = result
+      # Mesh wraps failures in PlacementError with details of which nodes were tried
+      assert {:error, %Sykli.NodeSelector.PlacementError{} = error} = result
+      assert error.task_name == "slow"
+      assert {:local, :timeout} in error.failures
       Mesh.teardown(state)
     end
 

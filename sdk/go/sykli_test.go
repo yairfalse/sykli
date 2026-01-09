@@ -738,6 +738,89 @@ func containsCycleError(err error) bool {
 	return strings.Contains(s, "cycle") || strings.Contains(s, "circular")
 }
 
+// ----- NODE REQUIREMENTS TESTS -----
+
+func TestRequiresSingleLabel(t *testing.T) {
+	p := New()
+	p.Task("build").Run("docker build .").Requires("docker")
+
+	result, err := emitJSON(p)
+	if err != nil {
+		t.Fatalf("emit failed: %v", err)
+	}
+
+	tasks := result["tasks"].([]interface{})
+	task := tasks[0].(map[string]interface{})
+
+	requires, ok := task["requires"].([]interface{})
+	if !ok {
+		t.Fatal("requires field not found or wrong type")
+	}
+	if len(requires) != 1 || requires[0] != "docker" {
+		t.Errorf("expected [docker], got %v", requires)
+	}
+}
+
+func TestRequiresMultipleLabels(t *testing.T) {
+	p := New()
+	p.Task("train").Run("python train.py").Requires("gpu", "docker")
+
+	result, err := emitJSON(p)
+	if err != nil {
+		t.Fatalf("emit failed: %v", err)
+	}
+
+	tasks := result["tasks"].([]interface{})
+	task := tasks[0].(map[string]interface{})
+
+	requires, ok := task["requires"].([]interface{})
+	if !ok {
+		t.Fatal("requires field not found or wrong type")
+	}
+	if len(requires) != 2 {
+		t.Errorf("expected 2 labels, got %d", len(requires))
+	}
+}
+
+func TestRequiresChaining(t *testing.T) {
+	p := New()
+	p.Task("build").Run("make").Requires("docker").Container("golang:1.21")
+
+	result, err := emitJSON(p)
+	if err != nil {
+		t.Fatalf("emit failed: %v", err)
+	}
+
+	tasks := result["tasks"].([]interface{})
+	task := tasks[0].(map[string]interface{})
+
+	// Both requires and container should be set
+	if _, ok := task["requires"]; !ok {
+		t.Error("requires field not found")
+	}
+	if task["container"] != "golang:1.21" {
+		t.Error("container field not set correctly")
+	}
+}
+
+func TestRequiresOmittedWhenEmpty(t *testing.T) {
+	p := New()
+	p.Task("test").Run("go test")
+
+	result, err := emitJSON(p)
+	if err != nil {
+		t.Fatalf("emit failed: %v", err)
+	}
+
+	tasks := result["tasks"].([]interface{})
+	task := tasks[0].(map[string]interface{})
+
+	// requires should be omitted (not present), not an empty array
+	if _, ok := task["requires"]; ok {
+		t.Error("requires should be omitted when empty")
+	}
+}
+
 // =============================================================================
 // K8S DEFAULTS TESTS
 // =============================================================================

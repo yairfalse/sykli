@@ -941,6 +941,8 @@ struct TaskData {
     k8s_options: Option<K8sOptions>,
     // Per-task target override
     target_name: Option<String>,
+    // Node placement - required node labels
+    requires: Vec<String>,
 }
 
 impl<'a> Task<'a> {
@@ -1298,6 +1300,37 @@ impl<'a> Task<'a> {
         self.pipeline.tasks[self.index]
             .secrets
             .extend(names.iter().map(|s| (*s).to_string()));
+        self
+    }
+
+    /// Declares node labels that must be present for this task to run.
+    ///
+    /// Tasks with requires will only run on nodes that have all specified labels.
+    ///
+    /// # Example
+    /// ```rust
+    /// use sykli::Pipeline;
+    ///
+    /// let mut p = Pipeline::new();
+    /// p.task("train")
+    ///     .run("python train.py")
+    ///     .requires(&["gpu", "docker"]);
+    ///
+    /// p.task("build")
+    ///     .run("docker build .")
+    ///     .requires(&["docker"]);
+    /// ```
+    ///
+    /// # Panics
+    /// Panics if any label is empty.
+    #[must_use]
+    pub fn requires(self, labels: &[&str]) -> Self {
+        for label in labels {
+            assert!(!label.is_empty(), "label cannot be empty");
+        }
+        self.pipeline.tasks[self.index]
+            .requires
+            .extend(labels.iter().map(|s| (*s).to_string()));
         self
     }
 
@@ -2146,6 +2179,11 @@ impl Pipeline {
                             .filter(|o| !o.is_empty())
                             .map(|o| convert_k8s_options(&o))
                     },
+                    requires: if t.requires.is_empty() {
+                        None
+                    } else {
+                        Some(t.requires.clone())
+                    },
                 })
                 .collect(),
         };
@@ -2372,6 +2410,8 @@ struct JsonTask {
     target: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     k8s: Option<JsonK8sOptions>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    requires: Option<Vec<String>>,
 }
 
 #[derive(Serialize)]

@@ -50,6 +50,7 @@ defmodule Sykli.Executor.Mesh do
   @behaviour Sykli.Target.Behaviour
 
   alias Sykli.Mesh
+  alias Sykli.NodeSelector
   alias Sykli.Target.Local
 
   require Logger
@@ -108,37 +109,45 @@ defmodule Sykli.Executor.Mesh do
     # Get available nodes (includes :local if we can execute)
     candidates = Mesh.available_nodes()
 
-    # Select best node for this task (falls back to :local on any error)
-    node =
-      case Mesh.select_node(task, candidates, strategy: :any) do
-        {:ok, n} ->
-          n
+    # Build capabilities map for all nodes
+    capabilities = build_capabilities_map(candidates)
 
-        other ->
-          Logger.warning(
-            "[Mesh] Failed to select node for #{task.name} (got #{inspect(other)}), falling back to :local"
-          )
-
-          :local
+    # Runner function for NodeSelector - dispatches to a specific node
+    runner = fn node, _task, _opts ->
+      if node != :local do
+        Logger.debug("[Mesh] Dispatching #{task.name} to #{node}")
       end
 
-    # Log which node we're dispatching to
-    if node != :local do
-      Logger.debug("[Mesh] Dispatching #{task.name} to #{node}")
+      case Mesh.dispatch_task(task, node, workdir: workdir) do
+        :ok ->
+          :ok
+
+        {:error, reason} = error ->
+          Logger.warning("[Mesh] Node #{inspect(node)} failed: #{inspect(reason)}")
+          error
+      end
     end
 
-    # Dispatch to selected node and handle possible dispatch errors
-    case Mesh.dispatch_task(task, node, workdir: workdir) do
-      :ok ->
+    # Use NodeSelector to filter by labels and try nodes until one works
+    case NodeSelector.select_and_try(task, candidates, capabilities, opts, runner) do
+      {:ok, _node} ->
         :ok
 
-      {:error, reason} = error ->
-        Logger.error(
-          "[Mesh] Failed to dispatch #{task.name} to #{inspect(node)}: #{inspect(reason)}"
-        )
-
-        error
+      {:error, %NodeSelector.PlacementError{} = error} ->
+        Logger.error("[Mesh] Placement failed for #{task.name}: #{NodeSelector.PlacementError.format(error)}")
+        {:error, error}
     end
+  end
+
+  # Build a map of node -> capabilities for NodeSelector
+  defp build_capabilities_map(nodes) do
+    nodes
+    |> Enum.map(fn node ->
+      info = Mesh.node_info(node)
+      caps = if info, do: info.capabilities, else: %{labels: []}
+      {node, caps}
+    end)
+    |> Map.new()
   end
 
   # ---------------------------------------------------------------------------

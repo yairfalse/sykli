@@ -43,7 +43,7 @@ defmodule Sykli.NodeSelector do
   """
   @spec filter_by_labels(map(), [node_ref()], capabilities()) :: [node_ref()]
   def filter_by_labels(task, nodes, capabilities) do
-    required = Map.get(task, :requires, [])
+    required = Map.get(task, :requires) || []
 
     if required == [] do
       nodes

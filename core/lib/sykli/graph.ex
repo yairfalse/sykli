@@ -49,7 +49,10 @@ defmodule Sykli.Graph do
       :task_inputs,
       # Target-specific options
       # Sykli.Target.K8sOptions - only used with K8s target
-      :k8s
+      :k8s,
+      # Node placement
+      # List of required node labels (e.g., ["gpu", "docker"])
+      :requires
     ]
   end
 
@@ -94,7 +97,9 @@ defmodule Sykli.Graph do
       mounts: parse_mounts(map["mounts"]),
       task_inputs: parse_task_inputs(map["task_inputs"]),
       # Target-specific options
-      k8s: Sykli.Target.K8sOptions.parse(map["k8s"])
+      k8s: Sykli.Target.K8sOptions.parse(map["k8s"]),
+      # Node placement
+      requires: map["requires"] || []
     }
   end
 

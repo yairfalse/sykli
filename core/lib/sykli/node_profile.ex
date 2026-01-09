@@ -111,7 +111,7 @@ defmodule Sykli.NodeProfile do
   # ---------------------------------------------------------------------------
 
   defp base_labels do
-    [os_label(), arch_label()]
+    [os_label(), arch_label(), docker_label()]
     |> Enum.reject(&is_nil/1)
   end
 
@@ -134,6 +134,13 @@ defmodule Sykli.NodeProfile do
       String.contains?(arch, "x86_64") -> "amd64"
       String.contains?(arch, "amd64") -> "amd64"
       true -> arch
+    end
+  end
+
+  defp docker_label do
+    case System.find_executable("docker") do
+      nil -> nil
+      _path -> "docker"
     end
   end
 
