@@ -545,19 +545,6 @@ Sykli is **experimental**. We're using it internally but APIs may change.
 
 ---
 
-## Comparison
-
-| | Sykli | GitHub Actions | CircleCI | Dagger |
-|---|-------|---------------|----------|--------|
-| Config format | Code | YAML | YAML | Code (Go/Python/TS) |
-| Local execution | Native | Act (third-party) | Local CLI | Native |
-| Caching | Built-in | Separate action | Built-in | Built-in |
-| Distribution | Mesh (built-in) | Cloud only | Cloud only | Cloud (Dagger Cloud) |
-| Container support | Docker | Docker | Docker | Buildkit |
-| Self-hosted | Yes | Yes | Yes | Yes |
-
----
-
 ## Roadmap
 
 **v0.3.0** (Current)
