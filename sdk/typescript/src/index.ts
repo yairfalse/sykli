@@ -427,8 +427,13 @@ export class Task {
 
   /** Declare outputs with auto-generated names (v1 style for backward compat) */
   outputs(...paths: string[]): this {
+    // Determine how many auto-generated outputs already exist to avoid overwriting
+    const existingAutoOutputsCount = Object.keys(this._outputs).filter((key) =>
+      /^output_\d+$/.test(key)
+    ).length;
+
     for (let i = 0; i < paths.length; i++) {
-      this._outputs[`output_${i}`] = paths[i];
+      this._outputs[`output_${existingAutoOutputsCount + i}`] = paths[i];
     }
     return this;
   }
