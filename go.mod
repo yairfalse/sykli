@@ -2,7 +2,7 @@ module sykli-ci
 
 go 1.21
 
-require github.com/yairfalse/sykli/sdk/go v0.1.2
+require github.com/yairfalse/sykli/sdk/go v0.3.0
 
 require (
 	github.com/mattn/go-colorable v0.1.13 // indirect

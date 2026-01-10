@@ -1,7 +1,7 @@
 #!/usr/bin/env elixir
 
 # CI pipeline for an Elixir project
-Mix.install([{:sykli, "~> 0.1"}])
+Mix.install([{:sykli, "~> 0.3.0"}])
 
 Code.eval_string("""
 use Sykli
