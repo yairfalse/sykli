@@ -334,6 +334,7 @@ export class Task {
   private _timeout?: number;
   private _target?: string;
   private _k8s?: K8sOptions;
+  private _requires: string[] = [];
 
   constructor(
     private readonly pipeline: Pipeline,
@@ -511,6 +512,12 @@ export class Task {
     return this;
   }
 
+  /** Require node labels for task placement (mesh mode) */
+  requires(...labels: string[]): this {
+    this._requires.push(...labels);
+    return this;
+  }
+
   // ─────────────────────────────────────────────────────────────────────────────
   // Internal accessors (for Template and Pipeline use)
   // ─────────────────────────────────────────────────────────────────────────────
@@ -621,6 +628,7 @@ export class Task {
     if (this._timeout !== undefined) json.timeout = this._timeout;
     if (this._target) json.target = this._target;
     if (this._k8s) json.k8s = this._k8sToJSON(this._k8s);
+    if (this._requires.length > 0) json.requires = this._requires;
 
     return json;
   }

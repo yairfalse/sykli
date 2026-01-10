@@ -670,6 +670,44 @@ describe('JSON Output Edge Cases', () => {
     });
   });
 
+  describe('requires (node placement)', () => {
+    it('serializes single required label', () => {
+      const p = new Pipeline();
+      p.task('train').run('python train.py').requires('gpu');
+
+      const json = p.toJSON();
+      const task = (json.tasks as any[])[0];
+      expect(task.requires).toEqual(['gpu']);
+    });
+
+    it('serializes multiple required labels', () => {
+      const p = new Pipeline();
+      p.task('build').run('docker build').requires('docker', 'arm64');
+
+      const json = p.toJSON();
+      const task = (json.tasks as any[])[0];
+      expect(task.requires).toEqual(['docker', 'arm64']);
+    });
+
+    it('accumulates labels from multiple calls', () => {
+      const p = new Pipeline();
+      p.task('heavy').run('heavy-task').requires('gpu').requires('high-memory');
+
+      const json = p.toJSON();
+      const task = (json.tasks as any[])[0];
+      expect(task.requires).toEqual(['gpu', 'high-memory']);
+    });
+
+    it('omits requires when empty', () => {
+      const p = new Pipeline();
+      p.task('test').run('npm test');
+
+      const json = p.toJSON();
+      const task = (json.tasks as any[])[0];
+      expect(task.requires).toBeUndefined();
+    });
+  });
+
   describe('task inputs (artifacts)', () => {
     it('serializes inputFrom correctly', () => {
       const p = new Pipeline();
