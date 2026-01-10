@@ -205,6 +205,27 @@ defmodule Sykli.DSL do
     update_current_task(fn t -> %{t | matrix: Map.put(t.matrix, key, values)} end)
   end
 
+  @doc """
+  Requires node labels for task placement in mesh mode.
+
+  Tasks with requires will only run on nodes that have all the specified labels.
+
+  ## Examples
+
+      task "train" do
+        run "python train.py"
+        requires ["gpu"]
+      end
+
+      task "build" do
+        run "docker build"
+        requires ["docker", "arm64"]
+      end
+  """
+  def requires(labels) when is_list(labels) do
+    update_current_task(fn t -> %{t | requires: labels} end)
+  end
+
   @doc "Adds a service container."
   def service(image, name) do
     svc = %{image: image, name: name}

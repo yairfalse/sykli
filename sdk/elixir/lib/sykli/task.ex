@@ -22,7 +22,8 @@ defmodule Sykli.Task do
             timeout: nil,
             task_inputs: [],
             target_name: nil,       # Per-task target override
-            k8s: nil                # Kubernetes-specific options
+            k8s: nil,               # Kubernetes-specific options
+            requires: []            # Node labels required for mesh placement
 
   @type secret_source :: :env | :file | :vault
 
@@ -54,7 +55,8 @@ defmodule Sykli.Task do
           timeout: pos_integer() | nil,
           task_inputs: [task_input()],
           target_name: String.t() | nil,
-          k8s: Sykli.K8s.t() | nil
+          k8s: Sykli.K8s.t() | nil,
+          requires: [String.t()]
         }
 
   @doc "Creates a new task with the given name."
