@@ -1762,10 +1762,7 @@ impl Pipeline {
             }
         }
 
-        TaskGroup::new(
-            name,
-            task_names.iter().map(|s| (*s).to_string()).collect(),
-        )
+        TaskGroup::new(name, task_names.iter().map(|s| (*s).to_string()).collect())
     }
 
     /// Creates tasks for each value in the matrix, returning a TaskGroup.
