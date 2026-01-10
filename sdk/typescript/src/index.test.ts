@@ -761,6 +761,19 @@ describe('JSON Output Edge Cases', () => {
       expect(task.outputs.binary).toBe('./app');
       expect(task.outputs.output_0).toBe('./logs');
     });
+
+    it('accumulates from multiple outputs() calls', () => {
+      const p = new Pipeline();
+      p.task('build').run('npm run build').outputs('./dist').outputs('./docs', './logs');
+
+      const json = p.toJSON();
+      const task = (json.tasks as any[])[0];
+      expect(task.outputs).toEqual({
+        output_0: './dist',
+        output_1: './docs',
+        output_2: './logs',
+      });
+    });
   });
 
   describe('full K8s options', () => {
