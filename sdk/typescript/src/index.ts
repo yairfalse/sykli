@@ -425,6 +425,14 @@ export class Task {
     return this;
   }
 
+  /** Declare outputs with auto-generated names (v1 style for backward compat) */
+  outputs(...paths: string[]): this {
+    for (let i = 0; i < paths.length; i++) {
+      this._outputs[`output_${i}`] = paths[i];
+    }
+    return this;
+  }
+
   /** Consume an artifact from another task's output */
   inputFrom(fromTask: string, outputName: string, destPath: string): this {
     this._taskInputs.push({ fromTask, outputName, destPath });

@@ -733,6 +733,36 @@ describe('JSON Output Edge Cases', () => {
     });
   });
 
+  describe('outputs (v1 style auto-named)', () => {
+    it('auto-generates output names', () => {
+      const p = new Pipeline();
+      p.task('build').run('npm run build').outputs('./dist', './docs');
+
+      const json = p.toJSON();
+      const task = (json.tasks as any[])[0];
+      expect(task.outputs).toEqual({ output_0: './dist', output_1: './docs' });
+    });
+
+    it('single output gets output_0', () => {
+      const p = new Pipeline();
+      p.task('build').run('npm run build').outputs('./dist');
+
+      const json = p.toJSON();
+      const task = (json.tasks as any[])[0];
+      expect(task.outputs).toEqual({ output_0: './dist' });
+    });
+
+    it('can mix output and outputs', () => {
+      const p = new Pipeline();
+      p.task('build').run('npm run build').output('binary', './app').outputs('./logs');
+
+      const json = p.toJSON();
+      const task = (json.tasks as any[])[0];
+      expect(task.outputs.binary).toBe('./app');
+      expect(task.outputs.output_0).toBe('./logs');
+    });
+  });
+
   describe('full K8s options', () => {
     it('serializes all K8s options correctly', () => {
       const p = new Pipeline();
