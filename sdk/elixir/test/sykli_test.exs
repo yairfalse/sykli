@@ -331,6 +331,69 @@ defmodule SykliTest do
     end
   end
 
+  describe "requires (node placement)" do
+    test "single required label" do
+      use Sykli
+
+      result = pipeline do
+        task "train" do
+          run "python train.py"
+          requires ["gpu"]
+        end
+      end
+
+      task = hd(result.tasks)
+      assert task.requires == ["gpu"]
+    end
+
+    test "multiple required labels" do
+      use Sykli
+
+      result = pipeline do
+        task "build" do
+          run "docker build"
+          requires ["docker", "arm64"]
+        end
+      end
+
+      task = hd(result.tasks)
+      assert task.requires == ["docker", "arm64"]
+    end
+
+    test "requires emits to JSON" do
+      use Sykli
+
+      result = pipeline do
+        task "train" do
+          run "python train.py"
+          requires ["gpu", "high-memory"]
+        end
+      end
+
+      json = Sykli.Emitter.to_json(result)
+      decoded = Jason.decode!(json)
+
+      task = hd(decoded["tasks"])
+      assert task["requires"] == ["gpu", "high-memory"]
+    end
+
+    test "omits requires when empty" do
+      use Sykli
+
+      result = pipeline do
+        task "test" do
+          run "mix test"
+        end
+      end
+
+      json = Sykli.Emitter.to_json(result)
+      decoded = Jason.decode!(json)
+
+      task = hd(decoded["tasks"])
+      refute Map.has_key?(task, "requires")
+    end
+  end
+
   describe "JSON emission" do
     test "emits v1 for simple pipeline" do
       use Sykli

@@ -197,6 +197,7 @@ defmodule Sykli.Emitter do
     |> maybe_put(:timeout, task.timeout)
     |> maybe_put(:target, task.target_name)
     |> maybe_put(:k8s, if(task.k8s, do: Sykli.K8s.to_json(task.k8s), else: nil))
+    |> maybe_put(:requires, non_empty(task.requires))
   end
 
   defp secret_ref_to_json(ref) do

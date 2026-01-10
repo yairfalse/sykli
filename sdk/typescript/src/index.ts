@@ -334,6 +334,7 @@ export class Task {
   private _timeout?: number;
   private _target?: string;
   private _k8s?: K8sOptions;
+  private _requires: string[] = [];
 
   constructor(
     private readonly pipeline: Pipeline,
@@ -424,6 +425,19 @@ export class Task {
     return this;
   }
 
+  /** Declare outputs with auto-generated names (v1 style for backward compat) */
+  outputs(...paths: string[]): this {
+    // Determine how many auto-generated outputs already exist to avoid overwriting
+    const existingAutoOutputsCount = Object.keys(this._outputs).filter((key) =>
+      /^output_\d+$/.test(key)
+    ).length;
+
+    for (let i = 0; i < paths.length; i++) {
+      this._outputs[`output_${existingAutoOutputsCount + i}`] = paths[i];
+    }
+    return this;
+  }
+
   /** Consume an artifact from another task's output */
   inputFrom(fromTask: string, outputName: string, destPath: string): this {
     this._taskInputs.push({ fromTask, outputName, destPath });
@@ -508,6 +522,12 @@ export class Task {
   /** Set Kubernetes-specific options */
   k8s(options: K8sOptions): this {
     this._k8s = options;
+    return this;
+  }
+
+  /** Require node labels for task placement (mesh mode) */
+  requires(...labels: string[]): this {
+    this._requires.push(...labels);
     return this;
   }
 
@@ -621,6 +641,7 @@ export class Task {
     if (this._timeout !== undefined) json.timeout = this._timeout;
     if (this._target) json.target = this._target;
     if (this._k8s) json.k8s = this._k8sToJSON(this._k8s);
+    if (this._requires.length > 0) json.requires = this._requires;
 
     return json;
   }

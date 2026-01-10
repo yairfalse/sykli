@@ -28,7 +28,7 @@ defmodule SykliSdk.MixProject do
 
   defp package do
     [
-      name: "sykli_sdk",
+      name: "sykli",
       licenses: ["MIT"],
       links: %{"GitHub" => "https://github.com/yairfalse/sykli"},
       files: ~w(lib mix.exs README.md)

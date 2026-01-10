@@ -670,6 +670,44 @@ describe('JSON Output Edge Cases', () => {
     });
   });
 
+  describe('requires (node placement)', () => {
+    it('serializes single required label', () => {
+      const p = new Pipeline();
+      p.task('train').run('python train.py').requires('gpu');
+
+      const json = p.toJSON();
+      const task = (json.tasks as any[])[0];
+      expect(task.requires).toEqual(['gpu']);
+    });
+
+    it('serializes multiple required labels', () => {
+      const p = new Pipeline();
+      p.task('build').run('docker build').requires('docker', 'arm64');
+
+      const json = p.toJSON();
+      const task = (json.tasks as any[])[0];
+      expect(task.requires).toEqual(['docker', 'arm64']);
+    });
+
+    it('accumulates labels from multiple calls', () => {
+      const p = new Pipeline();
+      p.task('heavy').run('heavy-task').requires('gpu').requires('high-memory');
+
+      const json = p.toJSON();
+      const task = (json.tasks as any[])[0];
+      expect(task.requires).toEqual(['gpu', 'high-memory']);
+    });
+
+    it('omits requires when empty', () => {
+      const p = new Pipeline();
+      p.task('test').run('npm test');
+
+      const json = p.toJSON();
+      const task = (json.tasks as any[])[0];
+      expect(task.requires).toBeUndefined();
+    });
+  });
+
   describe('task inputs (artifacts)', () => {
     it('serializes inputFrom correctly', () => {
       const p = new Pipeline();
@@ -692,6 +730,49 @@ describe('JSON Output Edge Cases', () => {
       const json = p.toJSON();
       const task = (json.tasks as any[])[0];
       expect(task.outputs).toEqual({ dist: './dist', docs: './docs' });
+    });
+  });
+
+  describe('outputs (v1 style auto-named)', () => {
+    it('auto-generates output names', () => {
+      const p = new Pipeline();
+      p.task('build').run('npm run build').outputs('./dist', './docs');
+
+      const json = p.toJSON();
+      const task = (json.tasks as any[])[0];
+      expect(task.outputs).toEqual({ output_0: './dist', output_1: './docs' });
+    });
+
+    it('single output gets output_0', () => {
+      const p = new Pipeline();
+      p.task('build').run('npm run build').outputs('./dist');
+
+      const json = p.toJSON();
+      const task = (json.tasks as any[])[0];
+      expect(task.outputs).toEqual({ output_0: './dist' });
+    });
+
+    it('can mix output and outputs', () => {
+      const p = new Pipeline();
+      p.task('build').run('npm run build').output('binary', './app').outputs('./logs');
+
+      const json = p.toJSON();
+      const task = (json.tasks as any[])[0];
+      expect(task.outputs.binary).toBe('./app');
+      expect(task.outputs.output_0).toBe('./logs');
+    });
+
+    it('accumulates from multiple outputs() calls', () => {
+      const p = new Pipeline();
+      p.task('build').run('npm run build').outputs('./dist').outputs('./docs', './logs');
+
+      const json = p.toJSON();
+      const task = (json.tasks as any[])[0];
+      expect(task.outputs).toEqual({
+        output_0: './dist',
+        output_1: './docs',
+        output_2: './logs',
+      });
     });
   });
 
