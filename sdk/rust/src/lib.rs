@@ -1731,6 +1731,43 @@ impl Pipeline {
         }
     }
 
+    /// Creates a TaskGroup from existing tasks (for parallel dependencies).
+    ///
+    /// This is a convenience method to create a named group of tasks that can be
+    /// used as a dependency. The tasks must already exist in the pipeline.
+    ///
+    /// # Example
+    /// ```rust
+    /// use sykli::Pipeline;
+    ///
+    /// let mut p = Pipeline::new();
+    /// p.task("lint").run("cargo clippy");
+    /// p.task("test").run("cargo test");
+    ///
+    /// // Create parallel group from existing tasks
+    /// let checks = p.parallel("checks", &["lint", "test"]);
+    ///
+    /// // Build depends on the parallel group
+    /// p.task("build").after_group(&checks).run("cargo build");
+    /// ```
+    ///
+    /// # Panics
+    /// Panics if any task name doesn't exist in the pipeline.
+    #[must_use]
+    pub fn parallel(&self, name: &str, task_names: &[&str]) -> TaskGroup {
+        // Validate all tasks exist
+        for &task_name in task_names {
+            if !self.tasks.iter().any(|t| t.name == task_name) {
+                panic!("task {:?} not found in pipeline", task_name);
+            }
+        }
+
+        TaskGroup::new(
+            name,
+            task_names.iter().map(|s| (*s).to_string()).collect(),
+        )
+    }
+
     /// Creates tasks for each value in the matrix, returning a TaskGroup.
     ///
     /// # Example
@@ -4111,5 +4148,54 @@ mod tests {
         assert_eq!(deps.len(), 2);
         assert!(deps.contains(&serde_json::json!("a")));
         assert!(deps.contains(&serde_json::json!("b")));
+    }
+
+    // =============================================================================
+    // PARALLEL METHOD TESTS
+    // =============================================================================
+
+    #[test]
+    fn test_parallel_creates_group() {
+        let mut p = Pipeline::new();
+        p.task("lint").run("cargo clippy");
+        p.task("test").run("cargo test");
+
+        let checks = p.parallel("checks", &["lint", "test"]);
+
+        assert_eq!(checks.name, "checks");
+        assert_eq!(checks.names(), &["lint", "test"]);
+    }
+
+    #[test]
+    fn test_parallel_as_group_dependency() {
+        let mut p = Pipeline::new();
+        p.task("lint").run("cargo clippy");
+        p.task("test").run("cargo test");
+
+        let checks = p.parallel("checks", &["lint", "test"]);
+
+        p.task("build").after_group(&checks).run("cargo build");
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        let tasks = json["tasks"].as_array().unwrap();
+        let build = tasks.iter().find(|t| t["name"] == "build").unwrap();
+        let deps = build["depends_on"].as_array().unwrap();
+
+        assert_eq!(deps.len(), 2);
+        assert!(deps.contains(&serde_json::json!("lint")));
+        assert!(deps.contains(&serde_json::json!("test")));
+    }
+
+    #[test]
+    #[should_panic(expected = "task \"unknown\" not found")]
+    fn test_parallel_unknown_task_panics() {
+        let mut p = Pipeline::new();
+        p.task("lint").run("cargo clippy");
+
+        // "unknown" doesn't exist
+        p.parallel("checks", &["lint", "unknown"]);
     }
 }
