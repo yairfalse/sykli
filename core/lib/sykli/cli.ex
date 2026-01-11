@@ -66,6 +66,7 @@ defmodule Sykli.CLI do
       -v, --version             Show version
       --mesh                    Distribute tasks across connected BEAM nodes
       --filter=NAME             Only run tasks matching NAME
+      --timeout=DURATION        Task timeout (default: 5m). Use 10m, 30s, or 0 for no timeout
       --target=TARGET           Execution target: local (default), k8s
       --allow-dirty             Allow running with uncommitted changes (K8s)
       --git-ssh-secret=NAME     K8s Secret for SSH git auth
@@ -88,6 +89,7 @@ defmodule Sykli.CLI do
       sykli                           Run pipeline in current directory
       sykli run                       Same as above
       sykli ./my-project              Run pipeline in ./my-project
+      sykli --timeout=10m             Run with 10 minute timeout
       sykli --mesh                    Run with distributed mesh execution
       sykli --target=k8s              Run tasks as Kubernetes Jobs
       sykli --target=k8s --allow-dirty  Run K8s even with uncommitted changes
@@ -254,6 +256,11 @@ defmodule Sykli.CLI do
             secret = String.replace_prefix(arg, "--git-token-secret=", "")
             {[{:git_token_secret, secret} | opts], rest}
 
+          String.starts_with?(arg, "--timeout=") ->
+            timeout_str = String.replace_prefix(arg, "--timeout=", "")
+            timeout_ms = parse_timeout(timeout_str)
+            {[{:timeout, timeout_ms} | opts], rest}
+
           String.starts_with?(arg, "--") ->
             IO.puts(
               :stderr,
@@ -274,6 +281,24 @@ defmodule Sykli.CLI do
   defp parse_target("k8s"), do: :k8s
   defp parse_target("local"), do: :local
   defp parse_target(_), do: :local
+
+  # Parse timeout string like "10m", "30s", "300", "0" (infinity)
+  defp parse_timeout("0"), do: :infinity
+  defp parse_timeout(str) do
+    cond do
+      String.ends_with?(str, "m") ->
+        minutes = str |> String.trim_trailing("m") |> String.to_integer()
+        minutes * 60 * 1000
+
+      String.ends_with?(str, "s") ->
+        seconds = str |> String.trim_trailing("s") |> String.to_integer()
+        seconds * 1000
+
+      true ->
+        # Assume milliseconds if no unit
+        String.to_integer(str)
+    end
+  end
 
   # ----- DELTA SUBCOMMAND -----
 

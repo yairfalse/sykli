@@ -25,9 +25,12 @@ defmodule Sykli.Executor do
 
   @default_target Sykli.Target.Local
 
+  @default_timeout 300_000  # 5 minutes
+
   def run(tasks, graph, opts \\ []) do
     # Support both :target (new) and :executor (legacy for Mesh)
     target = Keyword.get(opts, :target) || Keyword.get(opts, :executor, @default_target)
+    timeout = Keyword.get(opts, :timeout, @default_timeout)
     start_time = System.monotonic_time(:millisecond)
     total_tasks = length(tasks)
 
@@ -41,7 +44,7 @@ defmodule Sykli.Executor do
           # Execute level by level, collecting results with timing
           # Pass progress state: {completed_count, total_count}
           # Also pass graph for resolving task_inputs
-          result = run_levels(levels, state, [], {0, total_tasks}, graph, target)
+          result = run_levels(levels, state, [], {0, total_tasks}, graph, target, timeout)
 
           # Print summary with status graph
           total_time = System.monotonic_time(:millisecond) - start_time
@@ -118,9 +121,9 @@ defmodule Sykli.Executor do
 
   # ----- EXECUTING LEVELS -----
 
-  defp run_levels([], _state, acc, _progress, _graph, _target), do: {:ok, Enum.reverse(acc)}
+  defp run_levels([], _state, acc, _progress, _graph, _target, _timeout), do: {:ok, Enum.reverse(acc)}
 
-  defp run_levels([level | rest], state, acc, {completed, total}, graph, target) do
+  defp run_levels([level | rest], state, acc, {completed, total}, graph, target, timeout) do
     level_size = length(level)
     next_tasks = rest |> List.flatten() |> Enum.map(& &1.name)
 
@@ -163,8 +166,8 @@ defmodule Sykli.Executor do
         end)
       end)
 
-    # Wait for all tasks in this level (5 minute timeout)
-    results = Task.await_many(async_tasks, 300_000)
+    # Wait for all tasks in this level
+    results = Task.await_many(async_tasks, timeout)
     Agent.stop(counter)
 
     new_completed = completed + level_size
@@ -184,7 +187,8 @@ defmodule Sykli.Executor do
         Enum.reverse(results) ++ acc,
         {new_completed, total},
         graph,
-        target
+        target,
+        timeout
       )
     end
   end
