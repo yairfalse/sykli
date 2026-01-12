@@ -806,5 +806,26 @@ describe('JSON Output Edge Cases', () => {
       expect(testTask.inputs).toContain('**/*.js');
       expect(testTask.inputs).toContain('package.json');
     });
+
+    it('creates install tasks with npm ci', () => {
+      const p = new Pipeline();
+      p.node().install();
+
+      const json = p.toJSON();
+      const installTask = (json.tasks as any[])[0];
+      expect(installTask.name).toBe('install');
+      expect(installTask.command).toBe('npm ci');
+      expect(installTask.inputs).toContain('package.json');
+      expect(installTask.inputs).toContain('package-lock.json');
+    });
+
+    it('TypeScript install task works correctly', () => {
+      const p = new Pipeline();
+      p.typescript().install();
+
+      const json = p.toJSON();
+      const installTask = (json.tasks as any[])[0];
+      expect(installTask.command).toBe('npm ci');
+    });
   });
 });

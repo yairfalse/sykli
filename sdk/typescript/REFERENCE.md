@@ -517,7 +517,8 @@ task.k8sRaw('{"nodeSelector": {"gpu": "true"}, "tolerations": [{"key": "gpu", "e
 p.node().test()                    // npm test
 p.node().lint()                    // npm run lint
 p.node().build()                   // npm run build
-nodeInputs()                       // ["**/*.ts", "**/*.js", "package.json", "package-lock.json"]
+p.node().install()                 // npm ci
+nodeInputs()                       // ["**/*.js", "**/*.mjs", "**/*.cjs", "package.json", "package-lock.json"]
 ```
 
 ### TypeScript Preset
@@ -527,7 +528,8 @@ p.typescript().test()              // npm test
 p.typescript().lint()              // npm run lint
 p.typescript().build()             // npm run build
 p.typescript().typecheck()         // npx tsc --noEmit
-tsInputs()                         // ["**/*.ts", "**/*.tsx", "tsconfig.json", "package.json"]
+p.typescript().install()           // npm ci
+tsInputs()                         // ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx", "package.json", "package-lock.json"]
 ```
 
 **Example:**
