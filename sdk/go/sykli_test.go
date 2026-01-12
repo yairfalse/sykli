@@ -822,13 +822,13 @@ func TestRequiresOmittedWhenEmpty(t *testing.T) {
 }
 
 // =============================================================================
-// K8S DEFAULTS TESTS
+// K8S OPTIONS TESTS (Minimal API)
 // =============================================================================
 
 func TestK8sDefaults_AppliedToAllTasks(t *testing.T) {
-	p := New(WithK8sDefaults(K8sTaskOptions{
-		Namespace: "ci-jobs",
-		Resources: K8sResources{Memory: "2Gi", CPU: "1"},
+	p := New(WithK8sDefaults(K8sOptions{
+		Memory: "2Gi",
+		CPU:    "1",
 	}))
 
 	p.Task("test").Run("go test")
@@ -843,25 +843,24 @@ func TestK8sDefaults_AppliedToAllTasks(t *testing.T) {
 	for _, task := range tasks {
 		taskMap := task.(map[string]interface{})
 		k8s := taskMap["k8s"].(map[string]interface{})
-		if k8s["namespace"] != "ci-jobs" {
-			t.Errorf("task %s: expected namespace 'ci-jobs', got %v", taskMap["name"], k8s["namespace"])
+		if k8s["memory"] != "2Gi" {
+			t.Errorf("task %s: expected memory '2Gi', got %v", taskMap["name"], k8s["memory"])
 		}
-		resources := k8s["resources"].(map[string]interface{})
-		if resources["memory"] != "2Gi" {
-			t.Errorf("task %s: expected memory '2Gi', got %v", taskMap["name"], resources["memory"])
+		if k8s["cpu"] != "1" {
+			t.Errorf("task %s: expected cpu '1', got %v", taskMap["name"], k8s["cpu"])
 		}
 	}
 }
 
 func TestK8sDefaults_TaskOverrides(t *testing.T) {
-	p := New(WithK8sDefaults(K8sTaskOptions{
-		Namespace: "ci-jobs",
-		Resources: K8sResources{Memory: "2Gi"},
+	p := New(WithK8sDefaults(K8sOptions{
+		Memory: "2Gi",
+		CPU:    "1",
 	}))
 
 	p.Task("small").Run("echo small")
-	p.Task("heavy").Run("heavy-job").K8s(K8sTaskOptions{
-		Resources: K8sResources{Memory: "32Gi"},
+	p.Task("heavy").Run("heavy-job").K8s(K8sOptions{
+		Memory: "32Gi",
 	})
 
 	result, err := emitJSON(p)
@@ -870,72 +869,28 @@ func TestK8sDefaults_TaskOverrides(t *testing.T) {
 	}
 
 	tasks := result["tasks"].([]interface{})
-
-	// Find the heavy task
 	for _, task := range tasks {
 		taskMap := task.(map[string]interface{})
 		k8s := taskMap["k8s"].(map[string]interface{})
 
 		if taskMap["name"] == "small" {
-			// Small should inherit defaults
-			if k8s["namespace"] != "ci-jobs" {
-				t.Errorf("small task: expected namespace 'ci-jobs', got %v", k8s["namespace"])
+			if k8s["memory"] != "2Gi" {
+				t.Errorf("small task: expected memory '2Gi', got %v", k8s["memory"])
 			}
-			resources := k8s["resources"].(map[string]interface{})
-			if resources["memory"] != "2Gi" {
-				t.Errorf("small task: expected memory '2Gi', got %v", resources["memory"])
+			if k8s["cpu"] != "1" {
+				t.Errorf("small task: expected cpu '1', got %v", k8s["cpu"])
 			}
 		}
 
 		if taskMap["name"] == "heavy" {
-			// Heavy should have overridden memory but inherit namespace
-			if k8s["namespace"] != "ci-jobs" {
-				t.Errorf("heavy task: expected namespace 'ci-jobs', got %v", k8s["namespace"])
+			if k8s["memory"] != "32Gi" {
+				t.Errorf("heavy task: expected memory '32Gi', got %v", k8s["memory"])
 			}
-			resources := k8s["resources"].(map[string]interface{})
-			if resources["memory"] != "32Gi" {
-				t.Errorf("heavy task: expected memory '32Gi', got %v", resources["memory"])
+			// CPU should be inherited from defaults
+			if k8s["cpu"] != "1" {
+				t.Errorf("heavy task: expected cpu '1' (inherited), got %v", k8s["cpu"])
 			}
 		}
-	}
-}
-
-func TestK8sDefaults_MergeLabels(t *testing.T) {
-	p := New(WithK8sDefaults(K8sTaskOptions{
-		Labels: map[string]string{
-			"team":    "platform",
-			"env":     "ci",
-		},
-	}))
-
-	p.Task("test").Run("test").K8s(K8sTaskOptions{
-		Labels: map[string]string{
-			"env":     "staging", // Override env
-			"feature": "new",     // Add new label
-		},
-	})
-
-	result, err := emitJSON(p)
-	if err != nil {
-		t.Fatalf("emit failed: %v", err)
-	}
-
-	tasks := result["tasks"].([]interface{})
-	taskMap := tasks[0].(map[string]interface{})
-	k8s := taskMap["k8s"].(map[string]interface{})
-	labels := k8s["labels"].(map[string]interface{})
-
-	// team should be inherited
-	if labels["team"] != "platform" {
-		t.Errorf("expected team=platform, got %v", labels["team"])
-	}
-	// env should be overridden
-	if labels["env"] != "staging" {
-		t.Errorf("expected env=staging, got %v", labels["env"])
-	}
-	// feature should be added
-	if labels["feature"] != "new" {
-		t.Errorf("expected feature=new, got %v", labels["feature"])
 	}
 }
 
@@ -958,6 +913,51 @@ func TestK8sDefaults_NoDefaultsNoK8s(t *testing.T) {
 	}
 }
 
+func TestK8s_GPU(t *testing.T) {
+	p := New()
+	p.Task("train").Run("python train.py").K8s(K8sOptions{
+		Memory: "32Gi",
+		GPU:    1,
+	})
+
+	result, err := emitJSON(p)
+	if err != nil {
+		t.Fatalf("emit failed: %v", err)
+	}
+
+	tasks := result["tasks"].([]interface{})
+	taskMap := tasks[0].(map[string]interface{})
+	k8s := taskMap["k8s"].(map[string]interface{})
+
+	if k8s["gpu"] != float64(1) {
+		t.Errorf("expected gpu=1, got %v", k8s["gpu"])
+	}
+}
+
+func TestK8sRaw_EscapeHatch(t *testing.T) {
+	p := New()
+	p.Task("gpu-task").
+		Run("python train.py").
+		K8s(K8sOptions{Memory: "32Gi", GPU: 1}).
+		K8sRaw(`{"nodeSelector": {"gpu": "true"}}`)
+
+	result, err := emitJSON(p)
+	if err != nil {
+		t.Fatalf("emit failed: %v", err)
+	}
+
+	tasks := result["tasks"].([]interface{})
+	taskMap := tasks[0].(map[string]interface{})
+	k8s := taskMap["k8s"].(map[string]interface{})
+
+	if k8s["memory"] != "32Gi" {
+		t.Errorf("expected memory='32Gi', got %v", k8s["memory"])
+	}
+	if k8s["raw"] != `{"nodeSelector": {"gpu": "true"}}` {
+		t.Errorf("expected raw JSON, got %v", k8s["raw"])
+	}
+}
+
 // =============================================================================
 // K8S VALIDATION TESTS
 // =============================================================================
@@ -967,9 +967,7 @@ func TestK8sValidation_ValidMemoryFormats(t *testing.T) {
 
 	for _, mem := range validMemory {
 		p := New()
-		p.Task("test").Run("echo test").K8s(K8sTaskOptions{
-			Resources: K8sResources{Memory: mem},
-		})
+		p.Task("test").Run("echo test").K8s(K8sOptions{Memory: mem})
 
 		_, err := emitJSON(p)
 		if err != nil {
@@ -992,9 +990,7 @@ func TestK8sValidation_InvalidMemoryFormats(t *testing.T) {
 
 	for _, tc := range invalidMemory {
 		p := New()
-		p.Task("test").Run("echo test").K8s(K8sTaskOptions{
-			Resources: K8sResources{Memory: tc.value},
-		})
+		p.Task("test").Run("echo test").K8s(K8sOptions{Memory: tc.value})
 
 		_, err := emitJSON(p)
 		if err == nil {
@@ -1012,9 +1008,7 @@ func TestK8sValidation_ValidCPUFormats(t *testing.T) {
 
 	for _, cpu := range validCPU {
 		p := New()
-		p.Task("test").Run("echo test").K8s(K8sTaskOptions{
-			Resources: K8sResources{CPU: cpu},
-		})
+		p.Task("test").Run("echo test").K8s(K8sOptions{CPU: cpu})
 
 		_, err := emitJSON(p)
 		if err != nil {
@@ -1028,117 +1022,11 @@ func TestK8sValidation_InvalidCPUFormats(t *testing.T) {
 
 	for _, cpu := range invalidCPU {
 		p := New()
-		p.Task("test").Run("echo test").K8s(K8sTaskOptions{
-			Resources: K8sResources{CPU: cpu},
-		})
+		p.Task("test").Run("echo test").K8s(K8sOptions{CPU: cpu})
 
 		_, err := emitJSON(p)
 		if err == nil {
 			t.Errorf("expected %q to fail validation", cpu)
 		}
-	}
-}
-
-func TestK8sValidation_TolerationOperator(t *testing.T) {
-	// Valid operators
-	for _, op := range []string{"Exists", "Equal", ""} {
-		p := New()
-		p.Task("test").Run("echo test").K8s(K8sTaskOptions{
-			Tolerations: []K8sToleration{{Key: "key", Operator: op}},
-		})
-		_, err := emitJSON(p)
-		if err != nil {
-			t.Errorf("expected operator %q to be valid, got: %v", op, err)
-		}
-	}
-
-	// Invalid operator
-	p := New()
-	p.Task("test").Run("echo test").K8s(K8sTaskOptions{
-		Tolerations: []K8sToleration{{Key: "key", Operator: "Invalid"}},
-	})
-	_, err := emitJSON(p)
-	if err == nil {
-		t.Error("expected invalid operator to fail validation")
-	}
-}
-
-func TestK8sValidation_TolerationEffect(t *testing.T) {
-	// Valid effects
-	for _, effect := range []string{"NoSchedule", "PreferNoSchedule", "NoExecute", ""} {
-		p := New()
-		p.Task("test").Run("echo test").K8s(K8sTaskOptions{
-			Tolerations: []K8sToleration{{Key: "key", Effect: effect}},
-		})
-		_, err := emitJSON(p)
-		if err != nil {
-			t.Errorf("expected effect %q to be valid, got: %v", effect, err)
-		}
-	}
-
-	// Invalid effect
-	p := New()
-	p.Task("test").Run("echo test").K8s(K8sTaskOptions{
-		Tolerations: []K8sToleration{{Key: "key", Effect: "Invalid"}},
-	})
-	_, err := emitJSON(p)
-	if err == nil {
-		t.Error("expected invalid effect to fail validation")
-	}
-}
-
-func TestK8sValidation_VolumeMountPath(t *testing.T) {
-	// Valid mount path
-	p := New()
-	p.Task("test").Run("echo test").K8s(K8sTaskOptions{
-		Volumes: []K8sVolume{{Name: "data", MountPath: "/data"}},
-	})
-	_, err := emitJSON(p)
-	if err != nil {
-		t.Errorf("expected valid volume to pass: %v", err)
-	}
-
-	// Missing mount path
-	p = New()
-	p.Task("test").Run("echo test").K8s(K8sTaskOptions{
-		Volumes: []K8sVolume{{Name: "data", MountPath: ""}},
-	})
-	_, err = emitJSON(p)
-	if err == nil {
-		t.Error("expected missing mount path to fail")
-	}
-
-	// Relative mount path
-	p = New()
-	p.Task("test").Run("echo test").K8s(K8sTaskOptions{
-		Volumes: []K8sVolume{{Name: "data", MountPath: "relative/path"}},
-	})
-	_, err = emitJSON(p)
-	if err == nil {
-		t.Error("expected relative mount path to fail")
-	}
-}
-
-func TestK8sValidation_DNSPolicy(t *testing.T) {
-	// Valid policies
-	for _, policy := range []string{"ClusterFirst", "ClusterFirstWithHostNet", "Default", "None", ""} {
-		p := New()
-		p.Task("test").Run("echo test").K8s(K8sTaskOptions{
-			DNSPolicy: policy,
-		})
-		_, err := emitJSON(p)
-		if err != nil {
-			t.Errorf("expected DNS policy %q to be valid, got: %v", policy, err)
-		}
-	}
-
-	// Invalid policy
-	p := New()
-	p.Task("test").Run("echo test").K8s(K8sTaskOptions{
-		DNSPolicy: "InvalidPolicy",
-	})
-	_, err := emitJSON(p)
-	if err == nil {
-		t.Error("expected invalid DNS policy to fail validation")
 	}
 }
