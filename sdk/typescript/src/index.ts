@@ -1268,6 +1268,101 @@ export class Pipeline {
 
     return undefined;
   }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Language Presets
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /** Get Node.js preset builder for common Node tasks */
+  node(): NodePreset {
+    return new NodePreset(this);
+  }
+
+  /** Get TypeScript preset builder for common TypeScript tasks */
+  typescript(): TypeScriptPreset {
+    return new TypeScriptPreset(this);
+  }
+}
+
+// =============================================================================
+// LANGUAGE PRESETS
+// =============================================================================
+
+/**
+ * Node.js preset - provides common tasks for Node projects.
+ *
+ * @example
+ * ```typescript
+ * const p = new Pipeline();
+ * p.node().test();                    // Creates 'test' task with 'npm test'
+ * p.node().lint();                    // Creates 'lint' task with 'npm run lint'
+ * p.node().build().after('test');     // Creates 'build' task with dependency
+ * p.emit();
+ * ```
+ */
+export class NodePreset {
+  constructor(private pipeline: Pipeline) {}
+
+  /** Creates a 'test' task running 'npm test' with standard Node inputs */
+  test(): Task {
+    return this.pipeline.task('test').run('npm test').inputs(...nodeInputs());
+  }
+
+  /** Creates a 'lint' task running 'npm run lint' with standard Node inputs */
+  lint(): Task {
+    return this.pipeline.task('lint').run('npm run lint').inputs(...nodeInputs());
+  }
+
+  /** Creates a 'build' task running 'npm run build' with standard Node inputs */
+  build(): Task {
+    return this.pipeline.task('build').run('npm run build').inputs(...nodeInputs());
+  }
+
+  /** Creates an 'install' task running 'npm ci' */
+  install(): Task {
+    return this.pipeline.task('install').run('npm ci').inputs('package.json', 'package-lock.json');
+  }
+}
+
+/**
+ * TypeScript preset - provides common tasks for TypeScript projects.
+ *
+ * @example
+ * ```typescript
+ * const p = new Pipeline();
+ * p.typescript().typecheck();         // Creates 'typecheck' task with 'npx tsc --noEmit'
+ * p.typescript().test();              // Creates 'test' task
+ * p.typescript().build();             // Creates 'build' task
+ * p.emit();
+ * ```
+ */
+export class TypeScriptPreset {
+  constructor(private pipeline: Pipeline) {}
+
+  /** Creates a 'test' task running 'npm test' with standard TypeScript inputs */
+  test(): Task {
+    return this.pipeline.task('test').run('npm test').inputs(...tsInputs());
+  }
+
+  /** Creates a 'lint' task running 'npm run lint' with standard TypeScript inputs */
+  lint(): Task {
+    return this.pipeline.task('lint').run('npm run lint').inputs(...tsInputs());
+  }
+
+  /** Creates a 'build' task running 'npm run build' with standard TypeScript inputs */
+  build(): Task {
+    return this.pipeline.task('build').run('npm run build').inputs(...tsInputs());
+  }
+
+  /** Creates a 'typecheck' task running 'npx tsc --noEmit' */
+  typecheck(): Task {
+    return this.pipeline.task('typecheck').run('npx tsc --noEmit').inputs(...tsInputs());
+  }
+
+  /** Creates an 'install' task running 'npm ci' */
+  install(): Task {
+    return this.pipeline.task('install').run('npm ci').inputs('package.json', 'package-lock.json');
+  }
 }
 
 // =============================================================================

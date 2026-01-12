@@ -443,5 +443,16 @@ defmodule SykliTest do
 
       assert decoded["version"] == "2"
     end
+
+    test "elixir_inputs returns expected patterns" do
+      use Sykli
+
+      inputs = elixir_inputs()
+
+      assert "**/*.ex" in inputs
+      assert "**/*.exs" in inputs
+      assert "mix.exs" in inputs
+      assert "mix.lock" in inputs
+    end
   end
 end

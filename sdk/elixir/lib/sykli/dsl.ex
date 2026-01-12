@@ -547,6 +547,15 @@ defmodule Sykli.DSL do
 
   @elixir_inputs ["**/*.ex", "**/*.exs", "mix.exs", "mix.lock"]
 
+  @doc """
+  Returns standard input patterns for Elixir projects.
+
+  ## Example
+
+      inputs elixir_inputs()
+  """
+  def elixir_inputs, do: @elixir_inputs
+
   @doc "Creates a mix test task."
   defmacro mix_test(opts \\ []) do
     name = Keyword.get(opts, :name, "test")
