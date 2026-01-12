@@ -67,5 +67,50 @@ defmodule Sykli.CLITest do
       assert opts[:mesh] == true
       assert opts[:filter] == "test"
     end
+
+    test "parses --timeout=10m as 600000ms" do
+      {_path, opts} = Sykli.CLI.parse_run_args(["--timeout=10m"])
+
+      assert opts[:timeout] == 600_000
+    end
+
+    test "parses --timeout=30s as 30000ms" do
+      {_path, opts} = Sykli.CLI.parse_run_args(["--timeout=30s"])
+
+      assert opts[:timeout] == 30_000
+    end
+
+    test "parses --timeout=2h as 7200000ms" do
+      {_path, opts} = Sykli.CLI.parse_run_args(["--timeout=2h"])
+
+      assert opts[:timeout] == 7_200_000
+    end
+
+    test "parses --timeout=1d as 86400000ms" do
+      {_path, opts} = Sykli.CLI.parse_run_args(["--timeout=1d"])
+
+      assert opts[:timeout] == 86_400_000
+    end
+
+    test "parses --timeout=0 as :infinity" do
+      {_path, opts} = Sykli.CLI.parse_run_args(["--timeout=0"])
+
+      assert opts[:timeout] == :infinity
+    end
+
+    test "parses --timeout=5000 as raw milliseconds" do
+      {_path, opts} = Sykli.CLI.parse_run_args(["--timeout=5000"])
+
+      assert opts[:timeout] == 5000
+    end
+
+    test "parses --timeout with other options" do
+      args = ["--timeout=15m", "--target=k8s", "./my-project"]
+      {path, opts} = Sykli.CLI.parse_run_args(args)
+
+      assert path == "./my-project"
+      assert opts[:timeout] == 900_000
+      assert opts[:target] == :k8s
+    end
   end
 end

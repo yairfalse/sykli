@@ -66,6 +66,7 @@ defmodule Sykli.CLI do
       -v, --version             Show version
       --mesh                    Distribute tasks across connected BEAM nodes
       --filter=NAME             Only run tasks matching NAME
+      --timeout=DURATION        Task timeout (default: 5m). Use 10m, 30s, 2h, 1d, or 0 for no timeout
       --target=TARGET           Execution target: local (default), k8s
       --allow-dirty             Allow running with uncommitted changes (K8s)
       --git-ssh-secret=NAME     K8s Secret for SSH git auth
@@ -88,6 +89,7 @@ defmodule Sykli.CLI do
       sykli                           Run pipeline in current directory
       sykli run                       Same as above
       sykli ./my-project              Run pipeline in ./my-project
+      sykli --timeout=10m             Run with 10 minute timeout
       sykli --mesh                    Run with distributed mesh execution
       sykli --target=k8s              Run tasks as Kubernetes Jobs
       sykli --target=k8s --allow-dirty  Run K8s even with uncommitted changes
@@ -254,6 +256,11 @@ defmodule Sykli.CLI do
             secret = String.replace_prefix(arg, "--git-token-secret=", "")
             {[{:git_token_secret, secret} | opts], rest}
 
+          String.starts_with?(arg, "--timeout=") ->
+            timeout_str = String.replace_prefix(arg, "--timeout=", "")
+            timeout_ms = parse_timeout(timeout_str)
+            {[{:timeout, timeout_ms} | opts], rest}
+
           String.starts_with?(arg, "--") ->
             IO.puts(
               :stderr,
@@ -274,6 +281,65 @@ defmodule Sykli.CLI do
   defp parse_target("k8s"), do: :k8s
   defp parse_target("local"), do: :local
   defp parse_target(_), do: :local
+
+  # Parse timeout string like "10m", "30s", "2h", "1d", "300", "0" (infinity)
+  defp parse_timeout("0"), do: :infinity
+
+  defp parse_timeout(str) do
+    result =
+      cond do
+        String.ends_with?(str, "d") ->
+          parse_timeout_unit(str, "d", 24 * 60 * 60 * 1000)
+
+        String.ends_with?(str, "h") ->
+          parse_timeout_unit(str, "h", 60 * 60 * 1000)
+
+        String.ends_with?(str, "m") ->
+          parse_timeout_unit(str, "m", 60 * 1000)
+
+        String.ends_with?(str, "s") ->
+          parse_timeout_unit(str, "s", 1000)
+
+        true ->
+          # Assume milliseconds if no unit
+          case Integer.parse(str) do
+            {ms, ""} -> {:ok, ms}
+            _ -> {:error, str}
+          end
+      end
+
+    case result do
+      {:ok, ms} when ms >= 0 -> ms
+      {:ok, _ms} -> invalid_timeout!(str)
+      {:error, _} -> invalid_timeout!(str)
+    end
+  end
+
+  defp parse_timeout_unit(str, suffix, multiplier) do
+    value = String.trim_trailing(str, suffix)
+
+    case Integer.parse(value) do
+      {n, ""} when n >= 0 -> {:ok, n * multiplier}
+      {_n, ""} -> {:error, str}
+      _ -> {:error, str}
+    end
+  end
+
+  defp invalid_timeout!(value) do
+    IO.puts(:stderr, """
+    #{IO.ANSI.red()}Invalid timeout value: #{value}#{IO.ANSI.reset()}
+
+    Expected formats:
+      --timeout=0       (no timeout / infinity)
+      --timeout=300     (milliseconds)
+      --timeout=10s     (seconds)
+      --timeout=5m      (minutes)
+      --timeout=2h      (hours)
+      --timeout=1d      (days)
+    """)
+
+    halt(1)
+  end
 
   # ----- DELTA SUBCOMMAND -----
 
