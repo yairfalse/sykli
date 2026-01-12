@@ -118,212 +118,61 @@ struct Service {
 }
 
 // =============================================================================
-// K8S OPTIONS
+// K8S OPTIONS (Minimal API)
 // =============================================================================
 
 /// Kubernetes-specific configuration for a task.
 ///
-/// These options are only used when running with a K8s target.
+/// This is a minimal API covering 95% of CI use cases.
+/// For advanced options (tolerations, affinity, security contexts),
+/// use `k8s_raw()` to pass raw JSON.
 ///
 /// # Example
 /// ```rust,ignore
-/// use sykli::{Pipeline, K8sOptions, K8sResources};
+/// use sykli::{Pipeline, K8sOptions};
 ///
 /// let mut p = Pipeline::new();
 /// p.task("build")
 ///     .run("cargo build")
 ///     .k8s(K8sOptions {
-///         resources: K8sResources {
-///             memory: Some("4Gi".into()),
-///             cpu: Some("2".into()),
-///             ..Default::default()
-///         },
+///         memory: Some("4Gi".into()),
+///         cpu: Some("2".into()),
+///         ..Default::default()
+///     });
+///
+/// // For GPU tasks
+/// p.task("train")
+///     .run("python train.py")
+///     .k8s(K8sOptions {
+///         memory: Some("32Gi".into()),
+///         gpu: Some(1),
 ///         ..Default::default()
 ///     });
 /// ```
 #[derive(Clone, Default, Debug)]
 pub struct K8sOptions {
-    /// Kubernetes namespace.
-    pub namespace: Option<String>,
-    /// Node selector labels.
-    pub node_selector: HashMap<String, String>,
-    /// Pod tolerations.
-    pub tolerations: Vec<K8sToleration>,
-    /// Affinity rules.
-    pub affinity: Option<K8sAffinity>,
-    /// Priority class name.
-    pub priority_class_name: Option<String>,
-    /// Resource requests and limits.
-    pub resources: K8sResources,
-    /// Number of GPUs to request.
-    pub gpu: Option<u32>,
-    /// Service account name.
-    pub service_account: Option<String>,
-    /// Security context.
-    pub security_context: Option<K8sSecurityContext>,
-    /// Use host network.
-    pub host_network: bool,
-    /// DNS policy.
-    pub dns_policy: Option<String>,
-    /// Additional volumes.
-    pub volumes: Vec<K8sVolume>,
-    /// Pod labels.
-    pub labels: HashMap<String, String>,
-    /// Pod annotations.
-    pub annotations: HashMap<String, String>,
-}
-
-/// Kubernetes resource requests and limits.
-#[derive(Clone, Default, Debug)]
-pub struct K8sResources {
-    pub request_cpu: Option<String>,
-    pub request_memory: Option<String>,
-    pub limit_cpu: Option<String>,
-    pub limit_memory: Option<String>,
-    /// Shorthand: sets both request and limit.
-    pub cpu: Option<String>,
-    /// Shorthand: sets both request and limit.
+    /// Memory (e.g., "4Gi", "512Mi"). Sets both request and limit.
     pub memory: Option<String>,
-}
-
-/// Kubernetes toleration.
-#[derive(Clone, Debug)]
-pub struct K8sToleration {
-    pub key: String,
-    pub operator: String,
-    pub value: Option<String>,
-    pub effect: String,
-}
-
-/// Kubernetes affinity rules.
-#[derive(Clone, Debug)]
-pub struct K8sAffinity {
-    pub node_affinity: Option<K8sNodeAffinity>,
-    pub pod_affinity: Option<K8sPodAffinity>,
-    pub pod_anti_affinity: Option<K8sPodAffinity>,
-}
-
-/// Kubernetes node affinity.
-#[derive(Clone, Debug)]
-pub struct K8sNodeAffinity {
-    pub required_labels: HashMap<String, String>,
-    pub preferred_labels: HashMap<String, String>,
-}
-
-/// Kubernetes pod affinity.
-#[derive(Clone, Debug)]
-pub struct K8sPodAffinity {
-    pub required_labels: HashMap<String, String>,
-    pub topology_key: String,
-}
-
-/// Kubernetes security context.
-#[derive(Clone, Debug, Default)]
-pub struct K8sSecurityContext {
-    pub run_as_user: Option<i64>,
-    pub run_as_group: Option<i64>,
-    pub run_as_non_root: bool,
-    pub privileged: bool,
-    pub read_only_root_filesystem: bool,
-    pub add_capabilities: Vec<String>,
-    pub drop_capabilities: Vec<String>,
-}
-
-/// Kubernetes volume mount.
-#[derive(Clone, Debug)]
-pub struct K8sVolume {
-    pub name: String,
-    pub mount_path: String,
-    pub config_map: Option<String>,
-    pub secret: Option<String>,
-    pub empty_dir: Option<K8sEmptyDir>,
-    pub host_path: Option<K8sHostPath>,
-    pub pvc: Option<String>,
-}
-
-/// Kubernetes EmptyDir volume options.
-#[derive(Clone, Debug)]
-pub struct K8sEmptyDir {
-    pub medium: Option<String>,
-    pub size_limit: Option<String>,
-}
-
-/// Kubernetes HostPath volume options.
-#[derive(Clone, Debug)]
-pub struct K8sHostPath {
-    pub path: String,
-    pub type_: Option<String>,
+    /// CPU (e.g., "2", "500m"). Sets both request and limit.
+    pub cpu: Option<String>,
+    /// Number of NVIDIA GPUs to request.
+    pub gpu: Option<u32>,
 }
 
 impl K8sOptions {
     /// Merges defaults with task-specific options.
-    /// Task options override defaults. For maps, values are merged with task winning.
+    /// Task options override defaults.
     pub fn merge(defaults: &K8sOptions, task: &K8sOptions) -> K8sOptions {
         let mut result = defaults.clone();
 
-        // Scalars: task wins if Some
-        if task.namespace.is_some() {
-            result.namespace = task.namespace.clone();
+        if task.memory.is_some() {
+            result.memory = task.memory.clone();
         }
-        if task.priority_class_name.is_some() {
-            result.priority_class_name = task.priority_class_name.clone();
-        }
-        if task.service_account.is_some() {
-            result.service_account = task.service_account.clone();
-        }
-        if task.dns_policy.is_some() {
-            result.dns_policy = task.dns_policy.clone();
+        if task.cpu.is_some() {
+            result.cpu = task.cpu.clone();
         }
         if task.gpu.is_some() {
             result.gpu = task.gpu;
-        }
-        if task.host_network {
-            result.host_network = true;
-        }
-
-        // Resources: task wins for each Some field
-        if task.resources.cpu.is_some() {
-            result.resources.cpu = task.resources.cpu.clone();
-        }
-        if task.resources.memory.is_some() {
-            result.resources.memory = task.resources.memory.clone();
-        }
-        if task.resources.request_cpu.is_some() {
-            result.resources.request_cpu = task.resources.request_cpu.clone();
-        }
-        if task.resources.request_memory.is_some() {
-            result.resources.request_memory = task.resources.request_memory.clone();
-        }
-        if task.resources.limit_cpu.is_some() {
-            result.resources.limit_cpu = task.resources.limit_cpu.clone();
-        }
-        if task.resources.limit_memory.is_some() {
-            result.resources.limit_memory = task.resources.limit_memory.clone();
-        }
-
-        // Maps: merge with task values winning
-        for (k, v) in &task.node_selector {
-            result.node_selector.insert(k.clone(), v.clone());
-        }
-        for (k, v) in &task.labels {
-            result.labels.insert(k.clone(), v.clone());
-        }
-        for (k, v) in &task.annotations {
-            result.annotations.insert(k.clone(), v.clone());
-        }
-
-        // Slices/structs: task replaces if non-empty
-        if !task.tolerations.is_empty() {
-            result.tolerations = task.tolerations.clone();
-        }
-        if !task.volumes.is_empty() {
-            result.volumes = task.volumes.clone();
-        }
-        if task.affinity.is_some() {
-            result.affinity = task.affinity.clone();
-        }
-        if task.security_context.is_some() {
-            result.security_context = task.security_context.clone();
         }
 
         result
@@ -331,121 +180,22 @@ impl K8sOptions {
 
     /// Returns true if no options are set.
     pub fn is_empty(&self) -> bool {
-        self.namespace.is_none()
-            && self.node_selector.is_empty()
-            && self.tolerations.is_empty()
-            && self.affinity.is_none()
-            && self.priority_class_name.is_none()
-            && self.resources.cpu.is_none()
-            && self.resources.memory.is_none()
-            && self.resources.request_cpu.is_none()
-            && self.resources.request_memory.is_none()
-            && self.resources.limit_cpu.is_none()
-            && self.resources.limit_memory.is_none()
-            && self.gpu.is_none()
-            && self.service_account.is_none()
-            && self.security_context.is_none()
-            && !self.host_network
-            && self.dns_policy.is_none()
-            && self.volumes.is_empty()
-            && self.labels.is_empty()
-            && self.annotations.is_empty()
+        self.memory.is_none() && self.cpu.is_none() && self.gpu.is_none()
     }
 
     /// Validates K8s options and returns a list of errors.
-    ///
-    /// Checks for:
-    /// - Memory format (Ki/Mi/Gi/Ti, e.g., '512Mi', '4Gi')
-    /// - CPU format (cores or millicores, e.g., '500m', '0.5', '2')
-    /// - Toleration operators (Exists, Equal)
-    /// - Toleration effects (NoSchedule, PreferNoSchedule, NoExecute)
-    /// - DNS policy (ClusterFirst, ClusterFirstWithHostNet, Default, None)
-    /// - Volume mount paths (must be absolute)
     pub fn validate(&self) -> Vec<K8sValidationError> {
         let mut errors = Vec::new();
 
-        // Validate memory fields
-        for (field, value) in [
-            ("resources.memory", &self.resources.memory),
-            ("resources.request_memory", &self.resources.request_memory),
-            ("resources.limit_memory", &self.resources.limit_memory),
-        ] {
-            if let Some(v) = value {
-                if let Some(err) = validate_k8s_memory(field, v) {
-                    errors.push(err);
-                }
+        if let Some(ref v) = self.memory {
+            if let Some(err) = validate_k8s_memory("memory", v) {
+                errors.push(err);
             }
         }
 
-        // Validate CPU fields
-        for (field, value) in [
-            ("resources.cpu", &self.resources.cpu),
-            ("resources.request_cpu", &self.resources.request_cpu),
-            ("resources.limit_cpu", &self.resources.limit_cpu),
-        ] {
-            if let Some(v) = value {
-                if let Some(err) = validate_k8s_cpu(field, v) {
-                    errors.push(err);
-                }
-            }
-        }
-
-        // Validate tolerations
-        for (i, t) in self.tolerations.iter().enumerate() {
-            if !t.operator.is_empty() && t.operator != "Exists" && t.operator != "Equal" {
-                errors.push(K8sValidationError {
-                    field: format!("tolerations[{}].operator", i),
-                    value: t.operator.clone(),
-                    message: "must be 'Exists' or 'Equal'".to_string(),
-                });
-            }
-            if !t.effect.is_empty()
-                && t.effect != "NoSchedule"
-                && t.effect != "PreferNoSchedule"
-                && t.effect != "NoExecute"
-            {
-                errors.push(K8sValidationError {
-                    field: format!("tolerations[{}].effect", i),
-                    value: t.effect.clone(),
-                    message: "must be 'NoSchedule', 'PreferNoSchedule', or 'NoExecute'".to_string(),
-                });
-            }
-        }
-
-        // Validate DNS policy
-        if let Some(ref policy) = self.dns_policy {
-            let valid = ["ClusterFirst", "ClusterFirstWithHostNet", "Default", "None"];
-            if !valid.contains(&policy.as_str()) {
-                errors.push(K8sValidationError {
-                    field: "dns_policy".to_string(),
-                    value: policy.clone(),
-                    message: "must be one of: ClusterFirst, ClusterFirstWithHostNet, Default, None"
-                        .to_string(),
-                });
-            }
-        }
-
-        // Validate volumes
-        for (i, v) in self.volumes.iter().enumerate() {
-            if v.name.is_empty() {
-                errors.push(K8sValidationError {
-                    field: format!("volumes[{}].name", i),
-                    value: String::new(),
-                    message: "volume name is required".to_string(),
-                });
-            }
-            if v.mount_path.is_empty() {
-                errors.push(K8sValidationError {
-                    field: format!("volumes[{}].mount_path", i),
-                    value: String::new(),
-                    message: "mount path is required".to_string(),
-                });
-            } else if !v.mount_path.starts_with('/') {
-                errors.push(K8sValidationError {
-                    field: format!("volumes[{}].mount_path", i),
-                    value: v.mount_path.clone(),
-                    message: "mount path must be absolute (start with /)".to_string(),
-                });
+        if let Some(ref v) = self.cpu {
+            if let Some(err) = validate_k8s_cpu("cpu", v) {
+                errors.push(err);
             }
         }
 
@@ -939,6 +689,7 @@ struct TaskData {
     timeout: Option<u32>, // Timeout in seconds
     // K8s options
     k8s_options: Option<K8sOptions>,
+    k8s_raw: Option<String>, // Raw K8s JSON for advanced options
     // Per-task target override
     target_name: Option<String>,
     // Node placement - required node labels
@@ -1533,6 +1284,25 @@ impl<'a> Task<'a> {
     pub fn k8s(self, opts: K8sOptions) -> Self {
         debug!(task = %self.pipeline.tasks[self.index].name, "setting k8s options");
         self.pipeline.tasks[self.index].k8s_options = Some(opts);
+        self
+    }
+
+    /// Adds raw Kubernetes configuration as JSON.
+    ///
+    /// Use this for advanced options not covered by `K8sOptions` (tolerations, affinity, etc.).
+    /// The JSON is passed directly to the executor and merged with K8sOptions.
+    /// K8sOptions fields take precedence over k8s_raw for overlapping settings.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// // GPU node with toleration
+    /// p.task("train")
+    ///     .k8s(K8sOptions { memory: Some("32Gi".into()), gpu: Some(1), ..Default::default() })
+    ///     .k8s_raw(r#"{"nodeSelector": {"gpu": "true"}, "tolerations": [{"key": "gpu", "effect": "NoSchedule"}]}"#);
+    /// ```
+    pub fn k8s_raw(self, json_config: &str) -> Self {
+        debug!(task = %self.pipeline.tasks[self.index].name, "setting k8s raw JSON");
+        self.pipeline.tasks[self.index].k8s_raw = Some(json_config.to_string());
         self
     }
 }
@@ -2209,9 +1979,15 @@ impl Pipeline {
                             (None, Some(task)) => Some(task.clone()),
                             (Some(defaults), Some(task)) => Some(K8sOptions::merge(defaults, task)),
                         };
-                        merged
-                            .filter(|o| !o.is_empty())
-                            .map(|o| convert_k8s_options(&o))
+                        // Include k8s options if we have either structured opts or raw JSON
+                        if merged.as_ref().is_some_and(|o| !o.is_empty()) || t.k8s_raw.is_some() {
+                            Some(convert_k8s_options(
+                                merged.as_ref().unwrap_or(&K8sOptions::default()),
+                                t.k8s_raw.as_ref(),
+                            ))
+                        } else {
+                            None
+                        }
                     },
                     requires: if t.requires.is_empty() {
                         None
@@ -2448,221 +2224,26 @@ struct JsonTask {
     requires: Option<Vec<String>>,
 }
 
+/// Minimal K8s options for JSON serialization.
+/// For advanced options, use k8s_raw which is passed through as-is.
 #[derive(Serialize)]
 struct JsonK8sOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
-    namespace: Option<String>,
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
-    node_selector: HashMap<String, String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    tolerations: Vec<JsonK8sToleration>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    affinity: Option<JsonK8sAffinity>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    priority_class_name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    resources: Option<JsonK8sResources>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    gpu: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    service_account: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    security_context: Option<JsonK8sSecurityContext>,
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    host_network: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    dns_policy: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    volumes: Vec<JsonK8sVolume>,
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
-    labels: HashMap<String, String>,
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
-    annotations: HashMap<String, String>,
-}
-
-#[derive(Serialize)]
-struct JsonK8sResources {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    request_cpu: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    request_memory: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    limit_cpu: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    limit_memory: Option<String>,
+    memory: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     cpu: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    memory: Option<String>,
+    gpu: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    raw: Option<String>,
 }
 
-#[derive(Serialize)]
-struct JsonK8sToleration {
-    key: String,
-    operator: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    value: Option<String>,
-    effect: String,
-}
-
-#[derive(Serialize)]
-struct JsonK8sAffinity {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    node_affinity: Option<JsonK8sNodeAffinity>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pod_affinity: Option<JsonK8sPodAffinity>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pod_anti_affinity: Option<JsonK8sPodAffinity>,
-}
-
-#[derive(Serialize)]
-struct JsonK8sNodeAffinity {
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
-    required_labels: HashMap<String, String>,
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
-    preferred_labels: HashMap<String, String>,
-}
-
-#[derive(Serialize)]
-struct JsonK8sPodAffinity {
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
-    required_labels: HashMap<String, String>,
-    topology_key: String,
-}
-
-#[derive(Serialize)]
-struct JsonK8sSecurityContext {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    run_as_user: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    run_as_group: Option<i64>,
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    run_as_non_root: bool,
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    privileged: bool,
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    read_only_root_filesystem: bool,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    add_capabilities: Vec<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    drop_capabilities: Vec<String>,
-}
-
-#[derive(Serialize)]
-struct JsonK8sVolume {
-    name: String,
-    mount_path: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    config_map: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    secret: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    empty_dir: Option<JsonK8sEmptyDir>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    host_path: Option<JsonK8sHostPath>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pvc: Option<String>,
-}
-
-#[derive(Serialize)]
-struct JsonK8sEmptyDir {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    medium: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    size_limit: Option<String>,
-}
-
-#[derive(Serialize)]
-struct JsonK8sHostPath {
-    path: String,
-    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
-    type_: Option<String>,
-}
-
-fn convert_k8s_options(opts: &K8sOptions) -> JsonK8sOptions {
+fn convert_k8s_options(opts: &K8sOptions, raw: Option<&String>) -> JsonK8sOptions {
     JsonK8sOptions {
-        namespace: opts.namespace.clone(),
-        node_selector: opts.node_selector.clone(),
-        tolerations: opts
-            .tolerations
-            .iter()
-            .map(|t| JsonK8sToleration {
-                key: t.key.clone(),
-                operator: t.operator.clone(),
-                value: t.value.clone(),
-                effect: t.effect.clone(),
-            })
-            .collect(),
-        affinity: opts.affinity.as_ref().map(|a| JsonK8sAffinity {
-            node_affinity: a.node_affinity.as_ref().map(|n| JsonK8sNodeAffinity {
-                required_labels: n.required_labels.clone(),
-                preferred_labels: n.preferred_labels.clone(),
-            }),
-            pod_affinity: a.pod_affinity.as_ref().map(|p| JsonK8sPodAffinity {
-                required_labels: p.required_labels.clone(),
-                topology_key: p.topology_key.clone(),
-            }),
-            pod_anti_affinity: a.pod_anti_affinity.as_ref().map(|p| JsonK8sPodAffinity {
-                required_labels: p.required_labels.clone(),
-                topology_key: p.topology_key.clone(),
-            }),
-        }),
-        priority_class_name: opts.priority_class_name.clone(),
-        resources: if opts.resources.cpu.is_some()
-            || opts.resources.memory.is_some()
-            || opts.resources.request_cpu.is_some()
-            || opts.resources.request_memory.is_some()
-            || opts.resources.limit_cpu.is_some()
-            || opts.resources.limit_memory.is_some()
-        {
-            Some(JsonK8sResources {
-                request_cpu: opts.resources.request_cpu.clone(),
-                request_memory: opts.resources.request_memory.clone(),
-                limit_cpu: opts.resources.limit_cpu.clone(),
-                limit_memory: opts.resources.limit_memory.clone(),
-                cpu: opts.resources.cpu.clone(),
-                memory: opts.resources.memory.clone(),
-            })
-        } else {
-            None
-        },
+        memory: opts.memory.clone(),
+        cpu: opts.cpu.clone(),
         gpu: opts.gpu,
-        service_account: opts.service_account.clone(),
-        security_context: opts
-            .security_context
-            .as_ref()
-            .map(|s| JsonK8sSecurityContext {
-                run_as_user: s.run_as_user,
-                run_as_group: s.run_as_group,
-                run_as_non_root: s.run_as_non_root,
-                privileged: s.privileged,
-                read_only_root_filesystem: s.read_only_root_filesystem,
-                add_capabilities: s.add_capabilities.clone(),
-                drop_capabilities: s.drop_capabilities.clone(),
-            }),
-        host_network: opts.host_network,
-        dns_policy: opts.dns_policy.clone(),
-        volumes: opts
-            .volumes
-            .iter()
-            .map(|v| JsonK8sVolume {
-                name: v.name.clone(),
-                mount_path: v.mount_path.clone(),
-                config_map: v.config_map.clone(),
-                secret: v.secret.clone(),
-                empty_dir: v.empty_dir.as_ref().map(|e| JsonK8sEmptyDir {
-                    medium: e.medium.clone(),
-                    size_limit: e.size_limit.clone(),
-                }),
-                host_path: v.host_path.as_ref().map(|h| JsonK8sHostPath {
-                    path: h.path.clone(),
-                    type_: h.type_.clone(),
-                }),
-                pvc: v.pvc.clone(),
-            })
-            .collect(),
-        labels: opts.labels.clone(),
-        annotations: opts.annotations.clone(),
+        raw: raw.cloned(),
     }
 }
 
@@ -3821,10 +3402,7 @@ mod tests {
         let valid = ["512Mi", "4Gi", "1Ti", "256Ki", "1G", "500M", "100"];
         for mem in valid {
             let opts = K8sOptions {
-                resources: K8sResources {
-                    memory: Some(mem.to_string()),
-                    ..Default::default()
-                },
+                memory: Some(mem.to_string()),
                 ..Default::default()
             };
             let errors = opts.validate();
@@ -3844,10 +3422,7 @@ mod tests {
         for (mem, expected_hint) in cases {
             let mut p = Pipeline::new();
             p.task("test").run("echo test").k8s(K8sOptions {
-                resources: K8sResources {
-                    memory: Some(mem.to_string()),
-                    ..Default::default()
-                },
+                memory: Some(mem.to_string()),
                 ..Default::default()
             });
             let mut buf = Vec::new();
@@ -3869,10 +3444,7 @@ mod tests {
         let valid = ["100m", "500m", "1", "2", "0.5", "1.5"];
         for cpu in valid {
             let opts = K8sOptions {
-                resources: K8sResources {
-                    cpu: Some(cpu.to_string()),
-                    ..Default::default()
-                },
+                cpu: Some(cpu.to_string()),
                 ..Default::default()
             };
             let errors = opts.validate();
@@ -3886,10 +3458,7 @@ mod tests {
         for cpu in cases {
             let mut p = Pipeline::new();
             p.task("test").run("echo test").k8s(K8sOptions {
-                resources: K8sResources {
-                    cpu: Some(cpu.to_string()),
-                    ..Default::default()
-                },
+                cpu: Some(cpu.to_string()),
                 ..Default::default()
             });
             let mut buf = Vec::new();
@@ -3899,141 +3468,68 @@ mod tests {
     }
 
     #[test]
-    fn test_k8s_validation_toleration_operator() {
-        // Valid operators
-        for op in ["Exists", "Equal"] {
-            let opts = K8sOptions {
-                tolerations: vec![K8sToleration {
-                    key: "key".to_string(),
-                    operator: op.to_string(),
-                    value: None,
-                    effect: "NoSchedule".to_string(),
-                }],
-                ..Default::default()
-            };
-            assert!(opts.validate().is_empty());
-        }
-
-        // Invalid operator
+    fn test_k8s_gpu() {
         let mut p = Pipeline::new();
-        p.task("test").run("echo test").k8s(K8sOptions {
-            tolerations: vec![K8sToleration {
-                key: "key".to_string(),
-                operator: "Invalid".to_string(),
-                value: None,
-                effect: "NoSchedule".to_string(),
-            }],
-            ..Default::default()
-        });
+        p.task("train")
+            .run("python train.py")
+            .k8s(K8sOptions {
+                memory: Some("32Gi".into()),
+                gpu: Some(2),
+                ..Default::default()
+            });
+
         let mut buf = Vec::new();
-        let result = p.emit_to(&mut buf);
-        assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("'Exists' or 'Equal'"));
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        assert_eq!(json["tasks"][0]["k8s"]["memory"], "32Gi");
+        assert_eq!(json["tasks"][0]["k8s"]["gpu"], 2);
     }
 
     #[test]
-    fn test_k8s_validation_toleration_effect() {
-        // Valid effects
-        for effect in ["NoSchedule", "PreferNoSchedule", "NoExecute"] {
-            let opts = K8sOptions {
-                tolerations: vec![K8sToleration {
-                    key: "key".to_string(),
-                    operator: "Exists".to_string(),
-                    value: None,
-                    effect: effect.to_string(),
-                }],
-                ..Default::default()
-            };
-            assert!(opts.validate().is_empty());
-        }
-
-        // Invalid effect
+    fn test_k8s_raw_escape_hatch() {
+        // k8s_raw allows advanced options (tolerations, volumes, etc.)
         let mut p = Pipeline::new();
-        p.task("test").run("echo test").k8s(K8sOptions {
-            tolerations: vec![K8sToleration {
-                key: "key".to_string(),
-                operator: "Exists".to_string(),
-                value: None,
-                effect: "Invalid".to_string(),
-            }],
-            ..Default::default()
-        });
+        p.task("gpu-train")
+            .run("python train.py")
+            .k8s(K8sOptions {
+                memory: Some("32Gi".into()),
+                gpu: Some(1),
+                ..Default::default()
+            })
+            .k8s_raw(r#"{"nodeSelector": {"gpu": "true"}, "tolerations": [{"key": "gpu", "effect": "NoSchedule"}]}"#);
+
         let mut buf = Vec::new();
-        let result = p.emit_to(&mut buf);
-        assert!(result.is_err());
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        // Structured options
+        assert_eq!(json["tasks"][0]["k8s"]["memory"], "32Gi");
+        assert_eq!(json["tasks"][0]["k8s"]["gpu"], 1);
+        // Raw JSON passed through
+        assert!(json["tasks"][0]["k8s"]["raw"].as_str().unwrap().contains("nodeSelector"));
     }
 
     #[test]
-    fn test_k8s_validation_volume_mount_path() {
-        // Empty mount path
-        let opts = K8sOptions {
-            volumes: vec![K8sVolume {
-                name: "vol".to_string(),
-                mount_path: String::new(),
-                config_map: None,
-                secret: None,
-                empty_dir: None,
-                host_path: None,
-                pvc: None,
-            }],
-            ..Default::default()
-        };
-        let errors = opts.validate();
-        assert!(!errors.is_empty());
-        assert!(errors[0].message.contains("mount path is required"));
-
-        // Relative mount path
-        let opts = K8sOptions {
-            volumes: vec![K8sVolume {
-                name: "vol".to_string(),
-                mount_path: "relative/path".to_string(),
-                config_map: None,
-                secret: None,
-                empty_dir: None,
-                host_path: None,
-                pvc: None,
-            }],
-            ..Default::default()
-        };
-        let errors = opts.validate();
-        assert!(!errors.is_empty());
-        assert!(errors[0].message.contains("must be absolute"));
-    }
-
-    #[test]
-    fn test_k8s_validation_dns_policy() {
-        // Valid policies
-        for policy in ["ClusterFirst", "ClusterFirstWithHostNet", "Default", "None"] {
-            let opts = K8sOptions {
-                dns_policy: Some(policy.to_string()),
-                ..Default::default()
-            };
-            assert!(opts.validate().is_empty());
-        }
-
-        // Invalid policy
+    fn test_k8s_raw_only() {
+        // Can use k8s_raw without structured K8sOptions
         let mut p = Pipeline::new();
-        p.task("test").run("echo test").k8s(K8sOptions {
-            dns_policy: Some("InvalidPolicy".to_string()),
-            ..Default::default()
-        });
+        p.task("custom")
+            .run("echo test")
+            .k8s_raw(r#"{"serviceAccount": "my-sa"}"#);
+
         let mut buf = Vec::new();
-        let result = p.emit_to(&mut buf);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("ClusterFirst"));
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        assert!(json["tasks"][0]["k8s"]["raw"].as_str().unwrap().contains("serviceAccount"));
     }
 
     #[test]
     fn test_k8s_validation_with_defaults() {
         // Validation should happen after merging with defaults
         let mut p = Pipeline::with_k8s_defaults(K8sOptions {
-            resources: K8sResources {
-                memory: Some("invalid_memory".to_string()),
-                ..Default::default()
-            },
+            memory: Some("invalid_memory".to_string()),
             ..Default::default()
         });
         p.task("test").run("echo test");

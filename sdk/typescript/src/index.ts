@@ -139,64 +139,34 @@ export function not(c: Condition): Condition {
 }
 
 // =============================================================================
-// K8S OPTIONS
+// K8S OPTIONS (Minimal API)
 // =============================================================================
 
-/** Kubernetes resource requests and limits */
-export interface K8sResources {
-  requestCpu?: string;
-  requestMemory?: string;
-  limitCpu?: string;
-  limitMemory?: string;
-  cpu?: string;
-  memory?: string;
-}
-
-/** Kubernetes toleration */
-export interface K8sToleration {
-  key: string;
-  operator?: 'Exists' | 'Equal';
-  value?: string;
-  effect?: 'NoSchedule' | 'PreferNoSchedule' | 'NoExecute';
-}
-
-/** Kubernetes security context */
-export interface K8sSecurityContext {
-  runAsUser?: number;
-  runAsGroup?: number;
-  runAsNonRoot?: boolean;
-  privileged?: boolean;
-  readOnlyRootFilesystem?: boolean;
-  addCapabilities?: string[];
-  dropCapabilities?: string[];
-}
-
-/** Kubernetes volume mount */
-export interface K8sVolume {
-  name: string;
-  mountPath: string;
-  configMap?: { name: string };
-  secret?: { name: string };
-  emptyDir?: { medium?: string; sizeLimit?: string };
-  hostPath?: { path: string; type?: string };
-  pvc?: { claimName: string };
-}
-
-/** Kubernetes-specific task options */
+/**
+ * Kubernetes-specific configuration for a task.
+ *
+ * This is a minimal API covering 95% of CI use cases.
+ * For advanced options (tolerations, affinity, security contexts),
+ * use k8sRaw() to pass raw JSON.
+ *
+ * @example
+ * ```typescript
+ * p.task('build')
+ *   .run('go build')
+ *   .k8s({ memory: '4Gi', cpu: '2' });
+ *
+ * p.task('train')
+ *   .run('python train.py')
+ *   .k8s({ memory: '32Gi', gpu: 1 });
+ * ```
+ */
 export interface K8sOptions {
-  namespace?: string;
-  nodeSelector?: Record<string, string>;
-  tolerations?: K8sToleration[];
-  priorityClassName?: string;
-  resources?: K8sResources;
+  /** Memory (e.g., "4Gi", "512Mi"). Sets both request and limit. */
+  memory?: string;
+  /** CPU (e.g., "2", "500m"). Sets both request and limit. */
+  cpu?: string;
+  /** Number of NVIDIA GPUs to request. */
   gpu?: number;
-  serviceAccount?: string;
-  securityContext?: K8sSecurityContext;
-  hostNetwork?: boolean;
-  dnsPolicy?: string;
-  volumes?: K8sVolume[];
-  labels?: Record<string, string>;
-  annotations?: Record<string, string>;
 }
 
 // =============================================================================
@@ -334,6 +304,7 @@ export class Task {
   private _timeout?: number;
   private _target?: string;
   private _k8s?: K8sOptions;
+  private _k8sRaw?: string;
   private _requires: string[] = [];
 
   constructor(
@@ -525,6 +496,26 @@ export class Task {
     return this;
   }
 
+  /**
+   * Add raw Kubernetes configuration as JSON.
+   *
+   * Use this for advanced options not covered by k8s() (tolerations, affinity, etc.).
+   * The JSON is passed directly to the executor and merged with k8s options.
+   * k8s() fields take precedence over k8sRaw for overlapping settings.
+   *
+   * @example
+   * ```typescript
+   * // GPU node with toleration
+   * p.task('train')
+   *   .k8s({ memory: '32Gi', gpu: 1 })
+   *   .k8sRaw('{"nodeSelector": {"gpu": "true"}, "tolerations": [{"key": "gpu", "effect": "NoSchedule"}]}');
+   * ```
+   */
+  k8sRaw(jsonConfig: string): this {
+    this._k8sRaw = jsonConfig;
+    return this;
+  }
+
   /** Require node labels for task placement (mesh mode) */
   requires(...labels: string[]): this {
     this._requires.push(...labels);
@@ -640,37 +631,26 @@ export class Task {
     if (this._retry !== undefined) json.retry = this._retry;
     if (this._timeout !== undefined) json.timeout = this._timeout;
     if (this._target) json.target = this._target;
-    if (this._k8s) json.k8s = this._k8sToJSON(this._k8s);
+    // Include k8s if we have either structured options or raw JSON
+    const k8sJson = this._k8sToJSON(this._k8s, this._k8sRaw);
+    if (k8sJson) json.k8s = k8sJson;
     if (this._requires.length > 0) json.requires = this._requires;
 
     return json;
   }
 
-  private _k8sToJSON(opts: K8sOptions): Record<string, unknown> {
+  private _k8sToJSON(opts?: K8sOptions, raw?: string): Record<string, unknown> | null {
+    if (!opts && !raw) return null;
+
     const json: Record<string, unknown> = {};
 
-    if (opts.namespace) json.namespace = opts.namespace;
-    if (opts.nodeSelector) json.node_selector = opts.nodeSelector;
-    if (opts.tolerations) json.tolerations = opts.tolerations;
-    if (opts.priorityClassName) json.priority_class_name = opts.priorityClassName;
-    if (opts.resources) {
-      const r: Record<string, string> = {};
-      if (opts.resources.requestCpu) r.request_cpu = opts.resources.requestCpu;
-      if (opts.resources.requestMemory) r.request_memory = opts.resources.requestMemory;
-      if (opts.resources.limitCpu) r.limit_cpu = opts.resources.limitCpu;
-      if (opts.resources.limitMemory) r.limit_memory = opts.resources.limitMemory;
-      if (opts.resources.cpu) r.cpu = opts.resources.cpu;
-      if (opts.resources.memory) r.memory = opts.resources.memory;
-      json.resources = r;
-    }
-    if (opts.gpu) json.gpu = opts.gpu;
-    if (opts.serviceAccount) json.service_account = opts.serviceAccount;
-    if (opts.securityContext) json.security_context = opts.securityContext;
-    if (opts.hostNetwork) json.host_network = opts.hostNetwork;
-    if (opts.dnsPolicy) json.dns_policy = opts.dnsPolicy;
-    if (opts.volumes) json.volumes = opts.volumes;
-    if (opts.labels) json.labels = opts.labels;
-    if (opts.annotations) json.annotations = opts.annotations;
+    if (opts?.memory) json.memory = opts.memory;
+    if (opts?.cpu) json.cpu = opts.cpu;
+    if (opts?.gpu) json.gpu = opts.gpu;
+    if (raw) json.raw = raw;
+
+    // Return null if empty
+    if (Object.keys(json).length === 0) return null;
 
     return json;
   }

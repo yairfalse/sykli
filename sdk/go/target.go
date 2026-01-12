@@ -238,239 +238,91 @@ type Volume interface {
 // K8S TARGET OPTIONS
 // =============================================================================
 
-// K8sTaskOptions provides Kubernetes-specific configuration for a task.
-// These options are only used when running with the K8s target.
+// K8sOptions provides Kubernetes-specific configuration for a task.
+// This is a minimal API covering 95% of CI use cases.
+//
+// For advanced options (tolerations, affinity, security contexts),
+// use K8sRaw() to pass raw JSON.
 //
 // Example:
 //
 //	s.Task("build").
 //	    Run("go build").
-//	    K8s(sykli.K8sTaskOptions{
-//	        Resources: sykli.K8sResources{CPU: "2", Memory: "4Gi"},
-//	        GPU:       1,
-//	    })
-type K8sTaskOptions struct {
-	// --- Pod Scheduling ---
+//	    K8s(sykli.K8sOptions{Memory: "4Gi", CPU: "2"})
+//
+//	s.Task("train").
+//	    Run("python train.py").
+//	    K8s(sykli.K8sOptions{Memory: "32Gi", GPU: 1})
+type K8sOptions struct {
+	// Memory sets both request and limit (e.g., "4Gi", "512Mi").
+	Memory string
 
-	// NodeSelector constrains the pod to nodes with matching labels.
-	NodeSelector map[string]string
+	// CPU sets both request and limit (e.g., "2", "500m").
+	CPU string
 
-	// Tolerations allow the pod to schedule on tainted nodes.
-	Tolerations []K8sToleration
-
-	// Affinity rules for advanced scheduling.
-	Affinity *K8sAffinity
-
-	// PriorityClassName for pod priority.
-	PriorityClassName string
-
-	// --- Resources ---
-
-	// Resources specifies CPU/memory requests and limits.
-	Resources K8sResources
-
-	// GPU requests NVIDIA GPUs.
+	// GPU requests NVIDIA GPUs (e.g., 1, 2).
 	GPU int
-
-	// --- Security ---
-
-	// ServiceAccount to use for the pod.
-	ServiceAccount string
-
-	// SecurityContext for the container.
-	SecurityContext *K8sSecurityContext
-
-	// --- Networking ---
-
-	// HostNetwork runs the pod in the host network namespace.
-	HostNetwork bool
-
-	// DNSPolicy overrides the default DNS policy.
-	DNSPolicy string
-
-	// --- Storage ---
-
-	// Volumes defines additional volume mounts.
-	Volumes []K8sVolume
-
-	// --- Metadata ---
-
-	// Labels to apply to the Job/Pod.
-	Labels map[string]string
-
-	// Annotations to apply to the Job/Pod.
-	Annotations map[string]string
-
-	// Namespace overrides the default namespace.
-	Namespace string
 }
 
-// K8sResources specifies compute resources.
-type K8sResources struct {
-	RequestCPU    string
-	RequestMemory string
-	LimitCPU      string
-	LimitMemory   string
-	CPU           string // Shorthand: sets both request and limit
-	Memory        string // Shorthand: sets both request and limit
-}
-
-// K8sToleration allows scheduling on tainted nodes.
-type K8sToleration struct {
-	Key      string
-	Operator string // "Exists" or "Equal"
-	Value    string
-	Effect   string // "NoSchedule", "PreferNoSchedule", "NoExecute"
-}
-
-// K8sAffinity defines node/pod affinity rules.
-type K8sAffinity struct {
-	NodeAffinity    *K8sNodeAffinity
-	PodAffinity     *K8sPodAffinity
-	PodAntiAffinity *K8sPodAffinity
-}
-
-// K8sNodeAffinity for node selection rules.
-type K8sNodeAffinity struct {
-	RequiredLabels  map[string]string
-	PreferredLabels map[string]string
-}
-
-// K8sPodAffinity for pod co-location rules.
-type K8sPodAffinity struct {
-	RequiredLabels map[string]string
-	TopologyKey    string
-}
-
-// K8sSecurityContext defines security settings.
-type K8sSecurityContext struct {
-	RunAsUser            *int64
-	RunAsGroup           *int64
-	RunAsNonRoot         bool
-	Privileged           bool
-	ReadOnlyRootFilesystem bool
-	AddCapabilities      []string
-	DropCapabilities     []string
-}
-
-// K8sVolume defines additional volume mounts.
-type K8sVolume struct {
-	Name      string
-	MountPath string
-	ConfigMap *K8sConfigMapVolume
-	Secret    *K8sSecretVolume
-	EmptyDir  *K8sEmptyDirVolume
-	HostPath  *K8sHostPathVolume
-	PVC       *K8sPVCVolume
-}
-
-type K8sConfigMapVolume struct{ Name string }
-type K8sSecretVolume struct{ Name string }
-type K8sEmptyDirVolume struct{ Medium, SizeLimit string }
-type K8sHostPathVolume struct{ Path, Type string }
-type K8sPVCVolume struct{ ClaimName string }
+// K8sTaskOptions is an alias for backward compatibility.
+// Deprecated: Use K8sOptions instead.
+type K8sTaskOptions = K8sOptions
 
 // =============================================================================
 // TASK K8S EXTENSION
 // =============================================================================
 
 // K8s adds Kubernetes-specific options to a task.
-func (t *Task) K8s(opts K8sTaskOptions) *Task {
+//
+// Example:
+//
+//	s.Task("build").Run("go build").K8s(sykli.K8sOptions{Memory: "4Gi", CPU: "2"})
+func (t *Task) K8s(opts K8sOptions) *Task {
 	t.k8sOptions = &opts
 	return t
 }
 
+// K8sRaw adds raw Kubernetes configuration as JSON.
+// Use this for advanced options not covered by K8sOptions (tolerations, affinity, etc.).
+//
+// The JSON is passed directly to the executor and merged with K8sOptions.
+// K8sOptions fields take precedence over K8sRaw for overlapping settings.
+//
+// Example:
+//
+//	// GPU node with toleration
+//	s.Task("train").
+//	    K8s(sykli.K8sOptions{Memory: "32Gi", GPU: 1}).
+//	    K8sRaw(`{"nodeSelector": {"gpu": "true"}, "tolerations": [{"key": "gpu", "effect": "NoSchedule"}]}`)
+func (t *Task) K8sRaw(jsonConfig string) *Task {
+	t.k8sRaw = jsonConfig
+	return t
+}
+
 // MergeK8sOptions merges defaults with task-specific options.
-// Task options override defaults. For maps, values are merged with task winning.
-func MergeK8sOptions(defaults, task *K8sTaskOptions) *K8sTaskOptions {
+// Task options override defaults.
+func MergeK8sOptions(defaults, task *K8sOptions) *K8sOptions {
 	if defaults == nil {
 		return task
 	}
 	if task == nil {
-		// Return a copy of defaults
 		copy := *defaults
 		return &copy
 	}
 
-	result := *defaults // Start with defaults
+	result := *defaults
 
-	// Scalar overrides (task wins if non-zero)
-	if task.Namespace != "" {
-		result.Namespace = task.Namespace
+	if task.Memory != "" {
+		result.Memory = task.Memory
 	}
-	if task.PriorityClassName != "" {
-		result.PriorityClassName = task.PriorityClassName
-	}
-	if task.ServiceAccount != "" {
-		result.ServiceAccount = task.ServiceAccount
-	}
-	if task.DNSPolicy != "" {
-		result.DNSPolicy = task.DNSPolicy
+	if task.CPU != "" {
+		result.CPU = task.CPU
 	}
 	if task.GPU > 0 {
 		result.GPU = task.GPU
 	}
-	if task.HostNetwork {
-		result.HostNetwork = task.HostNetwork
-	}
-
-	// Resources (task wins for each non-empty field)
-	if task.Resources.CPU != "" {
-		result.Resources.CPU = task.Resources.CPU
-	}
-	if task.Resources.Memory != "" {
-		result.Resources.Memory = task.Resources.Memory
-	}
-	if task.Resources.RequestCPU != "" {
-		result.Resources.RequestCPU = task.Resources.RequestCPU
-	}
-	if task.Resources.RequestMemory != "" {
-		result.Resources.RequestMemory = task.Resources.RequestMemory
-	}
-	if task.Resources.LimitCPU != "" {
-		result.Resources.LimitCPU = task.Resources.LimitCPU
-	}
-	if task.Resources.LimitMemory != "" {
-		result.Resources.LimitMemory = task.Resources.LimitMemory
-	}
-
-	// Maps: merge with task values winning
-	result.NodeSelector = mergeMaps(defaults.NodeSelector, task.NodeSelector)
-	result.Labels = mergeMaps(defaults.Labels, task.Labels)
-	result.Annotations = mergeMaps(defaults.Annotations, task.Annotations)
-
-	// Slices: task replaces if non-empty
-	if len(task.Tolerations) > 0 {
-		result.Tolerations = task.Tolerations
-	}
-	if len(task.Volumes) > 0 {
-		result.Volumes = task.Volumes
-	}
-
-	// Structs: task replaces if non-nil
-	if task.Affinity != nil {
-		result.Affinity = task.Affinity
-	}
-	if task.SecurityContext != nil {
-		result.SecurityContext = task.SecurityContext
-	}
 
 	return &result
-}
-
-// mergeMaps merges two string maps, with b's values overriding a's.
-func mergeMaps(a, b map[string]string) map[string]string {
-	if len(a) == 0 && len(b) == 0 {
-		return nil
-	}
-	result := make(map[string]string)
-	for k, v := range a {
-		result[k] = v
-	}
-	for k, v := range b {
-		result[k] = v
-	}
-	return result
 }
 
 // =============================================================================
@@ -498,100 +350,23 @@ func (e K8sValidationError) Error() string {
 
 // ValidateK8sOptions validates K8s options and returns all errors found.
 // Returns nil if validation passes.
-func ValidateK8sOptions(opts *K8sTaskOptions) []error {
+func ValidateK8sOptions(opts *K8sOptions) []error {
 	if opts == nil {
 		return nil
 	}
 
 	var errs []error
 
-	// Validate resources
-	errs = append(errs, validateK8sResources(&opts.Resources)...)
-
-	// Validate tolerations
-	for i, t := range opts.Tolerations {
-		if t.Operator != "" && t.Operator != "Exists" && t.Operator != "Equal" {
-			errs = append(errs, K8sValidationError{
-				Field:   fmt.Sprintf("tolerations[%d].operator", i),
-				Value:   t.Operator,
-				Message: "must be 'Exists' or 'Equal'",
-			})
-		}
-		if t.Effect != "" && t.Effect != "NoSchedule" && t.Effect != "PreferNoSchedule" && t.Effect != "NoExecute" {
-			errs = append(errs, K8sValidationError{
-				Field:   fmt.Sprintf("tolerations[%d].effect", i),
-				Value:   t.Effect,
-				Message: "must be 'NoSchedule', 'PreferNoSchedule', or 'NoExecute'",
-			})
-		}
-	}
-
-	// Validate DNS policy
-	validDNSPolicies := []string{"", "ClusterFirst", "ClusterFirstWithHostNet", "Default", "None"}
-	if opts.DNSPolicy != "" && !contains(validDNSPolicies, opts.DNSPolicy) {
-		errs = append(errs, K8sValidationError{
-			Field:   "dnsPolicy",
-			Value:   opts.DNSPolicy,
-			Message: "must be one of: ClusterFirst, ClusterFirstWithHostNet, Default, None",
-		})
-	}
-
-	// Validate volumes
-	for i, v := range opts.Volumes {
-		if v.Name == "" {
-			errs = append(errs, K8sValidationError{
-				Field:   fmt.Sprintf("volumes[%d].name", i),
-				Value:   "",
-				Message: "volume name is required",
-			})
-		}
-		if v.MountPath == "" {
-			errs = append(errs, K8sValidationError{
-				Field:   fmt.Sprintf("volumes[%d].mountPath", i),
-				Value:   "",
-				Message: "mount path is required",
-			})
-		} else if !strings.HasPrefix(v.MountPath, "/") {
-			errs = append(errs, K8sValidationError{
-				Field:   fmt.Sprintf("volumes[%d].mountPath", i),
-				Value:   v.MountPath,
-				Message: "mount path must be absolute (start with /)",
-			})
-		}
-	}
-
-	return errs
-}
-
-func validateK8sResources(r *K8sResources) []error {
-	var errs []error
-
-	// Validate memory fields
-	memoryFields := []struct {
-		name  string
-		value string
-	}{
-		{"resources.memory", r.Memory},
-		{"resources.requestMemory", r.RequestMemory},
-		{"resources.limitMemory", r.LimitMemory},
-	}
-	for _, f := range memoryFields {
-		if err := validateK8sMemory(f.name, f.value); err != nil {
+	// Validate memory
+	if opts.Memory != "" {
+		if err := validateK8sMemory("memory", opts.Memory); err != nil {
 			errs = append(errs, err)
 		}
 	}
 
-	// Validate CPU fields
-	cpuFields := []struct {
-		name  string
-		value string
-	}{
-		{"resources.cpu", r.CPU},
-		{"resources.requestCPU", r.RequestCPU},
-		{"resources.limitCPU", r.LimitCPU},
-	}
-	for _, f := range cpuFields {
-		if err := validateK8sCPU(f.name, f.value); err != nil {
+	// Validate CPU
+	if opts.CPU != "" {
+		if err := validateK8sCPU("cpu", opts.CPU); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -604,7 +379,6 @@ func validateK8sMemory(field, value string) error {
 		return nil
 	}
 	if !k8sMemoryPattern.MatchString(value) {
-		// Provide helpful suggestions for common mistakes
 		suggestion := ""
 		lower := strings.ToLower(value)
 		if strings.HasSuffix(lower, "gb") {
@@ -635,13 +409,4 @@ func validateK8sCPU(field, value string) error {
 		}
 	}
 	return nil
-}
-
-func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
 }
