@@ -256,10 +256,19 @@ defmodule Sykli.Target.Local do
 
   @impl true
   def run_task(task, state, opts) do
-    workdir = Keyword.get(opts, :workdir, state.workdir)
+    base_workdir = Keyword.get(opts, :workdir, state.workdir)
     network = Keyword.get(opts, :network)
     progress = Keyword.get(opts, :progress)
     timeout_ms = (task.timeout || 300) * 1000
+
+    # For shell execution (no container), combine base workdir with task workdir.
+    # For container execution, task.workdir is the container workdir (passed separately).
+    workdir =
+      if is_nil(task.container) and task.workdir do
+        Path.join(base_workdir, task.workdir) |> Path.expand()
+      else
+        base_workdir
+      end
 
     prefix = progress_prefix(progress)
 

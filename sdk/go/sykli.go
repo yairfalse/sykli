@@ -71,7 +71,7 @@ type Pipeline struct {
 	dirs        []*Directory
 	caches      []*CacheVolume
 	templates   map[string]*Template
-	k8sDefaults *K8sTaskOptions // Pipeline-level K8s defaults
+	k8sDefaults *K8sOptions // Pipeline-level K8s defaults
 }
 
 // PipelineOption configures a Pipeline.
@@ -82,16 +82,14 @@ type PipelineOption func(*Pipeline)
 //
 // Example:
 //
-//	s := sykli.New(sykli.WithK8sDefaults(sykli.K8sTaskOptions{
-//	    Namespace: "ci-jobs",
-//	    Resources: sykli.K8sResources{Memory: "2Gi"},
+//	s := sykli.New(sykli.WithK8sDefaults(sykli.K8sOptions{
+//	    Memory: "2Gi",
+//	    CPU:    "1",
 //	}))
 //
-//	s.Task("test").Run("go test")           // inherits defaults
-//	s.Task("heavy").K8s(sykli.K8sTaskOptions{  // overrides memory
-//	    Resources: sykli.K8sResources{Memory: "32Gi"},
-//	})
-func WithK8sDefaults(opts K8sTaskOptions) PipelineOption {
+//	s.Task("test").Run("go test")                           // inherits 2Gi, 1 CPU
+//	s.Task("heavy").K8s(sykli.K8sOptions{Memory: "32Gi"})   // overrides memory
+func WithK8sDefaults(opts K8sOptions) PipelineOption {
 	return func(p *Pipeline) {
 		p.k8sDefaults = &opts
 	}
@@ -487,7 +485,8 @@ type Task struct {
 	services     []Service
 	retry        int
 	timeout      int                    // seconds
-	k8sOptions   *K8sTaskOptions        // Target-specific K8s options
+	k8sOptions   *K8sOptions            // Target-specific K8s options
+	k8sRaw       string                 // Raw K8s JSON for advanced options
 	targetName   string                 // Per-task target override
 	requires     []string               // Required node labels for placement
 }
@@ -1466,96 +1465,12 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 		Key    string `json:"key"`
 	}
 
-	// K8s options JSON types
-	type jsonK8sResources struct {
-		RequestCPU    string `json:"request_cpu,omitempty"`
-		RequestMemory string `json:"request_memory,omitempty"`
-		LimitCPU      string `json:"limit_cpu,omitempty"`
-		LimitMemory   string `json:"limit_memory,omitempty"`
-		CPU           string `json:"cpu,omitempty"`
-		Memory        string `json:"memory,omitempty"`
-	}
-
-	type jsonK8sToleration struct {
-		Key      string `json:"key,omitempty"`
-		Operator string `json:"operator,omitempty"`
-		Value    string `json:"value,omitempty"`
-		Effect   string `json:"effect,omitempty"`
-	}
-
-	type jsonK8sNodeAffinity struct {
-		RequiredLabels  map[string]string `json:"required_labels,omitempty"`
-		PreferredLabels map[string]string `json:"preferred_labels,omitempty"`
-	}
-
-	type jsonK8sPodAffinity struct {
-		RequiredLabels map[string]string `json:"required_labels,omitempty"`
-		TopologyKey    string            `json:"topology_key,omitempty"`
-	}
-
-	type jsonK8sAffinity struct {
-		NodeAffinity    *jsonK8sNodeAffinity `json:"node_affinity,omitempty"`
-		PodAffinity     *jsonK8sPodAffinity  `json:"pod_affinity,omitempty"`
-		PodAntiAffinity *jsonK8sPodAffinity  `json:"pod_anti_affinity,omitempty"`
-	}
-
-	type jsonK8sSecurityContext struct {
-		RunAsUser            *int64   `json:"run_as_user,omitempty"`
-		RunAsGroup           *int64   `json:"run_as_group,omitempty"`
-		RunAsNonRoot         bool     `json:"run_as_non_root,omitempty"`
-		Privileged           bool     `json:"privileged,omitempty"`
-		ReadOnlyRootFilesystem bool   `json:"read_only_root_filesystem,omitempty"`
-		AddCapabilities      []string `json:"add_capabilities,omitempty"`
-		DropCapabilities     []string `json:"drop_capabilities,omitempty"`
-	}
-
-	type jsonK8sConfigMap struct {
-		Name string `json:"name"`
-	}
-
-	type jsonK8sSecret struct {
-		Name string `json:"name"`
-	}
-
-	type jsonK8sEmptyDir struct {
-		Medium    string `json:"medium,omitempty"`
-		SizeLimit string `json:"size_limit,omitempty"`
-	}
-
-	type jsonK8sHostPath struct {
-		Path string `json:"path"`
-		Type string `json:"type,omitempty"`
-	}
-
-	type jsonK8sPVC struct {
-		ClaimName string `json:"claim_name"`
-	}
-
-	type jsonK8sVolume struct {
-		Name      string           `json:"name"`
-		MountPath string           `json:"mount_path"`
-		ConfigMap *jsonK8sConfigMap `json:"config_map,omitempty"`
-		Secret    *jsonK8sSecret    `json:"secret,omitempty"`
-		EmptyDir  *jsonK8sEmptyDir  `json:"empty_dir,omitempty"`
-		HostPath  *jsonK8sHostPath  `json:"host_path,omitempty"`
-		PVC       *jsonK8sPVC       `json:"pvc,omitempty"`
-	}
-
+	// K8s options JSON - minimal API
 	type jsonK8sOptions struct {
-		NodeSelector      map[string]string       `json:"node_selector,omitempty"`
-		Tolerations       []jsonK8sToleration     `json:"tolerations,omitempty"`
-		Affinity          *jsonK8sAffinity        `json:"affinity,omitempty"`
-		PriorityClassName string                  `json:"priority_class_name,omitempty"`
-		Resources         *jsonK8sResources       `json:"resources,omitempty"`
-		GPU               int                     `json:"gpu,omitempty"`
-		ServiceAccount    string                  `json:"service_account,omitempty"`
-		SecurityContext   *jsonK8sSecurityContext `json:"security_context,omitempty"`
-		HostNetwork       bool                    `json:"host_network,omitempty"`
-		DNSPolicy         string                  `json:"dns_policy,omitempty"`
-		Volumes           []jsonK8sVolume         `json:"volumes,omitempty"`
-		Labels            map[string]string       `json:"labels,omitempty"`
-		Annotations       map[string]string       `json:"annotations,omitempty"`
-		Namespace         string                  `json:"namespace,omitempty"`
+		Memory string `json:"memory,omitempty"` // e.g., "4Gi"
+		CPU    string `json:"cpu,omitempty"`    // e.g., "2", "500m"
+		GPU    int    `json:"gpu,omitempty"`    // NVIDIA GPUs
+		Raw    string `json:"raw,omitempty"`    // Escape hatch: raw JSON for advanced options
 	}
 
 	type jsonTask struct {
@@ -1613,118 +1528,27 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 		}
 	}
 
-	// convertK8sOptions converts K8sTaskOptions to JSON format
-	convertK8sOptions := func(opts *K8sTaskOptions) *jsonK8sOptions {
-		if opts == nil {
+	// convertK8sOptions converts K8sOptions to JSON format
+	convertK8sOptions := func(opts *K8sOptions, raw string) *jsonK8sOptions {
+		if opts == nil && raw == "" {
 			return nil
 		}
 
-		var tolerations []jsonK8sToleration
-		for _, t := range opts.Tolerations {
-			tolerations = append(tolerations, jsonK8sToleration{
-				Key:      t.Key,
-				Operator: t.Operator,
-				Value:    t.Value,
-				Effect:   t.Effect,
-			})
+		result := &jsonK8sOptions{}
+		if opts != nil {
+			result.Memory = opts.Memory
+			result.CPU = opts.CPU
+			result.GPU = opts.GPU
+		}
+		if raw != "" {
+			result.Raw = raw
 		}
 
-		var affinity *jsonK8sAffinity
-		if opts.Affinity != nil {
-			affinity = &jsonK8sAffinity{}
-			if opts.Affinity.NodeAffinity != nil {
-				affinity.NodeAffinity = &jsonK8sNodeAffinity{
-					RequiredLabels:  opts.Affinity.NodeAffinity.RequiredLabels,
-					PreferredLabels: opts.Affinity.NodeAffinity.PreferredLabels,
-				}
-			}
-			if opts.Affinity.PodAffinity != nil {
-				affinity.PodAffinity = &jsonK8sPodAffinity{
-					RequiredLabels: opts.Affinity.PodAffinity.RequiredLabels,
-					TopologyKey:    opts.Affinity.PodAffinity.TopologyKey,
-				}
-			}
-			if opts.Affinity.PodAntiAffinity != nil {
-				affinity.PodAntiAffinity = &jsonK8sPodAffinity{
-					RequiredLabels: opts.Affinity.PodAntiAffinity.RequiredLabels,
-					TopologyKey:    opts.Affinity.PodAntiAffinity.TopologyKey,
-				}
-			}
+		// Return nil if empty
+		if result.Memory == "" && result.CPU == "" && result.GPU == 0 && result.Raw == "" {
+			return nil
 		}
-
-		var resources *jsonK8sResources
-		if opts.Resources.CPU != "" || opts.Resources.Memory != "" ||
-			opts.Resources.RequestCPU != "" || opts.Resources.RequestMemory != "" ||
-			opts.Resources.LimitCPU != "" || opts.Resources.LimitMemory != "" {
-			resources = &jsonK8sResources{
-				RequestCPU:    opts.Resources.RequestCPU,
-				RequestMemory: opts.Resources.RequestMemory,
-				LimitCPU:      opts.Resources.LimitCPU,
-				LimitMemory:   opts.Resources.LimitMemory,
-				CPU:           opts.Resources.CPU,
-				Memory:        opts.Resources.Memory,
-			}
-		}
-
-		var securityContext *jsonK8sSecurityContext
-		if opts.SecurityContext != nil {
-			securityContext = &jsonK8sSecurityContext{
-				RunAsUser:              opts.SecurityContext.RunAsUser,
-				RunAsGroup:             opts.SecurityContext.RunAsGroup,
-				RunAsNonRoot:           opts.SecurityContext.RunAsNonRoot,
-				Privileged:             opts.SecurityContext.Privileged,
-				ReadOnlyRootFilesystem: opts.SecurityContext.ReadOnlyRootFilesystem,
-				AddCapabilities:        opts.SecurityContext.AddCapabilities,
-				DropCapabilities:       opts.SecurityContext.DropCapabilities,
-			}
-		}
-
-		var volumes []jsonK8sVolume
-		for _, v := range opts.Volumes {
-			vol := jsonK8sVolume{
-				Name:      v.Name,
-				MountPath: v.MountPath,
-			}
-			if v.ConfigMap != nil {
-				vol.ConfigMap = &jsonK8sConfigMap{Name: v.ConfigMap.Name}
-			}
-			if v.Secret != nil {
-				vol.Secret = &jsonK8sSecret{Name: v.Secret.Name}
-			}
-			if v.EmptyDir != nil {
-				vol.EmptyDir = &jsonK8sEmptyDir{
-					Medium:    v.EmptyDir.Medium,
-					SizeLimit: v.EmptyDir.SizeLimit,
-				}
-			}
-			if v.HostPath != nil {
-				vol.HostPath = &jsonK8sHostPath{
-					Path: v.HostPath.Path,
-					Type: v.HostPath.Type,
-				}
-			}
-			if v.PVC != nil {
-				vol.PVC = &jsonK8sPVC{ClaimName: v.PVC.ClaimName}
-			}
-			volumes = append(volumes, vol)
-		}
-
-		return &jsonK8sOptions{
-			NodeSelector:      opts.NodeSelector,
-			Tolerations:       tolerations,
-			Affinity:          affinity,
-			PriorityClassName: opts.PriorityClassName,
-			Resources:         resources,
-			GPU:               opts.GPU,
-			ServiceAccount:    opts.ServiceAccount,
-			SecurityContext:   securityContext,
-			HostNetwork:       opts.HostNetwork,
-			DNSPolicy:         opts.DNSPolicy,
-			Volumes:           volumes,
-			Labels:            opts.Labels,
-			Annotations:       opts.Annotations,
-			Namespace:         opts.Namespace,
-		}
+		return result
 	}
 
 	// Build tasks
@@ -1821,7 +1645,7 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 				}
 				return svcs
 			}(),
-			K8s: convertK8sOptions(MergeK8sOptions(p.k8sDefaults, t.k8sOptions)),
+			K8s: convertK8sOptions(MergeK8sOptions(p.k8sDefaults, t.k8sOptions), t.k8sRaw),
 			Requires: func() []string {
 				if len(t.requires) == 0 {
 					return nil

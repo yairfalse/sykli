@@ -380,88 +380,67 @@ describe('Cycle Detection', () => {
 });
 
 // =============================================================================
-// K8S OPTIONS MERGING
+// K8S OPTIONS (MINIMAL API)
 // =============================================================================
 
-describe('K8s Options Merging', () => {
-  it('applies pipeline k8s defaults to tasks without k8s', () => {
-    const p = new Pipeline({
-      k8sDefaults: {
-        namespace: 'ci-jobs',
-        resources: { memory: '2Gi' },
-      },
-    });
-
-    p.task('test').run('npm test');
+describe('K8s Options (Minimal API)', () => {
+  it('sets memory and cpu', () => {
+    const p = new Pipeline();
+    p.task('build')
+      .run('npm run build')
+      .k8s({ memory: '4Gi', cpu: '2' });
 
     const json = p.toJSON();
     const task = (json.tasks as any[])[0];
     expect(task.k8s).toBeDefined();
-    expect(task.k8s.namespace).toBe('ci-jobs');
-    expect(task.k8s.resources.memory).toBe('2Gi');
+    expect(task.k8s.memory).toBe('4Gi');
+    expect(task.k8s.cpu).toBe('2');
   });
 
-  it('task k8s options override defaults', () => {
-    const p = new Pipeline({
-      k8sDefaults: {
-        namespace: 'default',
-        resources: { memory: '2Gi' },
-      },
-    });
-
-    p.task('heavy')
-      .run('npm test')
-      .k8s({ resources: { memory: '32Gi' } });
+  it('sets gpu', () => {
+    const p = new Pipeline();
+    p.task('train')
+      .run('python train.py')
+      .k8s({ memory: '32Gi', gpu: 2 });
 
     const json = p.toJSON();
     const task = (json.tasks as any[])[0];
-    expect(task.k8s.namespace).toBe('default'); // inherited
-    expect(task.k8s.resources.memory).toBe('32Gi'); // overridden
+    expect(task.k8s.memory).toBe('32Gi');
+    expect(task.k8s.gpu).toBe(2);
   });
 
-  it('merges labels and annotations', () => {
-    const p = new Pipeline({
-      k8sDefaults: {
-        labels: { team: 'platform' },
-        annotations: { 'prometheus.io/scrape': 'true' },
-      },
-    });
-
-    p.task('test')
-      .run('npm test')
-      .k8s({
-        labels: { app: 'myapp' },
-        annotations: { custom: 'value' },
-      });
+  it('k8sRaw passes through advanced options', () => {
+    const p = new Pipeline();
+    p.task('gpu-train')
+      .run('python train.py')
+      .k8s({ memory: '32Gi', gpu: 1 })
+      .k8sRaw('{"nodeSelector": {"gpu": "true"}, "tolerations": [{"key": "gpu", "effect": "NoSchedule"}]}');
 
     const json = p.toJSON();
     const task = (json.tasks as any[])[0];
-    expect(task.k8s.labels).toEqual({ team: 'platform', app: 'myapp' });
-    expect(task.k8s.annotations).toEqual({
-      'prometheus.io/scrape': 'true',
-      custom: 'value',
-    });
+    expect(task.k8s.memory).toBe('32Gi');
+    expect(task.k8s.gpu).toBe(1);
+    expect(task.k8s.raw).toContain('nodeSelector');
   });
 
-  it('merges nodeSelector', () => {
-    const p = new Pipeline({
-      k8sDefaults: {
-        nodeSelector: { pool: 'ci' },
-      },
-    });
-
-    p.task('gpu')
-      .run('train.sh')
-      .k8s({
-        nodeSelector: { 'gpu-type': 'nvidia' },
-      });
+  it('k8sRaw works without structured options', () => {
+    const p = new Pipeline();
+    p.task('custom')
+      .run('echo test')
+      .k8sRaw('{"serviceAccount": "my-sa"}');
 
     const json = p.toJSON();
     const task = (json.tasks as any[])[0];
-    expect(task.k8s.node_selector).toEqual({
-      pool: 'ci',
-      'gpu-type': 'nvidia',
-    });
+    expect(task.k8s.raw).toContain('serviceAccount');
+  });
+
+  it('omits k8s field when no options set', () => {
+    const p = new Pipeline();
+    p.task('test').run('npm test');
+
+    const json = p.toJSON();
+    const task = (json.tasks as any[])[0];
+    expect(task.k8s).toBeUndefined();
   });
 });
 
@@ -776,31 +755,21 @@ describe('JSON Output Edge Cases', () => {
     });
   });
 
-  describe('full K8s options', () => {
-    it('serializes all K8s options correctly', () => {
+  describe('K8s with raw JSON escape hatch', () => {
+    it('serializes k8s options with raw JSON correctly', () => {
       const p = new Pipeline();
       p.task('gpu')
         .run('train.py')
-        .k8s({
-          namespace: 'ml-jobs',
-          nodeSelector: { 'gpu-type': 'nvidia' },
-          tolerations: [{ key: 'gpu', operator: 'Exists', effect: 'NoSchedule' }],
-          resources: { requestMemory: '32Gi', limitMemory: '64Gi' },
-          gpu: 2,
-          serviceAccount: 'ml-runner',
-          securityContext: { runAsUser: 1000, privileged: true },
-          hostNetwork: true,
-          dnsPolicy: 'ClusterFirstWithHostNet',
-        });
+        .k8s({ memory: '32Gi', cpu: '4', gpu: 2 })
+        .k8sRaw('{"serviceAccount": "ml-runner", "nodeSelector": {"gpu-type": "nvidia"}}');
 
       const json = p.toJSON();
       const task = (json.tasks as any[])[0];
-      expect(task.k8s.namespace).toBe('ml-jobs');
-      expect(task.k8s.node_selector).toEqual({ 'gpu-type': 'nvidia' });
-      expect(task.k8s.tolerations).toHaveLength(1);
+      expect(task.k8s.memory).toBe('32Gi');
+      expect(task.k8s.cpu).toBe('4');
       expect(task.k8s.gpu).toBe(2);
-      expect(task.k8s.service_account).toBe('ml-runner');
-      expect(task.k8s.host_network).toBe(true);
+      expect(task.k8s.raw).toContain('serviceAccount');
+      expect(task.k8s.raw).toContain('nodeSelector');
     });
   });
 });

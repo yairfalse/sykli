@@ -174,7 +174,7 @@ defmodule SykliTest do
     end
   end
 
-  describe "K8s validation" do
+  describe "K8s validation (Minimal API)" do
     alias Sykli.K8s
 
     test "accepts valid memory formats" do
@@ -205,26 +205,20 @@ defmodule SykliTest do
       assert error.message =~ "invalid CPU format"
     end
 
-    test "validates tolerations" do
-      {:error, [error]} = K8s.validate(
-        K8s.options() |> K8s.toleration("key", "Invalid", "NoSchedule")
-      )
-      assert error.message =~ "must be 'Exists' or 'Equal'"
-
-      {:error, [error]} = K8s.validate(
-        K8s.options() |> K8s.toleration("key", "Equal", "InvalidEffect")
-      )
-      assert error.message =~ "must be 'NoSchedule'"
+    test "sets gpu" do
+      opts = K8s.options() |> K8s.gpu(2)
+      assert opts.gpu == 2
     end
 
-    test "validates DNS policy" do
-      {:error, [error]} = K8s.validate(K8s.options() |> K8s.dns_policy("Invalid"))
-      assert error.message =~ "must be one of"
-    end
+    test "raw passes through advanced options" do
+      opts = K8s.options()
+             |> K8s.memory("32Gi")
+             |> K8s.gpu(1)
+             |> K8s.raw(~s({"nodeSelector": {"gpu": "true"}}))
 
-    test "validates volume mount paths" do
-      {:error, errors} = K8s.validate(K8s.options() |> K8s.mount_config_map("config", "relative/path"))
-      assert Enum.any?(errors, &(&1.message =~ "must be absolute"))
+      assert opts.memory == "32Gi"
+      assert opts.gpu == 1
+      assert opts.raw =~ "nodeSelector"
     end
 
     test "k8s options in task emits correctly" do
@@ -244,9 +238,31 @@ defmodule SykliTest do
       decoded = Jason.decode!(json)
 
       task = hd(decoded["tasks"])
-      assert task["k8s"]["resources"]["memory"] == "4Gi"
-      assert task["k8s"]["resources"]["cpu"] == "2"
+      assert task["k8s"]["memory"] == "4Gi"
+      assert task["k8s"]["cpu"] == "2"
       assert task["k8s"]["gpu"] == 1
+    end
+
+    test "k8s raw escape hatch emits correctly" do
+      use Sykli
+
+      result = pipeline do
+        task "gpu-train" do
+          run "python train.py"
+          k8s K8s.options()
+               |> K8s.memory("32Gi")
+               |> K8s.gpu(1)
+               |> K8s.raw(~s({"serviceAccount": "ml-runner"}))
+        end
+      end
+
+      json = Sykli.Emitter.to_json(result)
+      decoded = Jason.decode!(json)
+
+      task = hd(decoded["tasks"])
+      assert task["k8s"]["memory"] == "32Gi"
+      assert task["k8s"]["gpu"] == 1
+      assert task["k8s"]["raw"] =~ "serviceAccount"
     end
 
     test "raises on invalid k8s in pipeline validation" do
