@@ -772,4 +772,39 @@ describe('JSON Output Edge Cases', () => {
       expect(task.k8s.raw).toContain('nodeSelector');
     });
   });
+
+  describe('Language presets', () => {
+    it('creates Node preset tasks', () => {
+      const p = new Pipeline();
+      p.node().test();
+      p.node().lint();
+      p.node().build().after('test', 'lint');
+
+      const json = p.toJSON();
+      expect((json.tasks as any[]).map(t => t.name)).toEqual(['test', 'lint', 'build']);
+      expect((json.tasks as any[]).find(t => t.name === 'test').command).toBe('npm test');
+      expect((json.tasks as any[]).find(t => t.name === 'lint').command).toBe('npm run lint');
+      expect((json.tasks as any[]).find(t => t.name === 'build').command).toBe('npm run build');
+    });
+
+    it('creates TypeScript preset tasks with typecheck', () => {
+      const p = new Pipeline();
+      p.typescript().typecheck();
+      p.typescript().test();
+
+      const json = p.toJSON();
+      expect((json.tasks as any[]).find(t => t.name === 'typecheck').command).toBe('npx tsc --noEmit');
+      expect((json.tasks as any[]).find(t => t.name === 'test').command).toBe('npm test');
+    });
+
+    it('preset tasks include proper inputs', () => {
+      const p = new Pipeline();
+      p.node().test();
+
+      const json = p.toJSON();
+      const testTask = (json.tasks as any[])[0];
+      expect(testTask.inputs).toContain('**/*.js');
+      expect(testTask.inputs).toContain('package.json');
+    });
+  });
 });
