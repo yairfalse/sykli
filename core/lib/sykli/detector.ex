@@ -10,11 +10,26 @@ defmodule Sykli.Detector do
     {"sykli.ts", &__MODULE__.run_typescript/1}
   ]
 
+  # SDK emission timeout (2 minutes - allows for compilation)
+  @emit_timeout 120_000
+
   # Check if a command exists in PATH
   defp command_exists?(cmd) do
     case System.find_executable(cmd) do
       nil -> false
       _path -> true
+    end
+  end
+
+  # Run a command with timeout to prevent hangs
+  defp run_cmd(cmd, args, opts) do
+    task = Task.async(fn ->
+      System.cmd(cmd, args, opts)
+    end)
+
+    case Task.yield(task, @emit_timeout) || Task.shutdown(task) do
+      {:ok, result} -> result
+      nil -> {:error, :timeout}
     end
   end
 
@@ -50,10 +65,13 @@ defmodule Sykli.Detector do
       dir = Path.dirname(path)
       file = Path.basename(path)
 
-      case System.cmd("go", ["run", file, "--emit"], cd: dir, stderr_to_stdout: true) do
+      case run_cmd("go", ["run", file, "--emit"], cd: dir, stderr_to_stdout: true) do
         {output, 0} ->
           # go run outputs download messages then JSON - extract just the JSON
           extract_json(output)
+
+        {:error, :timeout} ->
+          {:error, {:go_timeout, "SDK emission timed out after 2 minutes"}}
 
         {error, _} ->
           {:error, {:go_failed, error}}
@@ -69,8 +87,9 @@ defmodule Sykli.Detector do
     cond do
       # Pre-compiled binary exists
       File.exists?(bin) ->
-        case System.cmd(bin, ["--emit"], cd: dir, stderr_to_stdout: true) do
+        case run_cmd(bin, ["--emit"], cd: dir, stderr_to_stdout: true) do
           {output, 0} -> {:ok, output}
+          {:error, :timeout} -> {:error, {:rust_timeout, "SDK emission timed out"}}
           {error, _} -> {:error, {:rust_failed, error}}
         end
 
@@ -79,7 +98,7 @@ defmodule Sykli.Detector do
         if not command_exists?("cargo") do
           {:error, {:missing_tool, "cargo", "Install Rust from https://rustup.rs/"}}
         else
-          case System.cmd(
+          case run_cmd(
                  "cargo",
                  ["run", "--bin", "sykli", "--features", "sykli", "--", "--emit"],
                  cd: dir,
@@ -88,6 +107,9 @@ defmodule Sykli.Detector do
             {output, 0} ->
               # cargo run outputs build info then JSON - extract just the JSON
               extract_json(output)
+
+            {:error, :timeout} ->
+              {:error, {:rust_timeout, "Cargo build timed out after 2 minutes"}}
 
             {error, _} ->
               {:error, {:rust_cargo_failed, error}}
@@ -124,10 +146,13 @@ defmodule Sykli.Detector do
 
       # Run elixir script with --emit flag
       # The script should use `Mix.install([{:sykli, path: "..."}])` or have sykli available
-      case System.cmd("elixir", [file, "--emit"], cd: dir, stderr_to_stdout: true) do
+      case run_cmd("elixir", [file, "--emit"], cd: dir, stderr_to_stdout: true) do
         {output, 0} ->
           # Extract JSON from output (Logger.debug messages may be mixed in)
           extract_json(output)
+
+        {:error, :timeout} ->
+          {:error, {:elixir_timeout, "SDK emission timed out after 2 minutes"}}
 
         {error, _} ->
           {:error, {:elixir_failed, error}}
@@ -145,9 +170,12 @@ defmodule Sykli.Detector do
       # Try tsx first (faster), fall back to ts-node
       runner = if tsx_available?(), do: "tsx", else: "ts-node"
 
-      case System.cmd("npx", [runner, file, "--emit"], cd: dir, stderr_to_stdout: true) do
+      case run_cmd("npx", [runner, file, "--emit"], cd: dir, stderr_to_stdout: true) do
         {output, 0} ->
           extract_json(output)
+
+        {:error, :timeout} ->
+          {:error, {:typescript_timeout, "SDK emission timed out after 2 minutes"}}
 
         {error, _} ->
           {:error, {:typescript_failed, error}}
@@ -156,8 +184,13 @@ defmodule Sykli.Detector do
   end
 
   defp tsx_available? do
-    case System.cmd("npx", ["tsx", "--version"], stderr_to_stdout: true) do
-      {_, 0} -> true
+    # Quick check with short timeout (5 seconds)
+    task = Task.async(fn ->
+      System.cmd("npx", ["tsx", "--version"], stderr_to_stdout: true)
+    end)
+
+    case Task.yield(task, 5_000) || Task.shutdown(task) do
+      {:ok, {_, 0}} -> true
       _ -> false
     end
   rescue

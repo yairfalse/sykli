@@ -24,8 +24,12 @@ defmodule Sykli.Cache do
   defp blobs_dir, do: Path.join(cache_dir(), "blobs")
 
   def init do
-    File.mkdir_p!(meta_dir())
-    File.mkdir_p!(blobs_dir())
+    with :ok <- File.mkdir_p(meta_dir()),
+         :ok <- File.mkdir_p(blobs_dir()) do
+      :ok
+    else
+      {:error, reason} -> {:error, {:init_failed, reason}}
+    end
   end
 
   def get_cache_dir, do: cache_dir()
@@ -218,15 +222,20 @@ defmodule Sykli.Cache do
     meta_path = meta_path(key)
     # Atomic write: write to temp file then rename
     tmp_path = meta_path <> ".tmp." <> Integer.to_string(:erlang.unique_integer([:positive]))
-    File.write!(tmp_path, Jason.encode!(meta, pretty: true))
 
-    case File.rename(tmp_path, meta_path) do
+    case File.write(tmp_path, Jason.encode!(meta, pretty: true)) do
       :ok ->
-        :ok
+        case File.rename(tmp_path, meta_path) do
+          :ok ->
+            :ok
 
-      {:error, _} ->
-        File.rm(tmp_path)
-        :ok
+          {:error, _} ->
+            File.rm(tmp_path)
+            :ok
+        end
+
+      {:error, reason} ->
+        {:error, {:write_failed, reason}}
     end
   end
 
@@ -264,10 +273,9 @@ defmodule Sykli.Cache do
   Clean all cache entries.
   """
   def clean do
-    File.rm_rf!(meta_dir())
-    File.rm_rf!(blobs_dir())
+    File.rm_rf(meta_dir())
+    File.rm_rf(blobs_dir())
     init()
-    :ok
   end
 
   @doc """
@@ -507,14 +515,18 @@ defmodule Sykli.Cache do
         # Atomically write blob to avoid race conditions
         unless File.exists?(dest) do
           tmp_path = dest <> ".tmp." <> Integer.to_string(:erlang.unique_integer([:positive]))
-          File.write!(tmp_path, content)
 
-          case File.rename(tmp_path, dest) do
-            :ok -> :ok
-            # Another process won the race
-            {:error, :eexist} -> File.rm(tmp_path)
-            # Clean up temp file on error
-            {:error, _} -> File.rm(tmp_path)
+          case File.write(tmp_path, content) do
+            :ok ->
+              case File.rename(tmp_path, dest) do
+                :ok -> :ok
+                # Another process won the race, or other error - clean up
+                {:error, _} -> File.rm(tmp_path)
+              end
+
+            {:error, _} ->
+              # Failed to write temp file, skip this blob
+              nil
           end
         end
 
@@ -563,16 +575,13 @@ defmodule Sykli.Cache do
     src_path = blob_path(blob_hash)
 
     # Ensure parent directory exists
-    dest_path |> Path.dirname() |> File.mkdir_p!()
-
-    case File.read(src_path) do
-      {:ok, content} ->
-        File.write!(dest_path, content)
-        File.chmod!(dest_path, mode)
-        :ok
-
-      {:error, reason} ->
-        {:error, {:blob_missing, blob_hash, reason}}
+    with :ok <- dest_path |> Path.dirname() |> File.mkdir_p(),
+         {:ok, content} <- File.read(src_path),
+         :ok <- File.write(dest_path, content),
+         :ok <- File.chmod(dest_path, mode) do
+      :ok
+    else
+      {:error, reason} -> {:error, {:restore_failed, rel_path, reason}}
     end
   end
 

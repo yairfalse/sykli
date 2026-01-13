@@ -502,10 +502,14 @@ defmodule Sykli.Executor do
       branch = System.get_env("CI_COMMIT_BRANCH") ->
         branch
 
-      # Generic / local - try git
+      # Generic / local - try git (with timeout)
       true ->
-        case System.cmd("git", ["rev-parse", "--abbrev-ref", "HEAD"], stderr_to_stdout: true) do
-          {branch, 0} -> String.trim(branch)
+        task = Task.async(fn ->
+          System.cmd("git", ["rev-parse", "--abbrev-ref", "HEAD"], stderr_to_stdout: true)
+        end)
+
+        case Task.yield(task, 5_000) || Task.shutdown(task) do
+          {:ok, {branch, 0}} -> String.trim(branch)
           _ -> nil
         end
     end

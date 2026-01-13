@@ -16,7 +16,12 @@ defmodule Sykli do
     - target: target module to use (default: Sykli.Target.Local)
   """
   def run(path \\ ".", opts \\ []) do
-    Cache.init()
+    case Cache.init() do
+      :ok -> :ok
+      {:error, reason} ->
+        IO.puts("#{IO.ANSI.yellow()}⚠ Warning: Cache unavailable: #{inspect(reason)}#{IO.ANSI.reset()}")
+    end
+
     filter_fn = Keyword.get(opts, :filter)
     save_history = Keyword.get(opts, :save_history, true)
 
@@ -163,10 +168,14 @@ defmodule Sykli do
       overall: overall
     }
 
-    RunHistory.save(run, path: path)
+    case RunHistory.save(run, path: path) do
+      :ok -> :ok
+      {:error, reason} ->
+        IO.puts("#{IO.ANSI.yellow()}⚠ Warning: Failed to save run history: #{inspect(reason)}#{IO.ANSI.reset()}")
+    end
   rescue
-    # Don't fail the run if history saving fails
-    _ -> :ok
+    e ->
+      IO.puts("#{IO.ANSI.yellow()}⚠ Warning: Failed to save run history: #{Exception.message(e)}#{IO.ANSI.reset()}")
   end
 
   # Add likely cause to failed tasks by correlating git changes with task inputs
@@ -212,9 +221,12 @@ defmodule Sykli do
     end
   end
 
+  # Git command timeout (10 seconds)
+  @git_timeout 10_000
+
   defp get_changed_files_since(ref, path) do
-    case System.cmd("git", ["diff", "--name-only", ref], cd: path, stderr_to_stdout: true) do
-      {output, 0} ->
+    case run_git(["diff", "--name-only", ref], path) do
+      {:ok, output} ->
         output
         |> String.split("\n", trim: true)
         |> MapSet.new()
@@ -284,19 +296,29 @@ defmodule Sykli do
   end
 
   defp get_git_ref(path) do
-    case System.cmd("git", ["rev-parse", "--short", "HEAD"], cd: path, stderr_to_stdout: true) do
-      {ref, 0} -> String.trim(ref)
+    case run_git(["rev-parse", "--short", "HEAD"], path) do
+      {:ok, ref} -> String.trim(ref)
       _ -> "unknown"
     end
   end
 
   defp get_git_branch(path) do
-    case System.cmd("git", ["rev-parse", "--abbrev-ref", "HEAD"],
-           cd: path,
-           stderr_to_stdout: true
-         ) do
-      {branch, 0} -> String.trim(branch)
+    case run_git(["rev-parse", "--abbrev-ref", "HEAD"], path) do
+      {:ok, branch} -> String.trim(branch)
       _ -> "unknown"
+    end
+  end
+
+  # Run a git command with timeout to prevent hangs
+  defp run_git(args, path) do
+    task = Task.async(fn ->
+      System.cmd("git", args, cd: path, stderr_to_stdout: true)
+    end)
+
+    case Task.yield(task, @git_timeout) || Task.shutdown(task) do
+      {:ok, {output, 0}} -> {:ok, output}
+      {:ok, {_, _code}} -> {:error, :git_failed}
+      nil -> {:error, :git_timeout}
     end
   end
 

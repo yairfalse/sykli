@@ -185,12 +185,22 @@ defmodule Sykli.RunHistory do
 
   defp update_symlink(runs_dir, target, link_name) do
     link_path = Path.join(runs_dir, link_name)
+    temp_link = link_path <> ".new.#{:rand.uniform(100_000)}"
 
-    # Remove existing symlink if present
-    File.rm(link_path)
+    # Atomic symlink update: create new link, then rename over old one
+    # This avoids a window where the symlink doesn't exist
+    case File.ln_s(target, temp_link) do
+      :ok ->
+        case File.rename(temp_link, link_path) do
+          :ok -> :ok
+          {:error, _} = error ->
+            File.rm(temp_link)
+            error
+        end
 
-    # Create new symlink (use relative path)
-    File.ln_s(target, link_path)
+      {:error, _} = error ->
+        error
+    end
   end
 
   defp encode_run(%Run{} = run) do
