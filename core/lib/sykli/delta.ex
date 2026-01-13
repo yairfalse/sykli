@@ -74,33 +74,33 @@ defmodule Sykli.Delta do
     Enum.filter(tasks, fn task -> MapSet.member?(affected_set, task.name) end)
   end
 
+  # Git command timeout (30 seconds)
+  @git_timeout 30_000
+
   # Get list of changed files from git (relative to project path)
   defp get_changed_files_impl(from, path) do
     # First check if we're in a git repo
-    case System.cmd("git", ["rev-parse", "--git-dir"], cd: path, stderr_to_stdout: true) do
-      {_, 0} ->
+    case run_git(["rev-parse", "--git-dir"], path) do
+      {:ok, _} ->
         get_git_changes(from, path)
 
-      {_, _} ->
+      {:error, {:git_failed, _, _}} ->
         {:error, {:not_a_git_repo, path}}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
   defp get_git_changes(from, path) do
     # Use --relative to get paths relative to the project directory
-    case System.cmd("git", ["diff", "--name-only", "--relative", from],
-           cd: path,
-           stderr_to_stdout: true
-         ) do
-      {output, 0} ->
+    case run_git(["diff", "--name-only", "--relative", from], path) do
+      {:ok, output} ->
         files = output |> String.trim() |> String.split("\n", trim: true)
 
         # Also get untracked files (relative to current directory)
-        case System.cmd("git", ["ls-files", "--others", "--exclude-standard"],
-               cd: path,
-               stderr_to_stdout: true
-             ) do
-          {untracked, 0} ->
+        case run_git(["ls-files", "--others", "--exclude-standard"], path) do
+          {:ok, untracked} ->
             untracked_files = untracked |> String.trim() |> String.split("\n", trim: true)
             {:ok, Enum.uniq(files ++ untracked_files)}
 
@@ -108,7 +108,7 @@ defmodule Sykli.Delta do
             {:ok, files}
         end
 
-      {error, code} ->
+      {:error, {:git_failed, error, _code}} ->
         cond do
           String.contains?(error, "unknown revision") ->
             {:error, {:unknown_ref, from}}
@@ -117,8 +117,29 @@ defmodule Sykli.Delta do
             {:error, {:bad_revision, from}}
 
           true ->
-            {:error, {:git_failed, error, code}}
+            {:error, {:git_failed, error}}
         end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # Run a git command with timeout to prevent hangs
+  defp run_git(args, path) do
+    task = Task.async(fn ->
+      System.cmd("git", args, cd: path, stderr_to_stdout: true)
+    end)
+
+    case Task.yield(task, @git_timeout) || Task.shutdown(task) do
+      {:ok, {output, 0}} ->
+        {:ok, output}
+
+      {:ok, {error, code}} ->
+        {:error, {:git_failed, error, code}}
+
+      nil ->
+        {:error, {:git_timeout, args}}
     end
   end
 
