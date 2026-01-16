@@ -235,4 +235,168 @@ defmodule Sykli.Target.K8s.SourceTest do
       assert :ok = Source.validate_git_context(ctx, allow_dirty: true)
     end
   end
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # SHELL INJECTION PREVENTION (Security tests for issue #55)
+  # ─────────────────────────────────────────────────────────────────────────────
+
+  describe "validate_shell_safe/2" do
+    test "accepts valid SHA (7+ hex chars)" do
+      assert {:ok, "abc123f"} = Source.validate_shell_safe("abc123f", :sha)
+
+      assert {:ok, "abc123def456789012345678901234567890abcd"} =
+               Source.validate_shell_safe("abc123def456789012345678901234567890abcd", :sha)
+    end
+
+    test "rejects SHA with shell metacharacters" do
+      assert {:error, {:invalid_chars, :sha, _}} =
+               Source.validate_shell_safe("abc123;rm -rf /", :sha)
+
+      assert {:error, {:invalid_chars, :sha, _}} =
+               Source.validate_shell_safe("abc123`whoami`", :sha)
+
+      assert {:error, {:invalid_chars, :sha, _}} =
+               Source.validate_shell_safe("abc123$(cat /etc/passwd)", :sha)
+    end
+
+    test "accepts valid branch names" do
+      assert {:ok, "main"} = Source.validate_shell_safe("main", :branch)
+      assert {:ok, "feature/new-thing"} = Source.validate_shell_safe("feature/new-thing", :branch)
+      assert {:ok, "release-1.0.0"} = Source.validate_shell_safe("release-1.0.0", :branch)
+    end
+
+    test "rejects branch with shell metacharacters" do
+      assert {:error, {:invalid_chars, :branch, _}} =
+               Source.validate_shell_safe("main;rm -rf /", :branch)
+
+      assert {:error, {:invalid_chars, :branch, _}} =
+               Source.validate_shell_safe("main`id`", :branch)
+
+      assert {:error, {:invalid_chars, :branch, _}} =
+               Source.validate_shell_safe("main$(whoami)", :branch)
+
+      assert {:error, {:invalid_chars, :branch, _}} =
+               Source.validate_shell_safe("main && evil", :branch)
+    end
+
+    test "accepts valid hostnames" do
+      assert {:ok, "github.com"} = Source.validate_shell_safe("github.com", :host)
+      assert {:ok, "gitlab.example.org"} = Source.validate_shell_safe("gitlab.example.org", :host)
+    end
+
+    test "rejects hostname with shell metacharacters" do
+      assert {:error, {:invalid_chars, :host, _}} =
+               Source.validate_shell_safe("evil.com;rm -rf /", :host)
+
+      assert {:error, {:invalid_chars, :host, _}} =
+               Source.validate_shell_safe("evil.com:org/repo", :host)
+    end
+
+    test "accepts valid paths" do
+      assert {:ok, "/workspace"} = Source.validate_shell_safe("/workspace", :path)
+      assert {:ok, "/app/src"} = Source.validate_shell_safe("/app/src", :path)
+    end
+
+    test "rejects path with shell metacharacters" do
+      assert {:error, {:invalid_chars, :path, _}} =
+               Source.validate_shell_safe("/workspace;id", :path)
+
+      assert {:error, {:invalid_chars, :path, _}} =
+               Source.validate_shell_safe("/workspace$(whoami)", :path)
+    end
+
+    test "accepts nil values" do
+      assert {:ok, nil} = Source.validate_shell_safe(nil, :branch)
+    end
+  end
+
+  describe "validate_git_url/1" do
+    test "accepts valid HTTPS URLs" do
+      assert {:ok, _} = Source.validate_git_url("https://github.com/org/repo.git")
+      assert {:ok, _} = Source.validate_git_url("https://gitlab.com/group/subgroup/repo.git")
+    end
+
+    test "accepts valid SSH URLs" do
+      assert {:ok, _} = Source.validate_git_url("git@github.com:org/repo.git")
+      assert {:ok, _} = Source.validate_git_url("git@gitlab.com:group/repo.git")
+    end
+
+    test "rejects URLs with shell injection in SSH format" do
+      # This is the attack vector from issue #55
+      assert {:error, {:invalid_url, _}} =
+               Source.validate_git_url("git@evil.com;rm -rf /:org/repo.git")
+    end
+
+    test "rejects URLs with command substitution" do
+      assert {:error, {:invalid_url, _}} =
+               Source.validate_git_url("https://github.com/$(whoami)/repo.git")
+
+      assert {:error, {:invalid_url, _}} =
+               Source.validate_git_url("git@github.com:`id`:repo.git")
+    end
+
+    test "rejects URLs with semicolons" do
+      assert {:error, {:invalid_url, _}} =
+               Source.validate_git_url("https://github.com/org/repo.git;evil")
+    end
+
+    test "rejects unsupported URL schemes" do
+      assert {:error, {:invalid_url, _}} = Source.validate_git_url("file:///etc/passwd")
+      assert {:error, {:invalid_url, _}} = Source.validate_git_url("ftp://evil.com/repo")
+    end
+
+    test "accepts nil" do
+      assert {:ok, nil} = Source.validate_git_url(nil)
+    end
+  end
+
+  describe "build_init_container/2 shell injection prevention" do
+    test "raises on malicious SHA" do
+      git_ctx = %{
+        url: "https://github.com/org/repo.git",
+        branch: "main",
+        sha: "abc123;rm -rf /"
+      }
+
+      assert_raise RuntimeError, ~r/Invalid git SHA/, fn ->
+        Source.build_init_container(git_ctx, [])
+      end
+    end
+
+    test "raises on malicious branch" do
+      git_ctx = %{
+        url: "https://github.com/org/repo.git",
+        branch: "main$(whoami)",
+        sha: "abc123def456"
+      }
+
+      assert_raise RuntimeError, ~r/Invalid branch name/, fn ->
+        Source.build_init_container(git_ctx, [])
+      end
+    end
+
+    test "raises on malicious URL" do
+      git_ctx = %{
+        url: "git@evil.com;cat /etc/passwd:org/repo.git",
+        branch: "main",
+        sha: "abc123def456"
+      }
+
+      assert_raise RuntimeError, ~r/Invalid git URL/, fn ->
+        Source.build_init_container(git_ctx, [])
+      end
+    end
+
+    test "raises on command substitution in URL" do
+      git_ctx = %{
+        url: "https://github.com/$(id)/repo.git",
+        branch: "main",
+        sha: "abc123def456"
+      }
+
+      assert_raise RuntimeError, ~r/Invalid git URL/, fn ->
+        Source.build_init_container(git_ctx, [])
+      end
+    end
+  end
 end
