@@ -19,10 +19,6 @@ defmodule Sykli.Executor.OptsThreadingTest do
       Process.get(:mock_target_opts, [])
     end
 
-    def clear_captured_opts do
-      Process.put(:mock_target_opts, [])
-    end
-
     @impl true
     def name, do: "mock"
 
@@ -43,7 +39,7 @@ defmodule Sykli.Executor.OptsThreadingTest do
     def resolve_secret(_name, _state), do: {:error, :not_found}
 
     @impl true
-    def create_volume(_name, _opts, _state), do: {:ok, %{id: "mock"}}
+    def create_volume(_name, _opts, _state), do: {:ok, %{id: "mock", host_path: nil, reference: "mock"}}
 
     @impl true
     def artifact_path(_task, _artifact, _workdir, _state), do: "/mock/path"
