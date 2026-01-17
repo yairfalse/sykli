@@ -85,7 +85,10 @@ defmodule Sykli.Executor.Mesh do
     # Setup a local target for services, secrets, artifacts
     case Local.setup(opts) do
       {:ok, local_state} ->
-        IO.puts("#{IO.ANSI.cyan()}Target: mesh (#{length(Mesh.available_nodes())} nodes)#{IO.ANSI.reset()}")
+        IO.puts(
+          "#{IO.ANSI.cyan()}Target: mesh (#{length(Mesh.available_nodes())} nodes)#{IO.ANSI.reset()}"
+        )
+
         {:ok, %__MODULE__{workdir: workdir, local_state: local_state}}
 
       {:error, reason} ->
@@ -134,7 +137,10 @@ defmodule Sykli.Executor.Mesh do
         :ok
 
       {:error, %NodeSelector.PlacementError{} = error} ->
-        Logger.error("[Mesh] Placement failed for #{task.name}: #{NodeSelector.PlacementError.format(error)}")
+        Logger.error(
+          "[Mesh] Placement failed for #{task.name}: #{NodeSelector.PlacementError.format(error)}"
+        )
+
         {:error, error}
     end
   end

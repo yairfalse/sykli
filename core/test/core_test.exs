@@ -331,7 +331,9 @@ defmodule SykliTest do
   # ----- TASK REQUIREMENTS (NODE LABELS) -----
 
   test "parses requires from JSON" do
-    json = ~s({"tasks":[{"name":"train","command":"python train.py","requires":["gpu","docker"]}]})
+    json =
+      ~s({"tasks":[{"name":"train","command":"python train.py","requires":["gpu","docker"]}]})
+
     {:ok, graph} = Sykli.Graph.parse(json)
     task = Map.get(graph, "train")
     assert task.requires == ["gpu", "docker"]

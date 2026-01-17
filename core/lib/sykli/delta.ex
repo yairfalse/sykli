@@ -127,9 +127,10 @@ defmodule Sykli.Delta do
 
   # Run a git command with timeout to prevent hangs
   defp run_git(args, path) do
-    task = Task.async(fn ->
-      System.cmd("git", args, cd: path, stderr_to_stdout: true)
-    end)
+    task =
+      Task.async(fn ->
+        System.cmd("git", args, cd: path, stderr_to_stdout: true)
+      end)
 
     case Task.yield(task, @git_timeout) || Task.shutdown(task) do
       {:ok, {output, 0}} ->

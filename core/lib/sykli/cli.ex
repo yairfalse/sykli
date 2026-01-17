@@ -1168,6 +1168,7 @@ defmodule Sykli.CLI do
     case parse_labels_arg(args) do
       {:ok, labels} when labels != nil ->
         System.put_env("SYKLI_LABELS", labels)
+
       _ ->
         :ok
     end

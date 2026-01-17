@@ -33,9 +33,13 @@ defmodule Sykli.MeshLabelsTest do
   describe "local_capabilities/0 with SYKLI_LABELS" do
     setup do
       original = System.get_env("SYKLI_LABELS")
+
       on_exit(fn ->
-        if original, do: System.put_env("SYKLI_LABELS", original), else: System.delete_env("SYKLI_LABELS")
+        if original,
+          do: System.put_env("SYKLI_LABELS", original),
+          else: System.delete_env("SYKLI_LABELS")
       end)
+
       :ok
     end
 

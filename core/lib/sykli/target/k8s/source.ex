@@ -52,12 +52,13 @@ defmodule Sykli.Target.K8s.Source do
   Returns `{:ok, value}` if safe, `{:error, reason}` otherwise.
   """
   def validate_shell_safe(value, type) when is_binary(value) do
-    pattern = case type do
-      :sha -> @sha_pattern
-      :branch -> @branch_pattern
-      :host -> @host_pattern
-      :path -> @path_pattern
-    end
+    pattern =
+      case type do
+        :sha -> @sha_pattern
+        :branch -> @branch_pattern
+        :host -> @host_pattern
+        :path -> @path_pattern
+      end
 
     if Regex.match?(pattern, value) do
       {:ok, value}
@@ -79,6 +80,7 @@ defmodule Sykli.Target.K8s.Source do
       String.starts_with?(url, "https://") ->
         # Check the rest of the URL has safe chars
         rest = String.replace_prefix(url, "https://", "")
+
         if Regex.match?(~r/^[a-zA-Z0-9\/_.-]+$/, rest) do
           {:ok, url}
         else
@@ -103,6 +105,7 @@ defmodule Sykli.Target.K8s.Source do
 
   # Shell-quote a string (single quotes, escaping embedded single quotes)
   defp shell_quote(nil), do: "''"
+
   defp shell_quote(value) when is_binary(value) do
     escaped = String.replace(value, "'", "'\"'\"'")
     "'#{escaped}'"

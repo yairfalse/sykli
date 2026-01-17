@@ -17,9 +17,13 @@ defmodule Sykli do
   """
   def run(path \\ ".", opts \\ []) do
     case Cache.init() do
-      :ok -> :ok
+      :ok ->
+        :ok
+
       {:error, reason} ->
-        IO.puts("#{IO.ANSI.yellow()}⚠ Warning: Cache unavailable: #{inspect(reason)}#{IO.ANSI.reset()}")
+        IO.puts(
+          "#{IO.ANSI.yellow()}⚠ Warning: Cache unavailable: #{inspect(reason)}#{IO.ANSI.reset()}"
+        )
     end
 
     filter_fn = Keyword.get(opts, :filter)
@@ -169,13 +173,19 @@ defmodule Sykli do
     }
 
     case RunHistory.save(run, path: path) do
-      :ok -> :ok
+      :ok ->
+        :ok
+
       {:error, reason} ->
-        IO.puts("#{IO.ANSI.yellow()}⚠ Warning: Failed to save run history: #{inspect(reason)}#{IO.ANSI.reset()}")
+        IO.puts(
+          "#{IO.ANSI.yellow()}⚠ Warning: Failed to save run history: #{inspect(reason)}#{IO.ANSI.reset()}"
+        )
     end
   rescue
     e ->
-      IO.puts("#{IO.ANSI.yellow()}⚠ Warning: Failed to save run history: #{Exception.message(e)}#{IO.ANSI.reset()}")
+      IO.puts(
+        "#{IO.ANSI.yellow()}⚠ Warning: Failed to save run history: #{Exception.message(e)}#{IO.ANSI.reset()}"
+      )
   end
 
   # Add likely cause to failed tasks by correlating git changes with task inputs
@@ -311,9 +321,10 @@ defmodule Sykli do
 
   # Run a git command with timeout to prevent hangs
   defp run_git(args, path) do
-    task = Task.async(fn ->
-      System.cmd("git", args, cd: path, stderr_to_stdout: true)
-    end)
+    task =
+      Task.async(fn ->
+        System.cmd("git", args, cd: path, stderr_to_stdout: true)
+      end)
 
     case Task.yield(task, @git_timeout) || Task.shutdown(task) do
       {:ok, {output, 0}} -> {:ok, output}

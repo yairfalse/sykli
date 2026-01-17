@@ -53,13 +53,15 @@ defmodule Sykli.NodeSelectorTest do
       # server1 and server2 have both docker and linux
       assert :server1 in result
       assert :server2 in result
-      refute :local in result  # darwin, not linux
+      # darwin, not linux
+      refute :local in result
     end
 
     test "returns empty when no nodes match" do
       nodes = [:local, :server1, :server2]
       caps = mock_capabilities()
-      t = task(requires: ["kubernetes"])  # nobody has this
+      # nobody has this
+      t = task(requires: ["kubernetes"])
 
       result = NodeSelector.filter_by_labels(t, nodes, caps)
 
@@ -82,12 +84,13 @@ defmodule Sykli.NodeSelectorTest do
     test "returns {:ok, node} on first success" do
       runner = success_runner([:server1, :server2])
 
-      result = NodeSelector.try_nodes(
-        task(),
-        [:local, :server1, :server2],
-        [],
-        runner
-      )
+      result =
+        NodeSelector.try_nodes(
+          task(),
+          [:local, :server1, :server2],
+          [],
+          runner
+        )
 
       # local fails, server1 succeeds
       assert {:ok, :server1} = result
@@ -112,15 +115,17 @@ defmodule Sykli.NodeSelectorTest do
 
       runner = fn node, _task, _opts ->
         Agent.update(tried, &[node | &1])
-        :ok  # always succeed
+        # always succeed
+        :ok
       end
 
-      {:ok, :local} = NodeSelector.try_nodes(
-        task(),
-        [:local, :server1, :server2],
-        [],
-        runner
-      )
+      {:ok, :local} =
+        NodeSelector.try_nodes(
+          task(),
+          [:local, :server1, :server2],
+          [],
+          runner
+        )
 
       # Should only try first node
       assert Agent.get(tried, & &1) == [:local]
@@ -131,12 +136,13 @@ defmodule Sykli.NodeSelectorTest do
         {:error, "#{node} exploded"}
       end
 
-      result = NodeSelector.try_nodes(
-        task(name: "build"),
-        [:local, :server1],
-        [],
-        runner
-      )
+      result =
+        NodeSelector.try_nodes(
+          task(name: "build"),
+          [:local, :server1],
+          [],
+          runner
+        )
 
       assert {:error, %PlacementError{} = error} = result
       assert error.task_name == "build"
@@ -164,13 +170,14 @@ defmodule Sykli.NodeSelectorTest do
         if node == :server1, do: :ok, else: {:error, "nope"}
       end
 
-      result = NodeSelector.select_and_try(
-        task(requires: ["gpu"]),
-        [:local, :server1, :server2],
-        caps,
-        [],
-        runner
-      )
+      result =
+        NodeSelector.select_and_try(
+          task(requires: ["gpu"]),
+          [:local, :server1, :server2],
+          caps,
+          [],
+          runner
+        )
 
       # Only server1 has gpu, and it succeeds
       assert {:ok, :server1} = result
@@ -180,13 +187,14 @@ defmodule Sykli.NodeSelectorTest do
       caps = mock_capabilities()
       runner = fn _, _, _ -> :ok end
 
-      result = NodeSelector.select_and_try(
-        task(name: "k8s-task", requires: ["kubernetes"]),
-        [:local, :server1],
-        caps,
-        [],
-        runner
-      )
+      result =
+        NodeSelector.select_and_try(
+          task(name: "k8s-task", requires: ["kubernetes"]),
+          [:local, :server1],
+          caps,
+          [],
+          runner
+        )
 
       assert {:error, %PlacementError{} = error} = result
       assert error.task_name == "k8s-task"

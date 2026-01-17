@@ -192,7 +192,9 @@ defmodule Sykli.RunHistory do
     case File.ln_s(target, temp_link) do
       :ok ->
         case File.rename(temp_link, link_path) do
-          :ok -> :ok
+          :ok ->
+            :ok
+
           {:error, _} = error ->
             File.rm(temp_link)
             error

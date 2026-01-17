@@ -23,9 +23,10 @@ defmodule Sykli.Detector do
 
   # Run a command with timeout to prevent hangs
   defp run_cmd(cmd, args, opts) do
-    task = Task.async(fn ->
-      System.cmd(cmd, args, opts)
-    end)
+    task =
+      Task.async(fn ->
+        System.cmd(cmd, args, opts)
+      end)
 
     case Task.yield(task, @emit_timeout) || Task.shutdown(task) do
       {:ok, result} -> result
@@ -185,9 +186,10 @@ defmodule Sykli.Detector do
 
   defp tsx_available? do
     # Quick check with short timeout (5 seconds)
-    task = Task.async(fn ->
-      System.cmd("npx", ["tsx", "--version"], stderr_to_stdout: true)
-    end)
+    task =
+      Task.async(fn ->
+        System.cmd("npx", ["tsx", "--version"], stderr_to_stdout: true)
+      end)
 
     case Task.yield(task, 5_000) || Task.shutdown(task) do
       {:ok, {_, 0}} -> true

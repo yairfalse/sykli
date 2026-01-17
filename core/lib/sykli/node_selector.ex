@@ -218,9 +218,15 @@ defmodule Sykli.NodeSelector.PlacementError do
   # PRIVATE - Formatting
   # ---------------------------------------------------------------------------
 
-  defp header(%{task_name: name, no_matching_nodes: true, required_labels: labels, available_nodes: nodes})
+  defp header(%{
+         task_name: name,
+         no_matching_nodes: true,
+         required_labels: labels,
+         available_nodes: nodes
+       })
        when labels != [] do
-    base = "✗ #{name} failed: no nodes match requirements\n\n  Task requires: #{Enum.join(labels, ", ")}"
+    base =
+      "✗ #{name} failed: no nodes match requirements\n\n  Task requires: #{Enum.join(labels, ", ")}"
 
     if nodes != [] do
       node_list = nodes |> Enum.map(&to_string/1) |> Enum.join(", ")
@@ -251,7 +257,9 @@ defmodule Sykli.NodeSelector.PlacementError do
 
   defp hints_section(error) do
     case hints(error) do
-      [] -> nil
+      [] ->
+        nil
+
       hints ->
         lines = Enum.map(hints, &"    • #{&1}") |> Enum.join("\n")
         "  Fix options:\n#{lines}"

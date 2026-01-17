@@ -331,5 +331,4 @@ defmodule Sykli.Mesh do
       _path -> true
     end
   end
-
 end

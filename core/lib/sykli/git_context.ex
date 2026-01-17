@@ -103,9 +103,10 @@ defmodule Sykli.GitContext do
 
   # Run a git command with timeout to prevent hangs
   defp run_git(args, workdir) do
-    task = Task.async(fn ->
-      System.cmd("git", args, cd: workdir, stderr_to_stdout: true)
-    end)
+    task =
+      Task.async(fn ->
+        System.cmd("git", args, cd: workdir, stderr_to_stdout: true)
+      end)
 
     case Task.yield(task, @git_timeout) || Task.shutdown(task) do
       {:ok, {output, 0}} -> {:ok, output}

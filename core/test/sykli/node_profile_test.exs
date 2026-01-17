@@ -31,9 +31,13 @@ defmodule Sykli.NodeProfileTest do
     setup do
       # Clean up env before each test
       original = System.get_env("SYKLI_LABELS")
+
       on_exit(fn ->
-        if original, do: System.put_env("SYKLI_LABELS", original), else: System.delete_env("SYKLI_LABELS")
+        if original,
+          do: System.put_env("SYKLI_LABELS", original),
+          else: System.delete_env("SYKLI_LABELS")
       end)
+
       :ok
     end
 
@@ -93,9 +97,13 @@ defmodule Sykli.NodeProfileTest do
   describe "labels/0 combines base and user labels" do
     setup do
       original = System.get_env("SYKLI_LABELS")
+
       on_exit(fn ->
-        if original, do: System.put_env("SYKLI_LABELS", original), else: System.delete_env("SYKLI_LABELS")
+        if original,
+          do: System.put_env("SYKLI_LABELS", original),
+          else: System.delete_env("SYKLI_LABELS")
       end)
+
       :ok
     end
 
@@ -141,9 +149,13 @@ defmodule Sykli.NodeProfileTest do
     setup do
       original = System.get_env("SYKLI_LABELS")
       System.put_env("SYKLI_LABELS", "docker,gpu")
+
       on_exit(fn ->
-        if original, do: System.put_env("SYKLI_LABELS", original), else: System.delete_env("SYKLI_LABELS")
+        if original,
+          do: System.put_env("SYKLI_LABELS", original),
+          else: System.delete_env("SYKLI_LABELS")
       end)
+
       :ok
     end
 
@@ -158,8 +170,8 @@ defmodule Sykli.NodeProfileTest do
     test "works with base labels" do
       # At least one of these should be true
       assert NodeProfile.has_label?("darwin") or
-             NodeProfile.has_label?("linux") or
-             NodeProfile.has_label?("windows")
+               NodeProfile.has_label?("linux") or
+               NodeProfile.has_label?("windows")
     end
   end
 end
