@@ -394,4 +394,111 @@ defmodule Sykli.Graph do
       build_cycle_path(Map.get(parent, current, target), target, parent, [current | path])
     end
   end
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # ARTIFACT GRAPH VALIDATION
+  # ─────────────────────────────────────────────────────────────────────────────
+
+  @doc """
+  Check if a graph has any artifact dependencies (task_inputs).
+
+  This is useful to determine if artifact passing is needed at all,
+  allowing targets to fail-fast if they don't support it.
+  """
+  def has_artifact_dependencies?(graph) do
+    Enum.any?(graph, fn {_name, task} ->
+      task_inputs = task.task_inputs || []
+      length(task_inputs) > 0
+    end)
+  end
+
+  @doc """
+  Validates the artifact dependency graph.
+
+  Checks:
+  1. All task_inputs reference existing tasks
+  2. All task_inputs reference declared outputs
+  3. Artifact dependencies imply task dependencies (to ensure ordering)
+
+  Returns :ok or {:error, reason}.
+  """
+  def validate_artifacts(graph) do
+    # Build transitive dependency map for checking ordering
+    transitive_deps = build_transitive_deps(graph)
+
+    # Check each task's task_inputs
+    graph
+    |> Enum.reduce_while(:ok, fn {task_name, task}, :ok ->
+      case validate_task_inputs(task_name, task.task_inputs || [], graph, transitive_deps) do
+        :ok -> {:cont, :ok}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp validate_task_inputs(_task_name, [], _graph, _transitive_deps), do: :ok
+
+  defp validate_task_inputs(task_name, [input | rest], graph, transitive_deps) do
+    %TaskInput{from_task: from_task, output: output_name} = input
+
+    cond do
+      # 1. Check source task exists
+      not Map.has_key?(graph, from_task) ->
+        {:error, {:source_task_not_found, task_name, from_task}}
+
+      # 2. Check output is declared
+      not output_declared?(graph, from_task, output_name) ->
+        {:error, {:output_not_found, task_name, from_task, output_name}}
+
+      # 3. Check task dependency exists (direct or transitive)
+      not task_depends_on?(task_name, from_task, transitive_deps) ->
+        {:error, {:missing_task_dependency, task_name, from_task}}
+
+      true ->
+        validate_task_inputs(task_name, rest, graph, transitive_deps)
+    end
+  end
+
+  defp output_declared?(graph, task_name, output_name) do
+    task = Map.get(graph, task_name)
+    outputs = task.outputs || %{}
+
+    # Handle both map and list formats
+    case outputs do
+      map when is_map(map) -> Map.has_key?(map, output_name)
+      list when is_list(list) -> output_name in list
+    end
+  end
+
+  defp task_depends_on?(task_name, dependency, transitive_deps) do
+    deps = Map.get(transitive_deps, task_name, MapSet.new())
+    MapSet.member?(deps, dependency)
+  end
+
+  # Build a map of task_name => set of all transitive dependencies
+  defp build_transitive_deps(graph) do
+    graph
+    |> Map.keys()
+    |> Enum.reduce(%{}, fn name, acc ->
+      Map.put(acc, name, get_all_deps(name, graph, MapSet.new()))
+    end)
+  end
+
+  defp get_all_deps(name, graph, visited) do
+    if MapSet.member?(visited, name) do
+      visited
+    else
+      task = Map.get(graph, name)
+      direct_deps = (task && task.depends_on) || []
+
+      Enum.reduce(direct_deps, MapSet.put(visited, name), fn dep, acc ->
+        # Add direct dep and all its transitive deps
+        acc
+        |> MapSet.put(dep)
+        |> MapSet.union(get_all_deps(dep, graph, acc))
+      end)
+      # Don't include self
+      |> MapSet.delete(name)
+    end
+  end
 end

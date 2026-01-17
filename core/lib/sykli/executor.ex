@@ -25,7 +25,8 @@ defmodule Sykli.Executor do
 
   @default_target Sykli.Target.Local
 
-  @default_timeout 300_000  # 5 minutes
+  # 5 minutes
+  @default_timeout 300_000
 
   def run(tasks, graph, opts \\ []) do
     # Support both :target (new) and :executor (legacy for Mesh)
@@ -34,7 +35,23 @@ defmodule Sykli.Executor do
     start_time = System.monotonic_time(:millisecond)
     total_tasks = length(tasks)
 
-    # Setup target with all options
+    # Validate artifact graph BEFORE executing anything
+    # This catches issues like missing outputs or invalid dependencies early
+    case Sykli.Graph.validate_artifacts(graph) do
+      {:error, reason} ->
+        IO.puts(
+          "#{IO.ANSI.red()}✗ Artifact validation failed: #{format_artifact_error(reason)}#{IO.ANSI.reset()}"
+        )
+
+        {:error, {:artifact_validation_failed, reason}}
+
+      :ok ->
+        # Setup target with all options
+        do_run(tasks, graph, target, opts, timeout, start_time, total_tasks)
+    end
+  end
+
+  defp do_run(tasks, graph, target, opts, timeout, start_time, total_tasks) do
     case target.setup(opts) do
       {:ok, state} ->
         try do
@@ -121,7 +138,8 @@ defmodule Sykli.Executor do
 
   # ----- EXECUTING LEVELS -----
 
-  defp run_levels([], _state, acc, _progress, _graph, _target, _timeout), do: {:ok, Enum.reverse(acc)}
+  defp run_levels([], _state, acc, _progress, _graph, _target, _timeout),
+    do: {:ok, Enum.reverse(acc)}
 
   defp run_levels([level | rest], state, acc, {completed, total}, graph, target, timeout) do
     level_size = length(level)
@@ -504,9 +522,10 @@ defmodule Sykli.Executor do
 
       # Generic / local - try git (with timeout)
       true ->
-        task = Task.async(fn ->
-          System.cmd("git", ["rev-parse", "--abbrev-ref", "HEAD"], stderr_to_stdout: true)
-        end)
+        task =
+          Task.async(fn ->
+            System.cmd("git", ["rev-parse", "--abbrev-ref", "HEAD"], stderr_to_stdout: true)
+          end)
 
         case Task.yield(task, 5_000) || Task.shutdown(task) do
           {:ok, {branch, 0}} -> String.trim(branch)
@@ -636,4 +655,21 @@ defmodule Sykli.Executor do
       Map.put(acc, name, :skipped)
     end)
   end
+
+  # ----- ARTIFACT VALIDATION ERROR FORMATTING -----
+
+  defp format_artifact_error({:source_task_not_found, task, source}) do
+    "Task '#{task}' requires artifact from '#{source}', but '#{source}' doesn't exist"
+  end
+
+  defp format_artifact_error({:output_not_found, task, source, output}) do
+    "Task '#{task}' requires output '#{output}' from '#{source}', but '#{source}' doesn't declare it"
+  end
+
+  defp format_artifact_error({:missing_task_dependency, task, source}) do
+    "Task '#{task}' requires artifact from '#{source}', but doesn't depend on it. " <>
+      "Add '#{source}' to depends_on to ensure ordering."
+  end
+
+  defp format_artifact_error(reason), do: inspect(reason)
 end
