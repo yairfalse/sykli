@@ -133,10 +133,72 @@ defmodule Sykli.Target.K8s do
   # ─────────────────────────────────────────────────────────────────────────────
 
   @impl true
-  def resolve_secret(name, _state) do
-    # Try to read from K8s Secret
-    # For now, fall back to environment variable
-    # TODO: Implement actual K8s Secret reading
+  def resolve_secret(name, state) do
+    resolve_secret(name, state, [])
+  end
+
+  @doc """
+  Resolves a secret from K8s API with env var fallback.
+
+  Supports two formats:
+  - `"secret-name"` - reads the "value" key from the secret
+  - `"secret-name/key"` - reads a specific key from the secret
+
+  Falls back to environment variable if K8s secret not found or API unavailable.
+  """
+  @spec resolve_secret(String.t(), %__MODULE__{}, keyword()) ::
+          {:ok, String.t()} | {:error, :not_found}
+  def resolve_secret(name, state, opts) do
+    {secret_name, secret_key} = parse_secret_ref(name)
+
+    case read_k8s_secret(secret_name, secret_key, state, opts) do
+      {:ok, value} ->
+        {:ok, value}
+
+      {:error, _reason} ->
+        # Fall back to environment variable
+        fallback_to_env(name)
+    end
+  end
+
+  # Parse "secret-name" or "secret-name/key" format
+  defp parse_secret_ref(name) do
+    case String.split(name, "/", parts: 2) do
+      [secret_name, key] -> {secret_name, key}
+      [secret_name] -> {secret_name, "value"}
+    end
+  end
+
+  # Read secret from K8s API
+  defp read_k8s_secret(secret_name, secret_key, state, opts) do
+    path = "/api/v1/namespaces/#{state.namespace}/secrets/#{secret_name}"
+
+    case Client.request(:get, path, nil, state.auth_config, opts) do
+      {:ok, %{"data" => data}} when is_map(data) ->
+        case Map.get(data, secret_key) do
+          nil ->
+            {:error, :key_not_found}
+
+          base64_value ->
+            case Base.decode64(base64_value) do
+              {:ok, decoded} -> {:ok, decoded}
+              :error -> {:error, :invalid_base64}
+            end
+        end
+
+      {:ok, _} ->
+        {:error, :no_data}
+
+      {:error, %Error{type: :not_found}} ->
+        {:error, :not_found}
+
+      {:error, _reason} ->
+        {:error, :api_error}
+    end
+  end
+
+  # Fallback to environment variable
+  defp fallback_to_env(name) do
     case System.get_env(name) do
       nil -> {:error, :not_found}
       "" -> {:error, :not_found}

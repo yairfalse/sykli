@@ -204,4 +204,106 @@ defmodule Sykli.Target.K8sTest do
       assert String.contains?(command_str, "https://${GIT_TOKEN}@github.com")
     end
   end
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # RESOLVE SECRET - K8s API + ENV FALLBACK
+  # ─────────────────────────────────────────────────────────────────────────────
+
+  describe "resolve_secret/2" do
+    setup do
+      auth_config = %{
+        api_url: "https://kubernetes.default.svc",
+        auth: {:bearer, "test-token"},
+        ca_cert: nil,
+        namespace: "default"
+      }
+
+      state = %K8s{
+        namespace: "sykli-test",
+        auth_config: auth_config,
+        artifact_pvc: "sykli-artifacts",
+        in_cluster: true
+      }
+
+      %{state: state, auth_config: auth_config}
+    end
+
+    test "reads secret from K8s API when available", ctx do
+      # Mock HTTP client - secret with base64-encoded value
+      # "my-secret-value" base64 encoded is "bXktc2VjcmV0LXZhbHVl"
+      mock_http = fn :get, url, _headers, _body, _opts ->
+        assert String.contains?(url, "/api/v1/namespaces/sykli-test/secrets/my-secret")
+
+        {:ok,
+         {{~c"HTTP/1.1", 200, ~c"OK"}, [],
+          Jason.encode!(%{
+            "data" => %{
+              "value" => Base.encode64("my-secret-value")
+            }
+          })}}
+      end
+
+      result = K8s.resolve_secret("my-secret", ctx.state, http_client: mock_http)
+      assert {:ok, "my-secret-value"} = result
+    end
+
+    test "reads specific key from secret when name contains slash", ctx do
+      mock_http = fn :get, url, _headers, _body, _opts ->
+        assert String.contains?(url, "/api/v1/namespaces/sykli-test/secrets/credentials")
+
+        {:ok,
+         {{~c"HTTP/1.1", 200, ~c"OK"}, [],
+          Jason.encode!(%{
+            "data" => %{
+              "api-key" => Base.encode64("api-key-123"),
+              "username" => Base.encode64("admin")
+            }
+          })}}
+      end
+
+      result = K8s.resolve_secret("credentials/api-key", ctx.state, http_client: mock_http)
+      assert {:ok, "api-key-123"} = result
+    end
+
+    test "falls back to env var when K8s secret not found", ctx do
+      mock_http = fn :get, _url, _headers, _body, _opts ->
+        {:ok,
+         {{~c"HTTP/1.1", 404, ~c"Not Found"}, [],
+          Jason.encode!(%{"message" => "secrets \"my-secret\" not found"})}}
+      end
+
+      System.put_env("MY_SECRET", "from-env")
+
+      result = K8s.resolve_secret("MY_SECRET", ctx.state, http_client: mock_http)
+      assert {:ok, "from-env"} = result
+
+      System.delete_env("MY_SECRET")
+    end
+
+    test "returns error when secret not found and no env fallback", ctx do
+      mock_http = fn :get, _url, _headers, _body, _opts ->
+        {:ok,
+         {{~c"HTTP/1.1", 404, ~c"Not Found"}, [],
+          Jason.encode!(%{"message" => "secrets \"no-exist\" not found"})}}
+      end
+
+      System.delete_env("no-exist")
+
+      result = K8s.resolve_secret("no-exist", ctx.state, http_client: mock_http)
+      assert {:error, :not_found} = result
+    end
+
+    test "falls back to env var on K8s API connection error", ctx do
+      mock_http = fn :get, _url, _headers, _body, _opts ->
+        {:error, :econnrefused}
+      end
+
+      System.put_env("MY_SECRET", "fallback-value")
+
+      result = K8s.resolve_secret("MY_SECRET", ctx.state, http_client: mock_http)
+      assert {:ok, "fallback-value"} = result
+
+      System.delete_env("MY_SECRET")
+    end
+  end
 end
