@@ -306,4 +306,122 @@ defmodule Sykli.Target.K8sTest do
       System.delete_env("MY_SECRET")
     end
   end
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # CREATE VOLUME - PVC CREATION
+  # ─────────────────────────────────────────────────────────────────────────────
+
+  describe "create_volume/3" do
+    setup do
+      auth_config = %{
+        api_url: "https://kubernetes.default.svc",
+        auth: {:bearer, "test-token"},
+        ca_cert: nil,
+        namespace: "default"
+      }
+
+      state = %K8s{
+        namespace: "sykli-test",
+        auth_config: auth_config,
+        artifact_pvc: "sykli-artifacts",
+        in_cluster: true
+      }
+
+      %{state: state}
+    end
+
+    test "creates PVC when it doesn't exist", ctx do
+      mock_http = fn
+        :get, url, _headers, _body, _opts ->
+          assert String.contains?(url, "/persistentvolumeclaims/sykli-cache-build-cache")
+          {:ok, {{~c"HTTP/1.1", 404, ~c"Not Found"}, [], "{}"}}
+
+        :post, url, _headers, body, _opts ->
+          assert String.contains?(url, "/persistentvolumeclaims")
+          pvc = Jason.decode!(body)
+          assert pvc["metadata"]["name"] == "sykli-cache-build-cache"
+          assert pvc["spec"]["resources"]["requests"]["storage"] == "2Gi"
+          {:ok, {{~c"HTTP/1.1", 201, ~c"Created"}, [], Jason.encode!(pvc)}}
+      end
+
+      opts = %{size: "2Gi", type: :cache}
+      result = K8s.create_volume("build-cache", opts, ctx.state, http_client: mock_http)
+
+      assert {:ok, volume} = result
+      assert volume.id == "sykli-cache-build-cache"
+      assert volume.reference == "pvc:sykli-cache-build-cache"
+    end
+
+    test "returns existing PVC without creating", ctx do
+      mock_http = fn :get, url, _headers, _body, _opts ->
+        assert String.contains?(url, "/persistentvolumeclaims/sykli-cache-my-cache")
+
+        {:ok,
+         {{~c"HTTP/1.1", 200, ~c"OK"}, [],
+          Jason.encode!(%{
+            "metadata" => %{"name" => "sykli-cache-my-cache"},
+            "spec" => %{"resources" => %{"requests" => %{"storage" => "1Gi"}}}
+          })}}
+      end
+
+      opts = %{size: "1Gi", type: :cache}
+      result = K8s.create_volume("my-cache", opts, ctx.state, http_client: mock_http)
+
+      assert {:ok, volume} = result
+      assert volume.id == "sykli-cache-my-cache"
+    end
+
+    test "uses directory type for non-cache volumes", ctx do
+      mock_http = fn
+        :get, url, _headers, _body, _opts ->
+          assert String.contains?(url, "/persistentvolumeclaims/sykli-dir-workspace")
+          {:ok, {{~c"HTTP/1.1", 404, ~c"Not Found"}, [], "{}"}}
+
+        :post, _url, _headers, body, _opts ->
+          pvc = Jason.decode!(body)
+          assert pvc["metadata"]["name"] == "sykli-dir-workspace"
+          {:ok, {{~c"HTTP/1.1", 201, ~c"Created"}, [], Jason.encode!(pvc)}}
+      end
+
+      opts = %{size: "5Gi", type: :directory}
+      result = K8s.create_volume("workspace", opts, ctx.state, http_client: mock_http)
+
+      assert {:ok, volume} = result
+      assert volume.id == "sykli-dir-workspace"
+    end
+
+    test "returns error when PVC creation fails", ctx do
+      mock_http = fn
+        :get, _url, _headers, _body, _opts ->
+          {:ok, {{~c"HTTP/1.1", 404, ~c"Not Found"}, [], "{}"}}
+
+        :post, _url, _headers, _body, _opts ->
+          {:ok,
+           {{~c"HTTP/1.1", 403, ~c"Forbidden"}, [],
+            Jason.encode!(%{"message" => "PVC creation not allowed"})}}
+      end
+
+      opts = %{size: "1Gi", type: :cache}
+      result = K8s.create_volume("forbidden", opts, ctx.state, http_client: mock_http)
+
+      assert {:error, {:pvc_creation_failed, _}} = result
+    end
+
+    test "uses custom storage class when provided", ctx do
+      mock_http = fn
+        :get, _url, _headers, _body, _opts ->
+          {:ok, {{~c"HTTP/1.1", 404, ~c"Not Found"}, [], "{}"}}
+
+        :post, _url, _headers, body, _opts ->
+          pvc = Jason.decode!(body)
+          assert pvc["spec"]["storageClassName"] == "fast-ssd"
+          {:ok, {{~c"HTTP/1.1", 201, ~c"Created"}, [], Jason.encode!(pvc)}}
+      end
+
+      opts = %{size: "10Gi", type: :cache, storage_class: "fast-ssd"}
+      result = K8s.create_volume("fast-cache", opts, ctx.state, http_client: mock_http)
+
+      assert {:ok, _} = result
+    end
+  end
 end

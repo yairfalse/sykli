@@ -211,18 +211,87 @@ defmodule Sykli.Target.K8s do
   # ─────────────────────────────────────────────────────────────────────────────
 
   @impl true
-  def create_volume(name, opts, _state) do
-    _size = Map.get(opts, :size, "1Gi")
+  def create_volume(name, opts, state) do
+    create_volume(name, opts, state, [])
+  end
 
-    # TODO: Create PVC via kubectl/API
-    # For now, return a reference that will be used in Job spec
-    {:ok,
-     %{
-       id: name,
-       # Not applicable for K8s
-       host_path: nil,
-       reference: "pvc:#{name}"
-     }}
+  @doc """
+  Creates a PersistentVolumeClaim for the volume.
+
+  The PVC name is prefixed with the volume type:
+  - Cache volumes: `sykli-cache-{name}`
+  - Directory volumes: `sykli-dir-{name}`
+
+  If the PVC already exists, returns success without creating.
+  """
+  @spec create_volume(String.t(), map(), %__MODULE__{}, keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def create_volume(name, opts, state, http_opts) do
+    size = Map.get(opts, :size, "1Gi")
+    type = Map.get(opts, :type, :cache)
+    storage_class = Map.get(opts, :storage_class)
+
+    type_prefix = if type == :cache, do: "cache", else: "dir"
+    pvc_name = "sykli-#{type_prefix}-#{name}"
+
+    case check_pvc_exists(pvc_name, state, http_opts) do
+      {:ok, :exists} ->
+        {:ok, %{id: pvc_name, host_path: nil, reference: "pvc:#{pvc_name}"}}
+
+      {:ok, :not_found} ->
+        case create_pvc(pvc_name, size, storage_class, state, http_opts) do
+          {:ok, _} ->
+            {:ok, %{id: pvc_name, host_path: nil, reference: "pvc:#{pvc_name}"}}
+
+          {:error, reason} ->
+            {:error, {:pvc_creation_failed, reason}}
+        end
+
+      {:error, reason} ->
+        {:error, {:pvc_check_failed, reason}}
+    end
+  end
+
+  defp check_pvc_exists(pvc_name, state, http_opts) do
+    path = "/api/v1/namespaces/#{state.namespace}/persistentvolumeclaims/#{pvc_name}"
+
+    case Client.request(:get, path, nil, state.auth_config, http_opts) do
+      {:ok, _} -> {:ok, :exists}
+      {:error, %Error{type: :not_found}} -> {:ok, :not_found}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp create_pvc(pvc_name, size, storage_class, state, http_opts) do
+    path = "/api/v1/namespaces/#{state.namespace}/persistentvolumeclaims"
+
+    pvc = %{
+      "apiVersion" => "v1",
+      "kind" => "PersistentVolumeClaim",
+      "metadata" => %{
+        "name" => pvc_name,
+        "namespace" => state.namespace
+      },
+      "spec" => %{
+        "accessModes" => ["ReadWriteOnce"],
+        "resources" => %{
+          "requests" => %{"storage" => size}
+        }
+      }
+    }
+
+    # Add storage class if specified
+    pvc =
+      if storage_class do
+        put_in(pvc, ["spec", "storageClassName"], storage_class)
+      else
+        pvc
+      end
+
+    case Client.request(:post, path, pvc, state.auth_config, http_opts) do
+      {:ok, _} -> {:ok, pvc_name}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   @impl true
