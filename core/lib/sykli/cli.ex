@@ -941,7 +941,7 @@ defmodule Sykli.CLI do
     end
   end
 
-  defp output_task_result(task, path) do
+  defp output_task_result(task, _path) do
     status_icon =
       case task.status do
         :passed -> "#{IO.ANSI.green()}✓#{IO.ANSI.reset()}"
@@ -951,18 +951,17 @@ defmodule Sykli.CLI do
 
     duration = format_duration(task.duration_ms)
 
-    # Get streak for this task
-    {:ok, streak} = Sykli.RunHistory.calculate_streak(task.name, path: path)
-
+    # Use stored streak from run
     streak_str =
-      if task.status == :passed and streak > 1 do
-        "#{IO.ANSI.faint()}(streak: #{streak})#{IO.ANSI.reset()}"
-      else
-        if task.status == :failed and streak == 0 do
+      cond do
+        task.status == :passed and task.streak > 1 ->
+          "#{IO.ANSI.faint()}(streak: #{task.streak})#{IO.ANSI.reset()}"
+
+        task.status == :failed ->
           "#{IO.ANSI.faint()}(streak: 0)#{IO.ANSI.reset()}"
-        else
+
+        true ->
           ""
-        end
       end
 
     IO.puts(

@@ -158,7 +158,7 @@ defmodule Sykli do
 
   # Save run history after execution
   defp save_run_history(path, result, graph) do
-    {overall, task_results} = extract_task_results(result, graph)
+    {overall, task_results} = extract_task_results(result, graph, path)
 
     # Add likely cause for failed tasks
     task_results_with_cause = add_likely_causes(task_results, path)
@@ -255,51 +255,63 @@ defmodule Sykli do
     end
   end
 
-  defp extract_task_results({:ok, results}, graph) do
-    task_results =
-      Enum.map(results, fn {name, status, duration_ms} ->
-        task = Map.get(graph, name, %{})
-        inputs = Map.get(task, :inputs, [])
-
-        %RunHistory.TaskResult{
-          name: name,
-          status: if(status == :ok, do: :passed, else: :failed),
-          duration_ms: duration_ms,
-          cached: false,
-          inputs: inputs
-        }
-      end)
-
+  defp extract_task_results({:ok, results}, graph, path) do
+    task_results = convert_results_to_history(results, graph, path)
     {:passed, task_results}
   end
 
-  defp extract_task_results({:error, results}, graph) when is_list(results) do
-    task_results =
-      Enum.map(results, fn {name, status, duration_ms} ->
-        task = Map.get(graph, name, %{})
-        inputs = Map.get(task, :inputs, [])
-
-        {result_status, error} =
-          case status do
-            :ok -> {:passed, nil}
-            {:error, reason} -> {:failed, inspect(reason)}
-            _ -> {:failed, inspect(status)}
-          end
-
-        %RunHistory.TaskResult{
-          name: name,
-          status: result_status,
-          duration_ms: duration_ms,
-          cached: false,
-          inputs: inputs,
-          error: error
-        }
-      end)
-
+  defp extract_task_results({:error, results}, graph, path) when is_list(results) do
+    task_results = convert_results_to_history(results, graph, path)
     {:failed, task_results}
   end
 
-  defp extract_task_results(_, _graph), do: {:failed, []}
+  defp extract_task_results(_, _graph, _path), do: {:failed, []}
+
+  defp convert_results_to_history(results, graph, path) do
+    # Get previous streaks from history (once, for all tasks)
+    previous_streaks = get_previous_streaks(path)
+
+    Enum.map(results, fn %Executor.TaskResult{} = result ->
+      task = Map.get(graph, result.name, %{})
+      inputs = Map.get(task, :inputs, [])
+      prev_streak = Map.get(previous_streaks, result.name, 0)
+
+      # Calculate streak based on status
+      # Only :passed and :cached increment streak
+      # :skipped preserves streak (didn't run, didn't break)
+      # :failed and :blocked reset streak
+      {history_status, streak} =
+        case result.status do
+          :passed -> {:passed, prev_streak + 1}
+          :cached -> {:passed, prev_streak + 1}
+          :skipped -> {:skipped, prev_streak}
+          :failed -> {:failed, 0}
+          :blocked -> {:skipped, prev_streak}
+        end
+
+      %RunHistory.TaskResult{
+        name: result.name,
+        status: history_status,
+        duration_ms: result.duration_ms,
+        cached: result.status == :cached,
+        error: if(result.error, do: inspect(result.error)),
+        inputs: inputs,
+        streak: streak
+      }
+    end)
+  end
+
+  defp get_previous_streaks(path) do
+    case RunHistory.load_latest(path: path) do
+      {:ok, run} ->
+        run.tasks
+        |> Enum.map(fn tr -> {tr.name, tr.streak} end)
+        |> Map.new()
+
+      {:error, _} ->
+        %{}
+    end
+  end
 
   defp generate_run_id do
     :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
