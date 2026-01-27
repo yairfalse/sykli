@@ -195,7 +195,9 @@ defmodule Sykli.Executor do
           # Resolve task_inputs before running the task
           case resolve_task_inputs(task, graph, state, target) do
             :ok ->
-              run_single(task, state, {task_num, total}, target)
+              result = run_single(task, state, {task_num, total}, target)
+              duration = System.monotonic_time(:millisecond) - start_time
+              %TaskResult{result | duration_ms: duration}
 
             {:error, reason} ->
               duration = System.monotonic_time(:millisecond) - start_time
