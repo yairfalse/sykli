@@ -3,6 +3,8 @@ defmodule Sykli.Graph do
   Parses task graph JSON and performs topological sort.
   """
 
+  alias Sykli.Error
+
   defmodule Service do
     @moduledoc "Represents a service container for a task"
     defstruct [:image, :name]
@@ -59,12 +61,14 @@ defmodule Sykli.Graph do
   def parse(json) do
     case Jason.decode(json) do
       {:ok, %{"tasks" => tasks}} ->
-        parsed =
-          tasks
-          |> Enum.map(&parse_task/1)
-          |> Map.new(fn task -> {task.name, task} end)
+        case map_ok(tasks, &parse_task/1) do
+          {:ok, parsed_tasks} ->
+            parsed = Map.new(parsed_tasks, fn task -> {task.name, task} end)
+            {:ok, parsed}
 
-        {:ok, parsed}
+          {:error, _} = error ->
+            error
+        end
 
       {:ok, _} ->
         {:error, :invalid_format}
@@ -75,32 +79,38 @@ defmodule Sykli.Graph do
   end
 
   defp parse_task(map) do
-    %Task{
-      name: map["name"],
-      command: map["command"],
-      inputs: map["inputs"] || [],
-      outputs: normalize_outputs(map["outputs"]),
-      depends_on: (map["depends_on"] || []) |> Enum.uniq(),
-      condition: map["when"] || map["condition"],
-      # CI features
-      secrets: map["secrets"] || [],
-      matrix: map["matrix"],
-      matrix_values: nil,
-      services: parse_services(map["services"]),
-      # Robustness features
-      retry: map["retry"],
-      timeout: map["timeout"],
-      # v2 fields
-      container: map["container"],
-      workdir: map["workdir"],
-      env: map["env"] || %{},
-      mounts: parse_mounts(map["mounts"]),
-      task_inputs: parse_task_inputs(map["task_inputs"]),
-      # Target-specific options
-      k8s: Sykli.Target.K8sOptions.parse(map["k8s"]),
-      # Node placement
-      requires: map["requires"] || []
-    }
+    task_name = map["name"]
+
+    with {:ok, services} <- parse_services(map["services"], task_name),
+         {:ok, mounts} <- parse_mounts(map["mounts"], task_name) do
+      {:ok,
+       %Task{
+         name: task_name,
+         command: map["command"],
+         inputs: map["inputs"] || [],
+         outputs: normalize_outputs(map["outputs"]),
+         depends_on: (map["depends_on"] || []) |> Enum.uniq(),
+         condition: map["when"] || map["condition"],
+         # CI features
+         secrets: map["secrets"] || [],
+         matrix: map["matrix"],
+         matrix_values: nil,
+         services: services,
+         # Robustness features
+         retry: map["retry"],
+         timeout: map["timeout"],
+         # v2 fields
+         container: map["container"],
+         workdir: map["workdir"],
+         env: map["env"] || %{},
+         mounts: mounts,
+         task_inputs: parse_task_inputs(map["task_inputs"]),
+         # Target-specific options
+         k8s: Sykli.Target.K8sOptions.parse(map["k8s"]),
+         # Node placement
+         requires: map["requires"] || []
+       }}
+    end
   end
 
   defp parse_task_inputs(nil), do: []
@@ -115,47 +125,47 @@ defmodule Sykli.Graph do
     end)
   end
 
-  defp parse_services(nil), do: []
+  defp parse_services(nil, _task_name), do: {:ok, []}
 
-  defp parse_services(services) when is_list(services) do
-    Enum.map(services, fn s ->
+  defp parse_services(services, task_name) when is_list(services) do
+    map_ok(services, fn s ->
       image = s["image"]
       name = s["name"]
 
-      if is_nil(image) or image == "" do
-        raise "service image cannot be empty"
-      end
+      cond do
+        is_nil(image) or image == "" ->
+          {:error, Error.invalid_service(:image, name) |> Error.with_task(task_name)}
 
-      if is_nil(name) or name == "" do
-        raise "service name cannot be empty"
-      end
+        is_nil(name) or name == "" ->
+          {:error, Error.invalid_service(:name) |> Error.with_task(task_name)}
 
-      %Service{image: image, name: name}
+        true ->
+          {:ok, %Service{image: image, name: name}}
+      end
     end)
   end
 
-  defp parse_mounts(nil), do: []
+  defp parse_mounts(nil, _task_name), do: {:ok, []}
 
-  defp parse_mounts(mounts) when is_list(mounts) do
-    Enum.map(mounts, fn m ->
+  defp parse_mounts(mounts, task_name) when is_list(mounts) do
+    map_ok(mounts, fn m ->
       resource = m["resource"]
       path = m["path"]
       type = m["type"]
 
-      # Validate required fields
-      if is_nil(resource) or resource == "" do
-        raise "mount resource cannot be empty"
-      end
+      cond do
+        is_nil(resource) or resource == "" ->
+          {:error, Error.invalid_mount(:resource) |> Error.with_task(task_name)}
 
-      if is_nil(path) or path == "" do
-        raise "mount path cannot be empty"
-      end
+        is_nil(path) or path == "" ->
+          {:error, Error.invalid_mount(:path) |> Error.with_task(task_name)}
 
-      if is_nil(type) or type not in ["directory", "cache"] do
-        raise "mount type must be 'directory' or 'cache'"
-      end
+        is_nil(type) or type not in ["directory", "cache"] ->
+          {:error, Error.invalid_mount(:type, "got: #{inspect(type)}") |> Error.with_task(task_name)}
 
-      %{resource: resource, path: path, type: type}
+        true ->
+          {:ok, %{resource: resource, path: path, type: type}}
+      end
     end)
   end
 
@@ -499,6 +509,25 @@ defmodule Sykli.Graph do
       end)
       # Don't include self
       |> MapSet.delete(name)
+    end
+  end
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # HELPERS
+  # ─────────────────────────────────────────────────────────────────────────────
+
+  # Maps over a list with a function that returns {:ok, result} | {:error, reason}
+  # Returns {:ok, results} or the first {:error, reason} encountered
+  defp map_ok(list, fun) do
+    Enum.reduce_while(list, {:ok, []}, fn item, {:ok, acc} ->
+      case fun.(item) do
+        {:ok, result} -> {:cont, {:ok, [result | acc]}}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, results} -> {:ok, Enum.reverse(results)}
+      error -> error
     end
   end
 end
