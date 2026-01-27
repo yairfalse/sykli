@@ -279,7 +279,7 @@ defmodule Sykli do
       # Calculate streak based on status
       # Only :passed and :cached increment streak
       # :skipped preserves streak (didn't run, didn't break)
-      # :failed and :blocked reset streak
+      # :failed resets streak; :blocked is treated as :skipped and preserves streak
       {history_status, streak} =
         case result.status do
           :passed -> {:passed, prev_streak + 1}
