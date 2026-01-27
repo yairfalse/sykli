@@ -144,7 +144,9 @@ defmodule Sykli.Target.LocalTest do
         container: nil
       }
 
-      assert {:error, {:exit_code, 1}} = Local.run_task(task, state, [])
+      # Returns Error struct with exit_code 1
+      assert {:error, %Sykli.Error{code: "E001", exit_code: 1}} =
+               Local.run_task(task, state, [])
     end
   end
 
@@ -170,7 +172,9 @@ defmodule Sykli.Target.LocalTest do
         container: nil
       }
 
-      assert {:error, {:exit_code, 42}} = Local.run_task_stateless(task, workdir: ".")
+      # Returns Error struct with exit_code 42
+      assert {:error, %Sykli.Error{code: "E001", exit_code: 42}} =
+               Local.run_task_stateless(task, workdir: ".")
     end
 
     test "fails when workdir does not exist" do
@@ -182,7 +186,7 @@ defmodule Sykli.Target.LocalTest do
 
       # Shell commands fail when workdir doesn't exist (can't cd)
       result = Local.run_task_stateless(task, workdir: "/nonexistent/path/xyz")
-      assert {:error, {:exit_code, _}} = result
+      assert {:error, %Sykli.Error{code: "E001"}} = result
     end
   end
 end
