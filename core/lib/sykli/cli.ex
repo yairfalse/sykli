@@ -193,8 +193,8 @@ defmodule Sykli.CLI do
           "\n#{IO.ANSI.green()}✓ All tasks completed in #{format_duration(duration)}#{IO.ANSI.reset()}"
         )
 
-        # Results are {name, result, duration} tuples
-        Enum.each(results, fn {name, _, _} ->
+        # Results are TaskResult structs
+        Enum.each(results, fn %Sykli.Executor.TaskResult{name: name} ->
           IO.puts("  ✓ #{name}")
         end)
 
@@ -533,7 +533,7 @@ defmodule Sykli.CLI do
           "\n#{IO.ANSI.green()}✓ All affected tasks completed in #{format_duration(duration)}#{IO.ANSI.reset()}"
         )
 
-        Enum.each(results, fn {name, _, _} ->
+        Enum.each(results, fn %Sykli.Executor.TaskResult{name: name} ->
           IO.puts("  ✓ #{name}")
         end)
 
