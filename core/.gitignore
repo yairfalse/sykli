@@ -29,3 +29,6 @@ core-*.tar
 /burrito_out/
 
 generated/
+
+# Run history and cache
+.sykli/
