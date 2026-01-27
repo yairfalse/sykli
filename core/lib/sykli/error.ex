@@ -590,9 +590,6 @@ defmodule Sykli.Error do
   # Execution errors
   def wrap({:missing_secrets, secrets}), do: missing_secrets("unknown", secrets)
 
-  # Task result errors (from TaskResult.error field)
-  def wrap(%Sykli.TaskError{} = te), do: from_task_error(te)
-
   # Catch-all for unknown errors
   def wrap(reason) when is_atom(reason), do: internal("unexpected error: #{reason}")
   def wrap(reason) when is_binary(reason), do: internal(reason)
@@ -618,20 +615,6 @@ defmodule Sykli.Error do
       {:shutdown, _} -> internal("process was shut down")
       _ -> internal("process exited: #{inspect(reason)}", cause: reason)
     end
-  end
-
-  @doc """
-  Converts a TaskError struct to Error struct.
-  """
-  def from_task_error(%Sykli.TaskError{} = te) do
-    task_failed(
-      te.task,
-      te.command,
-      te.exit_code,
-      te.output,
-      duration_ms: te.duration_ms
-    )
-    |> add_hints(te.hints)
   end
 
   # ─────────────────────────────────────────────────────────────────────────────
