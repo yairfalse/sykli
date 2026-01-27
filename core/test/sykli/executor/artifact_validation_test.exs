@@ -8,6 +8,7 @@ defmodule Sykli.Executor.ArtifactValidationTest do
 
   use ExUnit.Case, async: true
 
+  alias Sykli.Error
   alias Sykli.Executor
   alias Sykli.Graph.Task
   alias Sykli.Graph.TaskInput
@@ -71,8 +72,8 @@ defmodule Sykli.Executor.ArtifactValidationTest do
 
       result = Executor.run(tasks, graph, target: MockTarget, workdir: ".")
 
-      assert {:error, {:artifact_validation_failed, {:source_task_not_found, "package", "build"}}} =
-               result
+      # Returns Error struct with code E013 (artifact validation)
+      assert {:error, %Error{code: "E013", type: :validation}} = result
     end
 
     test "fails fast when task_input references undeclared output" do
@@ -99,9 +100,8 @@ defmodule Sykli.Executor.ArtifactValidationTest do
 
       result = Executor.run(tasks, graph, target: MockTarget, workdir: ".")
 
-      assert {:error,
-              {:artifact_validation_failed, {:output_not_found, "package", "build", "binary"}}} =
-               result
+      # Returns Error struct with code E013 (artifact validation)
+      assert {:error, %Error{code: "E013", type: :validation}} = result
     end
 
     test "fails fast when artifact dependency doesn't imply task dependency" do
@@ -128,9 +128,8 @@ defmodule Sykli.Executor.ArtifactValidationTest do
 
       result = Executor.run(tasks, graph, target: MockTarget, workdir: ".")
 
-      assert {:error,
-              {:artifact_validation_failed, {:missing_task_dependency, "package", "build"}}} =
-               result
+      # Returns Error struct with code E013 (artifact validation)
+      assert {:error, %Error{code: "E013", type: :validation}} = result
     end
 
     test "runs successfully with valid artifact graph" do

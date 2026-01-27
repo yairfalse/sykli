@@ -20,6 +20,9 @@ defmodule Sykli.Executor do
   - `:executor` - Legacy executor module (deprecated, use `:target`)
   """
 
+  alias Sykli.Error
+  alias Sykli.Error.Formatter
+
   # Note: we DON'T alias Sykli.Graph.Task because it shadows Elixir's Task module
   # Use full path: %Sykli.Graph.Task{}
 
@@ -63,11 +66,9 @@ defmodule Sykli.Executor do
     # This catches issues like missing outputs or invalid dependencies early
     case Sykli.Graph.validate_artifacts(graph) do
       {:error, reason} ->
-        IO.puts(
-          "#{IO.ANSI.red()}✗ Artifact validation failed: #{format_artifact_error(reason)}#{IO.ANSI.reset()}"
-        )
-
-        {:error, {:artifact_validation_failed, reason}}
+        error = Error.artifact_error(reason)
+        IO.puts(Formatter.format_simple(error))
+        {:error, error}
 
       :ok ->
         # Setup target with all options
@@ -98,8 +99,9 @@ defmodule Sykli.Executor do
         end
 
       {:error, reason} ->
-        IO.puts("#{IO.ANSI.red()}✗ Target setup failed: #{inspect(reason)}#{IO.ANSI.reset()}")
-        {:error, {:target_setup_failed, reason}}
+        error = Error.internal("target setup failed", cause: reason)
+        IO.puts(Formatter.format_simple(error))
+        {:error, error}
     end
   end
 
@@ -733,21 +735,4 @@ defmodule Sykli.Executor do
     end)
     |> Map.new()
   end
-
-  # ----- ARTIFACT VALIDATION ERROR FORMATTING -----
-
-  defp format_artifact_error({:source_task_not_found, task, source}) do
-    "Task '#{task}' requires artifact from '#{source}', but '#{source}' doesn't exist"
-  end
-
-  defp format_artifact_error({:output_not_found, task, source, output}) do
-    "Task '#{task}' requires output '#{output}' from '#{source}', but '#{source}' doesn't declare it"
-  end
-
-  defp format_artifact_error({:missing_task_dependency, task, source}) do
-    "Task '#{task}' requires artifact from '#{source}', but doesn't depend on it. " <>
-      "Add '#{source}' to depends_on to ensure ordering."
-  end
-
-  defp format_artifact_error(reason), do: inspect(reason)
 end
