@@ -81,12 +81,12 @@ defmodule Sykli.Error do
     :exit_code,
     # Duration in milliseconds (optional)
     :duration_ms,
-    # Actionable suggestions
-    hints: [],
-    # Contextual information
-    notes: [],
     # Underlying error (for wrapping)
-    :cause
+    :cause,
+    # Actionable suggestions (default: [])
+    hints: [],
+    # Contextual information (default: [])
+    notes: []
   ]
 
   @type t :: %__MODULE__{
