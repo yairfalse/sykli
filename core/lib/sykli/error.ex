@@ -3,7 +3,7 @@ defmodule Sykli.Error do
   Unified error system for Sykli with Rust-quality error messages.
 
   This module provides:
-  - Structured errors with searchable error codes (E001, E010, etc.)
+  - Structured errors with self-documenting codes (TASK_FAILED, CYCLE_DETECTED, etc.)
   - Clear hierarchy: error, warning, note, help
   - Context: task name, step, relevant file/line
   - Actionable hints for every error
@@ -13,21 +13,25 @@ defmodule Sykli.Error do
 
   | Code | Category | Description |
   |------|----------|-------------|
-  | E001 | execution | Task command failed |
-  | E002 | execution | Task timed out |
-  | E003 | execution | Missing secrets |
-  | E010 | validation | Invalid task graph (cycle) |
-  | E011 | validation | Invalid service config |
-  | E012 | validation | Invalid mount config |
-  | E013 | validation | Artifact dependency missing |
-  | E020 | sdk | SDK file not found |
-  | E021 | sdk | SDK emission failed |
-  | E022 | sdk | SDK emission timed out |
-  | E023 | sdk | Invalid JSON from SDK |
-  | E030 | runtime | Docker not available |
-  | E031 | runtime | Docker image not found |
-  | E032 | runtime | K8s connection failed |
-  | E040 | internal | Unexpected error (with report link) |
+  | TASK_FAILED | execution | Task command failed |
+  | TASK_TIMEOUT | execution | Task timed out |
+  | MISSING_SECRETS | execution | Missing secrets |
+  | CYCLE_DETECTED | validation | Invalid task graph (cycle) |
+  | INVALID_SERVICE | validation | Invalid service config |
+  | INVALID_MOUNT | validation | Invalid mount config |
+  | ARTIFACT_ERROR | validation | Artifact dependency missing |
+  | SDK_NOT_FOUND | sdk | SDK file not found |
+  | SDK_FAILED | sdk | SDK emission failed |
+  | SDK_TIMEOUT | sdk | SDK emission timed out |
+  | INVALID_JSON | sdk | Invalid JSON from SDK |
+  | MISSING_TOOL | sdk | Required tool not installed |
+  | DOCKER_UNAVAILABLE | runtime | Docker not available |
+  | IMAGE_NOT_FOUND | runtime | Docker image not found |
+  | K8S_CONNECTION_FAILED | runtime | K8s connection failed |
+  | K8S_RESOURCE_FAILED | runtime | K8s resource creation failed |
+  | NOT_A_GIT_REPO | runtime | Not a git repository |
+  | DIRTY_WORKDIR | runtime | Uncommitted changes |
+  | INTERNAL_ERROR | internal | Unexpected error (with report link) |
 
   ## Usage
 
@@ -63,7 +67,7 @@ defmodule Sykli.Error do
           | :teardown
 
   defexception [
-    # Error code like "E001" - searchable
+    # Self-documenting error code like "TASK_FAILED"
     :code,
     # Category: :execution | :validation | :sdk | :runtime | :internal
     :type,
@@ -111,11 +115,11 @@ defmodule Sykli.Error do
   end
 
   # ─────────────────────────────────────────────────────────────────────────────
-  # EXECUTION ERRORS (E001-E009)
+  # EXECUTION ERRORS
   # ─────────────────────────────────────────────────────────────────────────────
 
   @doc """
-  E001: Task command failed with exit code.
+  TASK_FAILED: Task command failed with exit code.
   """
   def task_failed(task, command, exit_code, output, opts \\ []) do
     duration_ms = Keyword.get(opts, :duration_ms)
@@ -124,7 +128,7 @@ defmodule Sykli.Error do
     auto_hints = generate_hints(exit_code, output)
 
     %__MODULE__{
-      code: "E001",
+      code: "TASK_FAILED",
       type: :execution,
       message: "task '#{task}' failed",
       task: task,
@@ -139,13 +143,13 @@ defmodule Sykli.Error do
   end
 
   @doc """
-  E002: Task timed out.
+  TASK_TIMEOUT: Task timed out.
   """
   def task_timeout(task, command, timeout_ms) do
     timeout_str = format_duration(timeout_ms)
 
     %__MODULE__{
-      code: "E002",
+      code: "TASK_TIMEOUT",
       type: :execution,
       message: "task '#{task}' timed out after #{timeout_str}",
       task: task,
@@ -161,13 +165,13 @@ defmodule Sykli.Error do
   end
 
   @doc """
-  E003: Required secrets not found.
+  MISSING_SECRETS: Required secrets not found.
   """
   def missing_secrets(task, secrets) when is_list(secrets) do
     secrets_str = Enum.join(secrets, ", ")
 
     %__MODULE__{
-      code: "E003",
+      code: "MISSING_SECRETS",
       type: :execution,
       message: "task '#{task}' requires secrets: #{secrets_str}",
       task: task,
@@ -181,17 +185,17 @@ defmodule Sykli.Error do
   end
 
   # ─────────────────────────────────────────────────────────────────────────────
-  # VALIDATION ERRORS (E010-E019)
+  # VALIDATION ERRORS
   # ─────────────────────────────────────────────────────────────────────────────
 
   @doc """
-  E010: Dependency cycle detected in task graph.
+  CYCLE_DETECTED: Dependency cycle detected in task graph.
   """
   def cycle_detected(path) when is_list(path) do
     cycle_str = Enum.join(path, " → ")
 
     %__MODULE__{
-      code: "E010",
+      code: "CYCLE_DETECTED",
       type: :validation,
       message: "dependency cycle detected",
       step: :validate,
@@ -204,7 +208,7 @@ defmodule Sykli.Error do
   end
 
   @doc """
-  E011: Invalid service configuration.
+  INVALID_SERVICE: Invalid service configuration.
   """
   def invalid_service(field, service_name \\ nil) do
     context = if service_name, do: " for service '#{service_name}'", else: ""
@@ -217,7 +221,7 @@ defmodule Sykli.Error do
       end
 
     %__MODULE__{
-      code: "E011",
+      code: "INVALID_SERVICE",
       type: :validation,
       message: "service #{field} cannot be empty#{context}",
       step: :parse,
@@ -227,7 +231,7 @@ defmodule Sykli.Error do
   end
 
   @doc """
-  E012: Invalid mount configuration.
+  INVALID_MOUNT: Invalid mount configuration.
   """
   def invalid_mount(field, details \\ nil) do
     hint =
@@ -241,7 +245,7 @@ defmodule Sykli.Error do
     details_note = if details, do: [details], else: []
 
     %__MODULE__{
-      code: "E012",
+      code: "INVALID_MOUNT",
       type: :validation,
       message: "mount #{field} is invalid",
       step: :parse,
@@ -251,7 +255,7 @@ defmodule Sykli.Error do
   end
 
   @doc """
-  E013: Artifact dependency validation failed.
+  ARTIFACT_ERROR: Artifact dependency validation failed.
   """
   def artifact_error(reason) do
     {message, hints} =
@@ -279,7 +283,7 @@ defmodule Sykli.Error do
       end
 
     %__MODULE__{
-      code: "E013",
+      code: "ARTIFACT_ERROR",
       type: :validation,
       message: message,
       step: :validate,
@@ -289,15 +293,15 @@ defmodule Sykli.Error do
   end
 
   # ─────────────────────────────────────────────────────────────────────────────
-  # SDK ERRORS (E020-E029)
+  # SDK ERRORS
   # ─────────────────────────────────────────────────────────────────────────────
 
   @doc """
-  E020: SDK file not found.
+  SDK_NOT_FOUND: SDK file not found.
   """
   def no_sdk_file(path \\ ".") do
     %__MODULE__{
-      code: "E020",
+      code: "SDK_NOT_FOUND",
       type: :sdk,
       message: "no sykli configuration file found",
       step: :detect,
@@ -310,7 +314,7 @@ defmodule Sykli.Error do
   end
 
   @doc """
-  E021: SDK emission failed (compilation error, etc.).
+  SDK_FAILED: SDK emission failed (compilation error, etc.).
   """
   def sdk_failed(lang, error_output) do
     lang_str = lang_to_string(lang)
@@ -325,7 +329,7 @@ defmodule Sykli.Error do
       end
 
     %__MODULE__{
-      code: "E021",
+      code: "SDK_FAILED",
       type: :sdk,
       message: "#{lang_str} SDK failed to emit pipeline",
       step: :detect,
@@ -336,14 +340,14 @@ defmodule Sykli.Error do
   end
 
   @doc """
-  E022: SDK emission timed out.
+  SDK_TIMEOUT: SDK emission timed out.
   """
   def sdk_timeout(lang, timeout_ms) do
     lang_str = lang_to_string(lang)
     timeout_str = format_duration(timeout_ms)
 
     %__MODULE__{
-      code: "E022",
+      code: "SDK_TIMEOUT",
       type: :sdk,
       message: "#{lang_str} SDK timed out after #{timeout_str}",
       step: :detect,
@@ -357,13 +361,13 @@ defmodule Sykli.Error do
   end
 
   @doc """
-  E023: Invalid JSON from SDK.
+  INVALID_JSON: Invalid JSON from SDK.
   """
   def invalid_json(details \\ nil) do
     notes = if details, do: [details], else: []
 
     %__MODULE__{
-      code: "E023",
+      code: "INVALID_JSON",
       type: :sdk,
       message: "SDK produced invalid JSON",
       step: :parse,
@@ -376,11 +380,11 @@ defmodule Sykli.Error do
   end
 
   @doc """
-  E024: Missing required tool for SDK.
+  MISSING_TOOL: Missing required tool for SDK.
   """
   def missing_tool(tool, install_hint) do
     %__MODULE__{
-      code: "E024",
+      code: "MISSING_TOOL",
       type: :sdk,
       message: "'#{tool}' is required but not found",
       step: :detect,
@@ -390,17 +394,17 @@ defmodule Sykli.Error do
   end
 
   # ─────────────────────────────────────────────────────────────────────────────
-  # RUNTIME ERRORS (E030-E039)
+  # RUNTIME ERRORS
   # ─────────────────────────────────────────────────────────────────────────────
 
   @doc """
-  E030: Docker not available.
+  DOCKER_UNAVAILABLE: Docker not available.
   """
   def docker_unavailable(reason \\ nil) do
     notes = if reason, do: [to_string(reason)], else: []
 
     %__MODULE__{
-      code: "E030",
+      code: "DOCKER_UNAVAILABLE",
       type: :runtime,
       message: "Docker is not available",
       step: :setup,
@@ -413,11 +417,11 @@ defmodule Sykli.Error do
   end
 
   @doc """
-  E031: Docker image not found.
+  IMAGE_NOT_FOUND: Docker image not found.
   """
   def image_not_found(image) do
     %__MODULE__{
-      code: "E031",
+      code: "IMAGE_NOT_FOUND",
       type: :runtime,
       message: "Docker image '#{image}' not found",
       step: :run,
@@ -430,13 +434,13 @@ defmodule Sykli.Error do
   end
 
   @doc """
-  E032: Kubernetes connection failed.
+  K8S_CONNECTION_FAILED: Kubernetes connection failed.
   """
   def k8s_connection_failed(reason \\ nil) do
     notes = if reason, do: [inspect(reason)], else: []
 
     %__MODULE__{
-      code: "E032",
+      code: "K8S_CONNECTION_FAILED",
       type: :runtime,
       message: "failed to connect to Kubernetes cluster",
       step: :setup,
@@ -449,11 +453,11 @@ defmodule Sykli.Error do
   end
 
   @doc """
-  E033: K8s resource creation failed.
+  K8S_RESOURCE_FAILED: K8s resource creation failed.
   """
   def k8s_resource_failed(resource_type, name, reason) do
     %__MODULE__{
-      code: "E033",
+      code: "K8S_RESOURCE_FAILED",
       type: :runtime,
       message: "failed to create #{resource_type} '#{name}'",
       step: :setup,
@@ -467,11 +471,11 @@ defmodule Sykli.Error do
   end
 
   @doc """
-  E034: Git repository required but not found.
+  NOT_A_GIT_REPO: Git repository required but not found.
   """
   def not_a_git_repo(path \\ ".") do
     %__MODULE__{
-      code: "E034",
+      code: "NOT_A_GIT_REPO",
       type: :runtime,
       message: "not a git repository",
       step: :setup,
@@ -484,11 +488,11 @@ defmodule Sykli.Error do
   end
 
   @doc """
-  E035: Uncommitted changes in working directory.
+  DIRTY_WORKDIR: Uncommitted changes in working directory.
   """
   def dirty_workdir do
     %__MODULE__{
-      code: "E035",
+      code: "DIRTY_WORKDIR",
       type: :runtime,
       message: "uncommitted changes in working directory",
       step: :setup,
@@ -501,11 +505,11 @@ defmodule Sykli.Error do
   end
 
   # ─────────────────────────────────────────────────────────────────────────────
-  # INTERNAL ERRORS (E040-E049)
+  # INTERNAL ERRORS
   # ─────────────────────────────────────────────────────────────────────────────
 
   @doc """
-  E040: Unexpected internal error.
+  INTERNAL_ERROR: Unexpected internal error.
   """
   def internal(message, opts \\ []) do
     cause = Keyword.get(opts, :cause)
@@ -525,7 +529,7 @@ defmodule Sykli.Error do
       end
 
     %__MODULE__{
-      code: "E040",
+      code: "INTERNAL_ERROR",
       type: :internal,
       message: message,
       hints: [
@@ -549,10 +553,10 @@ defmodule Sykli.Error do
   ## Examples
 
       iex> Sykli.Error.wrap(:no_sdk_file)
-      %Sykli.Error{code: "E020", ...}
+      %Sykli.Error{code: "SDK_NOT_FOUND", ...}
 
       iex> Sykli.Error.wrap({:cycle_detected, ["a", "b", "a"]})
-      %Sykli.Error{code: "E010", ...}
+      %Sykli.Error{code: "CYCLE_DETECTED", ...}
   """
   def wrap(%__MODULE__{} = e), do: e
 

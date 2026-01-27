@@ -49,7 +49,7 @@ defmodule Sykli.Executor.MeshTest do
       assert error.task_name == "fail"
       # Failures now contain Error structs
       assert Enum.any?(error.failures, fn
-        {:local, %Sykli.Error{code: "E001"}} -> true
+        {:local, %Sykli.Error{code: "TASK_FAILED"}} -> true
         _ -> false
       end)
       Mesh.teardown(state)
@@ -66,7 +66,7 @@ defmodule Sykli.Executor.MeshTest do
       assert error.task_name == "slow"
       # Failures now contain Error structs (E002 = timeout)
       assert Enum.any?(error.failures, fn
-        {:local, %Sykli.Error{code: "E002"}} -> true
+        {:local, %Sykli.Error{code: "TASK_TIMEOUT"}} -> true
         _ -> false
       end)
       Mesh.teardown(state)
