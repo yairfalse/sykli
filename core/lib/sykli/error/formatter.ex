@@ -198,15 +198,27 @@ defmodule Sykli.Error.Formatter do
     type_col = type_color(type)
     type_col = if colors.reset == "", do: "", else: type_col
 
-    # Header text: "error[E001]: message"
-    header_text = "#{type_col}error[#{code}]#{colors.reset}: #{message}"
-
-    # Calculate visible length (without ANSI codes)
+    # Calculate visible length and truncate if needed
     visible_text = "error[#{code}]: #{message}"
-    visible_len = String.length(visible_text)
+    max_header_len = @box_width - 6  # Leave room for "╭─ " and " ─╮"
+
+    {display_text, display_msg} =
+      if String.length(visible_text) > max_header_len do
+        # Truncate message to fit
+        code_prefix = "error[#{code}]: "
+        max_msg_len = max_header_len - String.length(code_prefix) - 3
+        truncated_msg = String.slice(message, 0, max(0, max_msg_len)) <> "..."
+        {"error[#{code}]: #{truncated_msg}", truncated_msg}
+      else
+        {visible_text, message}
+      end
+
+    # Header text with colors
+    header_text = "#{type_col}error[#{code}]#{colors.reset}: #{display_msg}"
+    visible_len = String.length(display_text)
 
     # Build the header line with box drawing
-    # ╭─ error[E001]: message ─────────────────────╮
+    # ╭─ error[task_failed]: message ─────────────╮
     padding_len = max(0, @box_width - visible_len - 4)
     padding = String.duplicate("─", padding_len)
 
@@ -222,20 +234,42 @@ defmodule Sykli.Error.Formatter do
     # Calculate visible length (strip ANSI for length calc)
     visible_content = strip_ansi(content)
     visible_len = String.length(visible_content)
-    padding_len = max(0, @box_width - visible_len - 1)
+    max_content_len = @box_width - 2  # Room for │ on each side
+
+    # Truncate if too long
+    {display_content, display_len} =
+      if visible_len > max_content_len do
+        truncated = String.slice(visible_content, 0, max_content_len - 3) <> "..."
+        {truncated, String.length(truncated)}
+      else
+        {content, visible_len}
+      end
+
+    padding_len = max(0, @box_width - display_len - 1)
     padding = String.duplicate(" ", padding_len)
 
-    "#{colors.faint}│#{colors.reset}#{content}#{padding}#{colors.faint}│#{colors.reset}"
+    "#{colors.faint}│#{colors.reset}#{display_content}#{padding}#{colors.faint}│#{colors.reset}"
   end
 
   # For lines that already have ANSI codes
   defp box_line_raw(content, colors) do
     visible_content = strip_ansi(content)
     visible_len = String.length(visible_content)
-    padding_len = max(0, @box_width - visible_len - 1)
+    max_content_len = @box_width - 2
+
+    # Truncate if too long (strip ANSI, truncate, lose colors - acceptable for long lines)
+    {display_content, display_len} =
+      if visible_len > max_content_len do
+        truncated = String.slice(visible_content, 0, max_content_len - 3) <> "..."
+        {truncated, String.length(truncated)}
+      else
+        {content, visible_len}
+      end
+
+    padding_len = max(0, @box_width - display_len - 1)
     padding = String.duplicate(" ", padding_len)
 
-    "#{colors.faint}│#{colors.reset}#{content}#{padding}#{colors.faint}│#{colors.reset}"
+    "#{colors.faint}│#{colors.reset}#{display_content}#{padding}#{colors.faint}│#{colors.reset}"
   end
 
   defp strip_ansi(str) do
