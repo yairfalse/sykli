@@ -605,13 +605,8 @@ defmodule Sykli.Executor do
 
       # Generic / local - try git (with timeout)
       true ->
-        task =
-          Task.async(fn ->
-            System.cmd("git", ["rev-parse", "--abbrev-ref", "HEAD"], stderr_to_stdout: true)
-          end)
-
-        case Task.yield(task, 5_000) || Task.shutdown(task) do
-          {:ok, {branch, 0}} -> String.trim(branch)
+        case Sykli.Git.branch(timeout: 5_000) do
+          {:ok, branch} -> branch
           _ -> nil
         end
     end

@@ -231,11 +231,8 @@ defmodule Sykli do
     end
   end
 
-  # Git command timeout (10 seconds)
-  @git_timeout 10_000
-
   defp get_changed_files_since(ref, path) do
-    case run_git(["diff", "--name-only", ref], path) do
+    case Sykli.Git.run(["diff", "--name-only", ref], cd: path) do
       {:ok, output} ->
         output
         |> String.split("\n", trim: true)
@@ -318,30 +315,17 @@ defmodule Sykli do
   end
 
   defp get_git_ref(path) do
-    case run_git(["rev-parse", "--short", "HEAD"], path) do
-      {:ok, ref} -> String.trim(ref)
+    case Sykli.Git.sha(cd: path) do
+      {:ok, ref} -> ref
       _ -> "unknown"
     end
   end
 
   defp get_git_branch(path) do
-    case run_git(["rev-parse", "--abbrev-ref", "HEAD"], path) do
-      {:ok, branch} -> String.trim(branch)
+    case Sykli.Git.branch(cd: path) do
+      {:ok, nil} -> "unknown"
+      {:ok, branch} -> branch
       _ -> "unknown"
-    end
-  end
-
-  # Run a git command with timeout to prevent hangs
-  defp run_git(args, path) do
-    task =
-      Task.async(fn ->
-        System.cmd("git", args, cd: path, stderr_to_stdout: true)
-      end)
-
-    case Task.yield(task, @git_timeout) || Task.shutdown(task) do
-      {:ok, {output, 0}} -> {:ok, output}
-      {:ok, {_, _code}} -> {:error, :git_failed}
-      nil -> {:error, :git_timeout}
     end
   end
 
