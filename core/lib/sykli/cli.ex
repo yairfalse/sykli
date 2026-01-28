@@ -3,6 +3,9 @@ defmodule Sykli.CLI do
   CLI entry point for escript.
   """
 
+  alias Sykli.Error
+  alias Sykli.Error.Formatter
+
   @version Mix.Project.config()[:version]
 
   def main(args \\ []) do
@@ -111,28 +114,8 @@ defmodule Sykli.CLI do
         run_opts = target_opts ++ run_opts
         do_run_sykli(path, opts, run_opts, start_time)
 
-      {:error, :dirty_workdir} ->
-        IO.puts(
-          "#{IO.ANSI.red()}Error: Uncommitted changes in working directory#{IO.ANSI.reset()}"
-        )
-
-        IO.puts("")
-        IO.puts("K8s execution requires a clean git state to ensure reproducibility.")
-
-        IO.puts(
-          "Either commit your changes or use #{IO.ANSI.cyan()}--allow-dirty#{IO.ANSI.reset()} to proceed anyway."
-        )
-
-        halt(1)
-
-      {:error, :not_a_git_repo} ->
-        IO.puts("#{IO.ANSI.red()}Error: Not a git repository#{IO.ANSI.reset()}")
-        IO.puts("")
-        IO.puts("K8s execution requires git to clone source code into Jobs.")
-        halt(1)
-
       {:error, reason} ->
-        IO.puts("#{IO.ANSI.red()}Error: #{inspect(reason)}#{IO.ANSI.reset()}")
+        display_error(reason)
         halt(1)
     end
   end
@@ -193,36 +176,20 @@ defmodule Sykli.CLI do
           "\n#{IO.ANSI.green()}✓ All tasks completed in #{format_duration(duration)}#{IO.ANSI.reset()}"
         )
 
-        # Results are {name, result, duration} tuples
-        Enum.each(results, fn {name, _, _} ->
+        # Results are TaskResult structs
+        Enum.each(results, fn %Sykli.Executor.TaskResult{name: name} ->
           IO.puts("  ✓ #{name}")
         end)
 
         halt(0)
 
-      {:error, :no_sdk_file} ->
-        IO.puts("#{IO.ANSI.red()}No sykli.go, sykli.rs, or sykli.exs found#{IO.ANSI.reset()}")
-        halt(1)
-
       {:error, results} when is_list(results) ->
+        # Task failures are already displayed during execution
         IO.puts("\n#{IO.ANSI.red()}Build failed#{IO.ANSI.reset()}")
         halt(1)
 
-      {:error, {:cycle_detected, path}} when is_list(path) and length(path) > 0 ->
-        cycle_str = Enum.join(path, " -> ")
-
-        IO.puts(
-          "#{IO.ANSI.red()}Error: dependency cycle detected: #{cycle_str}#{IO.ANSI.reset()}"
-        )
-
-        halt(1)
-
-      {:error, {:cycle_detected, _}} ->
-        IO.puts("#{IO.ANSI.red()}Error: dependency cycle detected#{IO.ANSI.reset()}")
-        halt(1)
-
       {:error, reason} ->
-        IO.puts("#{IO.ANSI.red()}Error: #{inspect(reason)}#{IO.ANSI.reset()}")
+        display_error(reason)
         halt(1)
     end
   end
@@ -419,9 +386,10 @@ defmodule Sykli.CLI do
 
       {:error, reason} ->
         if json do
-          IO.puts(Jason.encode!(%{error: inspect(reason)}))
+          error = Error.wrap(reason)
+          IO.puts(Jason.encode!(%{error: error.message, code: error.code}))
         else
-          IO.puts("#{IO.ANSI.red()}Error: #{inspect(reason)}#{IO.ANSI.reset()}")
+          display_error(reason)
         end
 
         halt(1)
@@ -533,7 +501,7 @@ defmodule Sykli.CLI do
           "\n#{IO.ANSI.green()}✓ All affected tasks completed in #{format_duration(duration)}#{IO.ANSI.reset()}"
         )
 
-        Enum.each(results, fn {name, _, _} ->
+        Enum.each(results, fn %Sykli.Executor.TaskResult{name: name} ->
           IO.puts("  ✓ #{name}")
         end)
 
@@ -576,7 +544,7 @@ defmodule Sykli.CLI do
         halt(0)
 
       {:error, reason} ->
-        IO.puts("#{IO.ANSI.red()}Watch error: #{inspect(reason)}#{IO.ANSI.reset()}")
+        display_error(reason)
         halt(1)
     end
   end
@@ -738,20 +706,13 @@ defmodule Sykli.CLI do
 
         if result.valid, do: halt(0), else: halt(1)
 
-      {:error, :no_sdk_file} ->
-        if json_output do
-          IO.puts(Jason.encode!(%{valid: false, error: "No sykli file found"}))
-        else
-          IO.puts("#{IO.ANSI.red()}No sykli file found#{IO.ANSI.reset()}")
-        end
-
-        halt(1)
-
       {:error, reason} ->
+        error = Error.wrap(reason)
+
         if json_output do
-          IO.puts(Jason.encode!(%{valid: false, error: inspect(reason)}))
+          IO.puts(Jason.encode!(%{valid: false, error: error.message, code: error.code}))
         else
-          IO.puts("#{IO.ANSI.red()}Error: #{inspect(reason)}#{IO.ANSI.reset()}")
+          display_error(error)
         end
 
         halt(1)
@@ -941,7 +902,7 @@ defmodule Sykli.CLI do
     end
   end
 
-  defp output_task_result(task, path) do
+  defp output_task_result(task, _path) do
     status_icon =
       case task.status do
         :passed -> "#{IO.ANSI.green()}✓#{IO.ANSI.reset()}"
@@ -951,18 +912,17 @@ defmodule Sykli.CLI do
 
     duration = format_duration(task.duration_ms)
 
-    # Get streak for this task
-    {:ok, streak} = Sykli.RunHistory.calculate_streak(task.name, path: path)
-
+    # Use stored streak from run
     streak_str =
-      if task.status == :passed and streak > 1 do
-        "#{IO.ANSI.faint()}(streak: #{streak})#{IO.ANSI.reset()}"
-      else
-        if task.status == :failed and streak == 0 do
+      cond do
+        task.status == :passed and task.streak > 1 ->
+          "#{IO.ANSI.faint()}(streak: #{task.streak})#{IO.ANSI.reset()}"
+
+        task.status == :failed ->
           "#{IO.ANSI.faint()}(streak: 0)#{IO.ANSI.reset()}"
-        else
+
+        true ->
           ""
-        end
       end
 
     IO.puts(
@@ -1213,7 +1173,7 @@ defmodule Sykli.CLI do
         halt(0)
 
       {:error, reason} ->
-        IO.puts("#{IO.ANSI.red()}Failed to start daemon: #{inspect(reason)}#{IO.ANSI.reset()}")
+        display_error(reason)
         halt(1)
     end
   end
@@ -1231,7 +1191,7 @@ defmodule Sykli.CLI do
         halt(0)
 
       {:error, reason} ->
-        IO.puts("#{IO.ANSI.red()}Failed to stop daemon: #{inspect(reason)}#{IO.ANSI.reset()}")
+        display_error(reason)
         halt(1)
     end
   end
@@ -1432,12 +1392,8 @@ defmodule Sykli.CLI do
         IO.puts(output)
         halt(0)
 
-      {:error, :no_sdk_file} ->
-        IO.puts("#{IO.ANSI.red()}No sykli.go, sykli.rs, or sykli.exs found#{IO.ANSI.reset()}")
-        halt(1)
-
       {:error, reason} ->
-        IO.puts("#{IO.ANSI.red()}Error: #{inspect(reason)}#{IO.ANSI.reset()}")
+        display_error(reason)
         halt(1)
     end
   end
@@ -1569,6 +1525,20 @@ defmodule Sykli.CLI do
   defp format_duration(ms) do
     seconds = ms / 1000
     "#{Float.round(seconds, 1)}s"
+  end
+
+  # ----- ERROR DISPLAY -----
+
+  # Display a structured error with Rust-style formatting
+  defp display_error(%Error{} = error) do
+    IO.puts("")
+    IO.puts(Formatter.format(error))
+    IO.puts("")
+  end
+
+  defp display_error(reason) do
+    error = Error.wrap(reason)
+    display_error(error)
   end
 
   # Halt with proper stdout flushing (needed for Burrito releases)

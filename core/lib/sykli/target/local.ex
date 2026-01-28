@@ -2,6 +2,8 @@ defmodule Sykli.Target.Local do
   @moduledoc """
   Local target - executes pipelines on the local machine.
 
+  Uses Sykli.Error for structured error reporting.
+
   This is the default target for development and local CI runs.
   It composes with a Runtime to determine HOW commands execute:
 
@@ -308,30 +310,30 @@ defmodule Sykli.Target.Local do
         duration_ms = System.monotonic_time(:millisecond) - start_time
 
         error =
-          Sykli.TaskError.new(
-            task: task.name,
-            command: display_cmd,
-            exit_code: code,
-            output: output,
+          Sykli.Error.task_failed(
+            task.name,
+            display_cmd,
+            code,
+            output,
             duration_ms: duration_ms
           )
 
-        IO.puts(Sykli.TaskError.format(error))
-        {:error, {:exit_code, code}}
+        IO.puts(Sykli.Error.Formatter.format_simple(error))
+        {:error, error}
 
       {:error, :timeout} ->
-        IO.puts(
-          "#{IO.ANSI.red()}✗ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(timeout after #{task.timeout}s)#{IO.ANSI.reset()}"
-        )
-
-        {:error, :timeout}
+        timeout_ms = (task.timeout || 300) * 1000
+        error = Sykli.Error.task_timeout(task.name, display_cmd, timeout_ms)
+        IO.puts(Sykli.Error.Formatter.format_simple(error))
+        {:error, error}
 
       {:error, reason} ->
-        IO.puts(
-          "#{IO.ANSI.red()}✗ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(error: #{inspect(reason)})#{IO.ANSI.reset()}"
-        )
+        error =
+          Sykli.Error.internal("task execution failed: #{inspect(reason)}")
+          |> Sykli.Error.with_task(task.name)
 
-        {:error, reason}
+        IO.puts(Sykli.Error.Formatter.format_simple(error))
+        {:error, error}
     end
   end
 
