@@ -281,7 +281,7 @@ defmodule Sykli.Executor do
             name: task.name,
             status: :failed,
             duration_ms: duration,
-            error: {:missing_secrets, missing}
+            error: Error.missing_secrets(task.name, missing)
           }
       end
     else
