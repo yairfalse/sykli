@@ -49,7 +49,7 @@ defmodule Sykli.MeshTest do
 
       result = Mesh.dispatch_task(task, :local, workdir: "/tmp")
 
-      # Returns Error struct with exit_code 1
+      # Returns Error struct with code "task_failed"
       assert {:error, %Sykli.Error{code: "task_failed", exit_code: 1}} = result
     end
 
@@ -58,7 +58,7 @@ defmodule Sykli.MeshTest do
 
       result = Mesh.dispatch_task(task, :local, workdir: "/tmp")
 
-      # Returns Error struct with timeout code E002
+      # Returns Error struct with code "task_timeout"
       assert {:error, %Sykli.Error{code: "task_timeout"}} = result
     end
   end

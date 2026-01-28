@@ -93,10 +93,14 @@ defmodule Sykli.Error.Boundary do
     funs
     |> Enum.reduce_while({:ok, []}, fn fun, {:ok, acc} ->
       case wrap(fun, opts) do
-        {:ok, result} -> {:cont, {:ok, acc ++ [result]}}
+        {:ok, result} -> {:cont, {:ok, [result | acc]}}
         {:error, _} = error -> {:halt, error}
       end
     end)
+    |> case do
+      {:ok, results} -> {:ok, Enum.reverse(results)}
+      {:error, _} = error -> error
+    end
   end
 
   @doc """
@@ -114,6 +118,10 @@ defmodule Sykli.Error.Boundary do
     case Task.yield(task, timeout_ms) || Task.shutdown(task) do
       {:ok, result} ->
         result
+
+      {:exit, reason} ->
+        error = Error.from_exit(reason)
+        {:error, maybe_add_context(error, opts)}
 
       nil ->
         task_name = Keyword.get(opts, :task, "operation")

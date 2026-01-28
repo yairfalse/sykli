@@ -47,7 +47,7 @@ defmodule Sykli.Executor.MeshTest do
       # Mesh wraps failures in PlacementError with details of which nodes were tried
       assert {:error, %Sykli.NodeSelector.PlacementError{} = error} = result
       assert error.task_name == "fail"
-      # Failures now contain Error structs
+      # Failures contain Error structs
       assert Enum.any?(error.failures, fn
         {:local, %Sykli.Error{code: "task_failed"}} -> true
         _ -> false
@@ -64,7 +64,7 @@ defmodule Sykli.Executor.MeshTest do
       # Mesh wraps failures in PlacementError with details of which nodes were tried
       assert {:error, %Sykli.NodeSelector.PlacementError{} = error} = result
       assert error.task_name == "slow"
-      # Failures now contain Error structs (E002 = timeout)
+      # Failures contain Error structs with code "task_timeout"
       assert Enum.any?(error.failures, fn
         {:local, %Sykli.Error{code: "task_timeout"}} -> true
         _ -> false

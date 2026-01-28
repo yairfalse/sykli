@@ -72,7 +72,7 @@ defmodule Sykli.Executor.ArtifactValidationTest do
 
       result = Executor.run(tasks, graph, target: MockTarget, workdir: ".")
 
-      # Returns Error struct with code E013 (artifact validation)
+      # Returns Error struct with code "missing_artifact"
       assert {:error, %Error{code: "missing_artifact", type: :validation}} = result
     end
 
@@ -100,7 +100,7 @@ defmodule Sykli.Executor.ArtifactValidationTest do
 
       result = Executor.run(tasks, graph, target: MockTarget, workdir: ".")
 
-      # Returns Error struct with code E013 (artifact validation)
+      # Returns Error struct with code "missing_artifact"
       assert {:error, %Error{code: "missing_artifact", type: :validation}} = result
     end
 
@@ -128,7 +128,7 @@ defmodule Sykli.Executor.ArtifactValidationTest do
 
       result = Executor.run(tasks, graph, target: MockTarget, workdir: ".")
 
-      # Returns Error struct with code E013 (artifact validation)
+      # Returns Error struct with code "missing_artifact"
       assert {:error, %Error{code: "missing_artifact", type: :validation}} = result
     end
 
