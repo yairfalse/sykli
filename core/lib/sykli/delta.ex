@@ -80,21 +80,32 @@ defmodule Sykli.Delta do
   # Get list of changed files from git (relative to project path)
   defp get_changed_files_impl(from, path) do
     # First check if we're in a git repo
-    if Sykli.Git.repo?(path) do
-      get_git_changes(from, path)
-    else
-      {:error, {:not_a_git_repo, path}}
+    case Sykli.Git.repo?(cd: path) do
+      {:ok, true} ->
+        get_git_changes(from, path)
+
+      {:ok, false} ->
+        {:error, {:not_a_git_repo, path}}
+
+      {:error, _} = error ->
+        error
     end
   end
 
   defp get_git_changes(from, path) do
     # Use --relative to get paths relative to the project directory
-    case Sykli.Git.run(["diff", "--name-only", "--relative", from], cd: path, timeout: @delta_git_timeout) do
+    case Sykli.Git.run(["diff", "--name-only", "--relative", from],
+           cd: path,
+           timeout: @delta_git_timeout
+         ) do
       {:ok, output} ->
         files = output |> String.trim() |> String.split("\n", trim: true)
 
         # Also get untracked files (relative to current directory)
-        case Sykli.Git.run(["ls-files", "--others", "--exclude-standard"], cd: path, timeout: @delta_git_timeout) do
+        case Sykli.Git.run(["ls-files", "--others", "--exclude-standard"],
+               cd: path,
+               timeout: @delta_git_timeout
+             ) do
           {:ok, untracked} ->
             untracked_files = untracked |> String.trim() |> String.split("\n", trim: true)
             {:ok, Enum.uniq(files ++ untracked_files)}

@@ -32,9 +32,10 @@ defmodule Sykli.Git do
     timeout = Keyword.get(opts, :timeout, @default_timeout)
     cd = Keyword.get(opts, :cd, ".")
 
-    task = Task.async(fn ->
-      System.cmd("git", args, cd: cd, stderr_to_stdout: true)
-    end)
+    task =
+      Task.async(fn ->
+        System.cmd("git", args, cd: cd, stderr_to_stdout: true)
+      end)
 
     case Task.yield(task, timeout) || Task.shutdown(task) do
       {:ok, {output, 0}} ->
@@ -50,6 +51,15 @@ defmodule Sykli.Git do
 
   @doc """
   Get the current commit SHA (short form).
+
+  ## Options
+    - `:timeout` - milliseconds before killing the command (default: 10_000)
+    - `:cd` - directory to run the command in (default: current directory)
+
+  ## Returns
+    - `{:ok, sha}` - the short SHA string
+    - `{:error, {:git_failed, output, exit_code}}` - command failed
+    - `{:error, {:git_timeout, args}}` - command timed out
   """
   def sha(opts \\ []) do
     case run(["rev-parse", "--short", "HEAD"], opts) do
@@ -61,7 +71,15 @@ defmodule Sykli.Git do
   @doc """
   Get the current branch name.
 
-  Returns `nil` for detached HEAD state.
+  ## Options
+    - `:timeout` - milliseconds before killing the command (default: 10_000)
+    - `:cd` - directory to run the command in (default: current directory)
+
+  ## Returns
+    - `{:ok, branch_name}` - the branch name string
+    - `{:ok, nil}` - detached HEAD state (no branch)
+    - `{:error, {:git_failed, output, exit_code}}` - command failed
+    - `{:error, {:git_timeout, args}}` - command timed out
   """
   def branch(opts \\ []) do
     case run(["rev-parse", "--abbrev-ref", "HEAD"], opts) do
@@ -76,6 +94,16 @@ defmodule Sykli.Git do
 
   @doc """
   Check if the working directory is dirty (has uncommitted changes).
+
+  ## Options
+    - `:timeout` - milliseconds before killing the command (default: 10_000)
+    - `:cd` - directory to run the command in (default: current directory)
+
+  ## Returns
+    - `{:ok, true}` - working directory has uncommitted changes
+    - `{:ok, false}` - working directory is clean
+    - `{:error, {:git_failed, output, exit_code}}` - command failed
+    - `{:error, {:git_timeout, args}}` - command timed out
   """
   def dirty?(opts \\ []) do
     case run(["status", "--porcelain"], opts) do
@@ -87,22 +115,51 @@ defmodule Sykli.Git do
 
   @doc """
   Get the remote URL for origin.
+
+  ## Options
+    - `:timeout` - milliseconds before killing the command (default: 10_000)
+    - `:cd` - directory to run the command in (default: current directory)
+
+  ## Returns
+    - `{:ok, url}` - the remote URL string
+    - `{:ok, nil}` - no remote named "origin" configured
+    - `{:error, {:git_timeout, args}}` - command timed out
   """
   def remote_url(opts \\ []) do
     case run(["remote", "get-url", "origin"], opts) do
-      {:ok, url} -> {:ok, String.trim(url)}
-      {:error, {:git_failed, _, _}} -> {:ok, nil}
-      error -> error
+      {:ok, url} ->
+        {:ok, String.trim(url)}
+
+      {:error, {:git_timeout, _}} = error ->
+        error
+
+      {:error, {:git_failed, _, _}} ->
+        {:ok, nil}
     end
   end
 
   @doc """
   Check if the given path is inside a git repository.
+
+  ## Options
+    - `:timeout` - milliseconds before killing the command (default: 10_000)
+    - `:cd` - directory to run the command in (default: current directory)
+
+  ## Returns
+    - `{:ok, true}` - path is inside a git repository
+    - `{:ok, false}` - path is not inside a git repository
+    - `{:error, {:git_timeout, args}}` - command timed out
   """
-  def repo?(path) do
-    case run(["rev-parse", "--git-dir"], cd: path) do
-      {:ok, _} -> true
-      _ -> false
+  def repo?(opts \\ []) do
+    case run(["rev-parse", "--git-dir"], opts) do
+      {:ok, _} ->
+        {:ok, true}
+
+      {:error, {:git_timeout, _}} = error ->
+        error
+
+      {:error, {:git_failed, _, _}} ->
+        {:ok, false}
     end
   end
 end

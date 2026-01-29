@@ -113,7 +113,7 @@ defmodule Sykli.Error.Formatter do
     # Exit code (for execution errors)
     lines =
       if error.exit_code do
-        lines ++ [box_line("  Command exited with code #{error.exit_code}:", colors)]
+        (lines ++ [box_line("  Command exited with code #{error.exit_code}:", colors)])
         |> then(&(&1 ++ [box_line("", colors)]))
       else
         lines
@@ -123,7 +123,8 @@ defmodule Sykli.Error.Formatter do
     lines =
       if error.command do
         cmd_line = "    #{colors.cyan}→ #{error.command}#{colors.reset}"
-        lines ++ [box_line_raw(cmd_line, colors)]
+
+        (lines ++ [box_line_raw(cmd_line, colors)])
         |> then(&(&1 ++ [box_line("", colors)]))
       else
         lines
@@ -200,7 +201,8 @@ defmodule Sykli.Error.Formatter do
 
     # Calculate visible length and truncate if needed
     visible_text = "error[#{code}]: #{message}"
-    max_header_len = @box_width - 6  # Leave room for "╭─ " and " ─╮"
+    # Leave room for "╭─ " and " ─╮"
+    max_header_len = @box_width - 6
 
     {display_text, display_msg} =
       if String.length(visible_text) > max_header_len do
@@ -234,7 +236,8 @@ defmodule Sykli.Error.Formatter do
     # Calculate visible length (strip ANSI for length calc)
     visible_content = strip_ansi(content)
     visible_len = String.length(visible_content)
-    max_content_len = @box_width - 2  # Room for │ on each side
+    # Room for │ on each side
+    max_content_len = @box_width - 2
 
     # Truncate if too long
     {display_content, display_len} =
@@ -354,8 +357,14 @@ defmodule Sykli.Error.Formatter do
 
     # Context arrow
     context_parts = []
-    context_parts = if error.task, do: context_parts ++ ["task: #{error.task}"], else: context_parts
-    context_parts = if error.exit_code, do: context_parts ++ ["exit code: #{error.exit_code}"], else: context_parts
+
+    context_parts =
+      if error.task, do: context_parts ++ ["task: #{error.task}"], else: context_parts
+
+    context_parts =
+      if error.exit_code,
+        do: context_parts ++ ["exit code: #{error.exit_code}"],
+        else: context_parts
 
     lines =
       if context_parts != [] do
@@ -393,7 +402,8 @@ defmodule Sykli.Error.Formatter do
     # Hints
     lines =
       Enum.reduce(error.hints, lines, fn hint, acc ->
-        acc ++ ["", "  #{colors.faint}=#{colors.reset} #{colors.yellow}help#{colors.reset}: #{hint}"]
+        acc ++
+          ["", "  #{colors.faint}=#{colors.reset} #{colors.yellow}help#{colors.reset}: #{hint}"]
       end)
 
     # Notes

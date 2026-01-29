@@ -350,7 +350,16 @@ defmodule Sykli.Executor do
     do_run_with_retry(task, state, cache_key, 1, max_attempts, progress, target, start_time)
   end
 
-  defp do_run_with_retry(task, state, cache_key, attempt, max_attempts, progress, target, start_time) do
+  defp do_run_with_retry(
+         task,
+         state,
+         cache_key,
+         attempt,
+         max_attempts,
+         progress,
+         target,
+         start_time
+       ) do
     case run_and_cache(task, state, cache_key, progress, target) do
       :ok ->
         duration = System.monotonic_time(:millisecond) - start_time
@@ -368,7 +377,16 @@ defmodule Sykli.Executor do
             "#{IO.ANSI.faint()}(retry #{attempt}/#{max_attempts - 1})#{IO.ANSI.reset()}"
         )
 
-        do_run_with_retry(task, state, cache_key, attempt + 1, max_attempts, progress, target, start_time)
+        do_run_with_retry(
+          task,
+          state,
+          cache_key,
+          attempt + 1,
+          max_attempts,
+          progress,
+          target,
+          start_time
+        )
 
       {:error, reason} ->
         duration = System.monotonic_time(:millisecond) - start_time
