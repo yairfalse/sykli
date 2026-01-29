@@ -582,14 +582,22 @@ defmodule Sykli.Error do
 
   # Artifact validation errors
   def wrap({:artifact_validation_failed, reason}), do: artifact_error(reason)
-  def wrap({:source_task_not_found, task, source}), do: artifact_error({:source_task_not_found, task, source})
-  def wrap({:output_not_found, task, source, output}), do: artifact_error({:output_not_found, task, source, output})
-  def wrap({:missing_task_dependency, task, source}), do: artifact_error({:missing_task_dependency, task, source})
+
+  def wrap({:source_task_not_found, task, source}),
+    do: artifact_error({:source_task_not_found, task, source})
+
+  def wrap({:output_not_found, task, source, output}),
+    do: artifact_error({:output_not_found, task, source, output})
+
+  def wrap({:missing_task_dependency, task, source}),
+    do: artifact_error({:missing_task_dependency, task, source})
 
   # Runtime errors
   def wrap(:not_a_git_repo), do: not_a_git_repo()
   def wrap(:dirty_workdir), do: dirty_workdir()
-  def wrap({:target_setup_failed, reason}), do: internal("target setup failed: #{inspect(reason)}", cause: reason)
+
+  def wrap({:target_setup_failed, reason}),
+    do: internal("target setup failed: #{inspect(reason)}", cause: reason)
 
   # Execution errors
   def wrap({:missing_secrets, secrets}), do: missing_secrets("unknown", secrets)
@@ -681,17 +689,33 @@ defmodule Sykli.Error do
 
   defp exit_code_hint(code) when is_integer(code) do
     case code do
-      1 -> nil
-      2 -> "command misuse - check arguments"
-      126 -> "not executable - try: chmod +x <script>"
-      127 -> "command not found - check PATH or install missing tool"
-      128 -> "invalid exit code"
-      137 -> "process killed (SIGKILL) - likely out of memory"
-      143 -> "process terminated (SIGTERM) - task was cancelled"
+      1 ->
+        nil
+
+      2 ->
+        "command misuse - check arguments"
+
+      126 ->
+        "not executable - try: chmod +x <script>"
+
+      127 ->
+        "command not found - check PATH or install missing tool"
+
+      128 ->
+        "invalid exit code"
+
+      137 ->
+        "process killed (SIGKILL) - likely out of memory"
+
+      143 ->
+        "process terminated (SIGTERM) - task was cancelled"
+
       code when code > 128 and code < 256 ->
         signal = code - 128
         "process killed by signal #{signal}"
-      _ -> nil
+
+      _ ->
+        nil
     end
   end
 

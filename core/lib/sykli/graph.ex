@@ -161,7 +161,8 @@ defmodule Sykli.Graph do
           {:error, Error.invalid_mount(:path) |> Error.with_task(task_name)}
 
         is_nil(type) or type not in ["directory", "cache"] ->
-          {:error, Error.invalid_mount(:type, "got: #{inspect(type)}") |> Error.with_task(task_name)}
+          {:error,
+           Error.invalid_mount(:type, "got: #{inspect(type)}") |> Error.with_task(task_name)}
 
         true ->
           {:ok, %{resource: resource, path: path, type: type}}

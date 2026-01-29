@@ -29,9 +29,6 @@ defmodule Sykli.GitContext do
           repo: String.t()
         }
 
-  # Git command timeout (10 seconds - these are fast local commands)
-  @git_timeout 10_000
-
   # ─────────────────────────────────────────────────────────────────────────────
   # DETECTION
   # ─────────────────────────────────────────────────────────────────────────────
@@ -50,11 +47,12 @@ defmodule Sykli.GitContext do
   @spec detect(Path.t()) :: t() | {:error, :not_a_git_repo}
   def detect(workdir) do
     abs_path = Path.expand(workdir)
+    opts = [cd: abs_path]
 
-    with {:ok, sha} <- git_sha(abs_path),
-         {:ok, branch} <- git_branch(abs_path),
-         {:ok, url} <- git_remote_url(abs_path),
-         {:ok, dirty} <- git_dirty?(abs_path) do
+    with {:ok, sha} <- git_sha(opts),
+         {:ok, branch} <- Sykli.Git.branch(opts),
+         {:ok, url} <- Sykli.Git.remote_url(opts),
+         {:ok, dirty} <- Sykli.Git.dirty?(opts) do
       %{
         url: url,
         branch: branch,
@@ -67,51 +65,11 @@ defmodule Sykli.GitContext do
     end
   end
 
-  defp git_sha(workdir) do
-    case run_git(["rev-parse", "HEAD"], workdir) do
+  # Full SHA (not short) for git context
+  defp git_sha(opts) do
+    case Sykli.Git.run(["rev-parse", "HEAD"], opts) do
       {:ok, sha} -> {:ok, String.trim(sha)}
       _ -> {:error, :not_a_git_repo}
-    end
-  end
-
-  defp git_branch(workdir) do
-    case run_git(["rev-parse", "--abbrev-ref", "HEAD"], workdir) do
-      {:ok, branch} ->
-        branch = String.trim(branch)
-        # HEAD means detached
-        {:ok, if(branch == "HEAD", do: nil, else: branch)}
-
-      _ ->
-        {:ok, nil}
-    end
-  end
-
-  defp git_remote_url(workdir) do
-    case run_git(["remote", "get-url", "origin"], workdir) do
-      {:ok, url} -> {:ok, String.trim(url)}
-      _ -> {:ok, nil}
-    end
-  end
-
-  defp git_dirty?(workdir) do
-    case run_git(["status", "--porcelain"], workdir) do
-      {:ok, ""} -> {:ok, false}
-      {:ok, _} -> {:ok, true}
-      _ -> {:error, :not_a_git_repo}
-    end
-  end
-
-  # Run a git command with timeout to prevent hangs
-  defp run_git(args, workdir) do
-    task =
-      Task.async(fn ->
-        System.cmd("git", args, cd: workdir, stderr_to_stdout: true)
-      end)
-
-    case Task.yield(task, @git_timeout) || Task.shutdown(task) do
-      {:ok, {output, 0}} -> {:ok, output}
-      {:ok, {_, _code}} -> {:error, :git_failed}
-      nil -> {:error, :git_timeout}
     end
   end
 
