@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-01-29
+
+### Added
+
+- **Sykli.Git module** - Pure Elixir git operations (branch, ref, diff) with timeout support
+- **K8s PVC cache storage** - Persistent volume claims for Kubernetes target caching
+- **Artifact validation** - Pre-execution validation of artifact dependencies
+
+### Changed
+
+- TypeScript SDK version aligned to 0.3.0
+- Improved git branch detection with timeout fallback
+
+### Fixed
+
+- Type warnings in executor module with proper @spec annotations
+
 ## [0.2.0] - 2025-12-26
 
 ### Added
