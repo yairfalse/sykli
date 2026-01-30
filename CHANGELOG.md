@@ -10,7 +10,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Sykli.Git module** - Pure Elixir git operations (branch, ref, diff) with timeout support
-- **Structured error system** - TaskError with hints, duration, and formatted output
 - **K8s PVC cache storage** - Persistent volume claims for Kubernetes target caching
 - **Artifact validation** - Pre-execution validation of artifact dependencies
 
