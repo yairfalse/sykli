@@ -197,7 +197,7 @@ defmodule Sykli.Executor do
           # Resolve task_inputs before running the task
           case resolve_task_inputs(task, graph, state, target) do
             :ok ->
-              result = run_single(task, state, {task_num, total}, target)
+              %TaskResult{} = result = run_single(task, state, {task_num, total}, target)
               duration = System.monotonic_time(:millisecond) - start_time
               %TaskResult{result | duration_ms: duration}
 
@@ -259,6 +259,8 @@ defmodule Sykli.Executor do
 
   # ----- RUNNING A SINGLE TASK -----
 
+  @spec run_single(Sykli.Graph.Task.t(), map(), {pos_integer(), pos_integer()}, module()) ::
+          TaskResult.t()
   defp run_single(%Sykli.Graph.Task{} = task, state, progress, target) do
     start_time = System.monotonic_time(:millisecond)
 
@@ -300,6 +302,13 @@ defmodule Sykli.Executor do
     end
   end
 
+  @spec run_task_with_cache(
+          Sykli.Graph.Task.t(),
+          map(),
+          {pos_integer(), pos_integer()} | nil,
+          module(),
+          integer()
+        ) :: TaskResult.t()
   defp run_task_with_cache(%Sykli.Graph.Task{} = task, state, progress, target, start_time) do
     prefix = progress_prefix(progress)
     workdir = state.workdir
@@ -345,11 +354,29 @@ defmodule Sykli.Executor do
   end
 
   # Run task with retry logic
+  @spec run_with_retry(
+          Sykli.Graph.Task.t(),
+          map(),
+          binary() | nil,
+          {pos_integer(), pos_integer()} | nil,
+          module(),
+          integer()
+        ) :: TaskResult.t()
   defp run_with_retry(task, state, cache_key, progress, target, start_time) do
     max_attempts = (task.retry || 0) + 1
     do_run_with_retry(task, state, cache_key, 1, max_attempts, progress, target, start_time)
   end
 
+  @spec do_run_with_retry(
+          Sykli.Graph.Task.t(),
+          map(),
+          binary() | nil,
+          pos_integer(),
+          pos_integer(),
+          {pos_integer(), pos_integer()} | nil,
+          module(),
+          integer()
+        ) :: TaskResult.t()
   defp do_run_with_retry(
          task,
          state,
