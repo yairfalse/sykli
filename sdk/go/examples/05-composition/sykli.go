@@ -14,7 +14,7 @@
 
 package main
 
-import sykli "sykli.dev/go"
+import sykli "github.com/yairfalse/sykli/sdk/go"
 
 func main() {
 	s := sykli.New()
