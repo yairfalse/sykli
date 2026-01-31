@@ -4,9 +4,9 @@ Get up and running with Sykli in under 5 minutes.
 
 ## Prerequisites
 
-- **Elixir 1.15+** (only if building from source)
+- **Elixir 1.14+** (only if building from source)
 - **Docker** (optional, for container tasks)
-- One of: Go 1.21+, Rust 1.70+, Node.js 18+, or Elixir 1.15+
+- One of: Go 1.21+, Rust 1.80+, Node.js 18+, or Elixir 1.14+
 
 ## Installation
 
@@ -38,7 +38,7 @@ Pick your language:
 
 ```bash
 # Go
-go get github.com/yairfalse/sykli/sdk/go@latest
+go get github.com/yairfalse/sykli/sdk/go@v0.3.0
 
 # Rust
 cargo add sykli
