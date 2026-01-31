@@ -50,7 +50,7 @@ mix test
 mix test --cover
 
 # Run specific test file
-mix test test/executor_test.exs
+mix test test/sykli/executor
 ```
 
 ## Development
