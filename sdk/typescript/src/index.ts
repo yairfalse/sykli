@@ -167,6 +167,39 @@ export interface K8sOptions {
   cpu?: string;
   /** Number of NVIDIA GPUs to request. */
   gpu?: number;
+  /** Kubernetes namespace to run in. */
+  namespace?: string;
+  /** Node selector labels for pod scheduling. */
+  nodeSelector?: Record<string, string>;
+  /** Tolerations for pod scheduling. */
+  tolerations?: Array<{
+    key?: string;
+    operator?: string;
+    value?: string;
+    effect?: string;
+    tolerationSeconds?: number;
+  }>;
+  /** Priority class name for the pod. */
+  priorityClassName?: string;
+  /** Resource requests/limits (alternative to memory/cpu shorthand). */
+  resources?: {
+    requests?: Record<string, string>;
+    limits?: Record<string, string>;
+  };
+  /** Service account name for the pod. */
+  serviceAccount?: string;
+  /** Security context for the pod. */
+  securityContext?: Record<string, unknown>;
+  /** Use host network for the pod. */
+  hostNetwork?: boolean;
+  /** DNS policy for the pod. */
+  dnsPolicy?: string;
+  /** Additional volumes to mount. */
+  volumes?: Array<Record<string, unknown>>;
+  /** Labels to apply to the pod. */
+  labels?: Record<string, string>;
+  /** Annotations to apply to the pod. */
+  annotations?: Record<string, string>;
 }
 
 // =============================================================================
