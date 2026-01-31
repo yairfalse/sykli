@@ -249,7 +249,7 @@ mix escript.build
 
 ---
 
-## RUN HISTORY & OBSERVABILITY (In Progress)
+## RUN HISTORY & OBSERVABILITY
 
 ### Philosophy
 
