@@ -199,7 +199,7 @@ defmodule Sykli.Executor do
             :ok ->
               %TaskResult{} = result = run_single(task, state, {task_num, total}, target)
               duration = System.monotonic_time(:millisecond) - start_time
-              %{result | duration_ms: duration}
+              %TaskResult{result | duration_ms: duration}
 
             {:error, reason} ->
               duration = System.monotonic_time(:millisecond) - start_time
