@@ -172,15 +172,8 @@ defmodule Sykli do
       overall: overall
     }
 
-    case RunHistory.save(run, path: path) do
-      :ok ->
-        :ok
-
-      {:error, reason} ->
-        IO.puts(
-          "#{IO.ANSI.yellow()}⚠ Warning: Failed to save run history: #{inspect(reason)}#{IO.ANSI.reset()}"
-        )
-    end
+    # save/2 uses File.write! so it raises on error (caught by rescue below)
+    RunHistory.save(run, path: path)
   rescue
     e ->
       IO.puts(
