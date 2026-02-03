@@ -46,6 +46,9 @@ defmodule Sykli.CLI do
       ["validate" | validate_args] ->
         handle_validate(validate_args)
 
+      ["context" | context_args] ->
+        handle_context(context_args)
+
       # Support explicit 'run' command: sykli run [path]
       ["run" | run_args] ->
         run_sykli(run_args)
@@ -80,6 +83,7 @@ defmodule Sykli.CLI do
       sykli run [path] Run pipeline (explicit form)
       sykli init       Create a new sykli file (auto-detects language)
       sykli validate   Check sykli file for errors without running
+      sykli context    Generate AI context file (.sykli/context.json)
       sykli delta      Run only tasks affected by git changes
       sykli watch      Watch files and re-run affected tasks
       sykli graph      Show task graph (see: sykli graph --help)
@@ -757,6 +761,77 @@ defmodule Sykli.CLI do
       Enum.each(result.errors, fn error ->
         IO.puts("  #{IO.ANSI.red()}•#{IO.ANSI.reset()} #{error.message}")
       end)
+    end
+  end
+
+  # ----- CONTEXT SUBCOMMAND -----
+
+  defp handle_context(["--help"]) do
+    IO.puts("""
+    Usage: sykli context [options] [path]
+
+    Generate AI context file (.sykli/context.json).
+
+    This file provides structured information about your pipeline for AI assistants,
+    including task metadata, coverage mapping, and last run results.
+
+    Options:
+      --help       Show this help
+
+    Examples:
+      sykli context              Generate context for current directory
+      sykli context ./my-project Generate context for specific project
+    """)
+
+    halt(0)
+  end
+
+  defp handle_context(args) do
+    path = List.first(args) || "."
+
+    case generate_context_file(path) do
+      :ok ->
+        IO.puts("#{IO.ANSI.green()}✓#{IO.ANSI.reset()} Generated .sykli/context.json")
+        halt(0)
+
+      {:error, reason} ->
+        IO.puts("#{IO.ANSI.red()}✗#{IO.ANSI.reset()} Failed to generate context: #{inspect(reason)}")
+        halt(1)
+    end
+  end
+
+  defp generate_context_file(path) do
+    alias Sykli.{Detector, Graph, Context, RunHistory}
+
+    with {:ok, sdk_file} <- Detector.find(path),
+         {:ok, json} <- Detector.emit(sdk_file),
+         {:ok, graph} <- Graph.parse(json) do
+      # Try to load last run for context
+      run_result =
+        case RunHistory.load_latest(path: path) do
+          {:ok, run} ->
+            %{
+              timestamp: run.timestamp,
+              outcome: if(run.overall == :passed, do: :success, else: :failure),
+              duration_ms: Enum.reduce(run.tasks, 0, fn t, acc -> acc + (t.duration_ms || 0) end),
+              tasks: Enum.map(run.tasks, fn t ->
+                %{
+                  name: t.name,
+                  status: t.status,
+                  duration_ms: t.duration_ms,
+                  cached: t.cached,
+                  error: t.error
+                }
+              end)
+            }
+
+          {:error, _} ->
+            nil
+        end
+
+      # Expand matrix and generate context
+      expanded_graph = Graph.expand_matrix(graph)
+      Context.generate(expanded_graph, run_result, path)
     end
   end
 

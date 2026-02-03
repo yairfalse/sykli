@@ -198,6 +198,31 @@ defmodule Sykli.Emitter do
     |> maybe_put(:target, task.target_name)
     |> maybe_put(:k8s, if(task.k8s, do: Sykli.K8s.to_json(task.k8s), else: nil))
     |> maybe_put(:requires, non_empty(task.requires))
+    |> maybe_put(:semantic, semantic_to_json(task.semantic))
+    |> maybe_put(:ai_hooks, ai_hooks_to_json(task.ai_hooks))
+  end
+
+  defp semantic_to_json(nil), do: nil
+  defp semantic_to_json(semantic) do
+    %{}
+    |> maybe_put(:covers, non_empty(semantic.covers))
+    |> maybe_put(:intent, semantic.intent)
+    |> maybe_put(:criticality, if(semantic.criticality, do: Atom.to_string(semantic.criticality), else: nil))
+    |> case do
+      map when map_size(map) == 0 -> nil
+      map -> map
+    end
+  end
+
+  defp ai_hooks_to_json(nil), do: nil
+  defp ai_hooks_to_json(ai_hooks) do
+    %{}
+    |> maybe_put(:on_fail, if(ai_hooks.on_fail, do: Atom.to_string(ai_hooks.on_fail), else: nil))
+    |> maybe_put(:select, if(ai_hooks.select, do: Atom.to_string(ai_hooks.select), else: nil))
+    |> case do
+      map when map_size(map) == 0 -> nil
+      map -> map
+    end
   end
 
   defp secret_ref_to_json(ref) do

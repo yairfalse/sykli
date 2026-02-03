@@ -39,6 +39,11 @@ defmodule Sykli.Graph do
     **Infrastructure** - Environment configuration
       - `mounts`, `services`, `k8s`, `requires`
 
+    **AI-Native** - Metadata for AI assistants
+      - `semantic` - what code this task covers, intent, criticality
+      - `ai_hooks` - on_fail behavior, task selection mode
+      - `history_hint` - learned data (flakiness, duration, patterns)
+
     ## Accessor Functions
 
     Use the accessor functions to access fields - they provide a consistent
@@ -51,6 +56,9 @@ defmodule Sykli.Graph do
     alias Sykli.Graph.Task.Dependencies
     alias Sykli.Graph.Task.Robustness
     alias Sykli.Graph.Task.Infrastructure
+    alias Sykli.Graph.Task.Semantic
+    alias Sykli.Graph.Task.AiHooks
+    alias Sykli.Graph.Task.HistoryHint
 
     defstruct [
       :name,
@@ -89,7 +97,14 @@ defmodule Sykli.Graph do
       :k8s,
       # Node placement
       # List of required node labels (e.g., ["gpu", "docker"])
-      :requires
+      :requires,
+      # AI-native fields
+      # Semantic metadata for AI understanding
+      :semantic,
+      # AI behavioral hooks
+      :ai_hooks,
+      # Learned history hints (populated by Sykli, not SDKs)
+      :history_hint
     ]
 
     @type t :: %__MODULE__{}
@@ -166,6 +181,18 @@ defmodule Sykli.Graph do
     @spec task_inputs(t()) :: [Sykli.Graph.TaskInput.t()]
     def task_inputs(%__MODULE__{task_inputs: ti}), do: ti || []
 
+    @doc "Returns the semantic metadata."
+    @spec semantic(t()) :: Semantic.t()
+    def semantic(%__MODULE__{semantic: s}), do: s || %Semantic{}
+
+    @doc "Returns the AI hooks."
+    @spec ai_hooks(t()) :: AiHooks.t()
+    def ai_hooks(%__MODULE__{ai_hooks: h}), do: h || %AiHooks{}
+
+    @doc "Returns the history hints."
+    @spec history_hint(t()) :: HistoryHint.t()
+    def history_hint(%__MODULE__{history_hint: h}), do: h || %HistoryHint{}
+
     # ─────────────────────────────────────────────────────────────────────────────
     # SUB-STRUCT ACCESSORS
     # ─────────────────────────────────────────────────────────────────────────────
@@ -217,6 +244,33 @@ defmodule Sykli.Graph do
     @doc "Checks if this is an expanded matrix task."
     @spec expanded_matrix?(t()) :: boolean()
     def expanded_matrix?(%__MODULE__{matrix_values: mv}), do: mv != nil && map_size(mv) > 0
+
+    @doc "Checks if the task has semantic metadata."
+    @spec has_semantic?(t()) :: boolean()
+    def has_semantic?(%__MODULE__{semantic: nil}), do: false
+    def has_semantic?(%__MODULE__{semantic: %Semantic{covers: [], intent: nil}}), do: false
+    def has_semantic?(_), do: true
+
+    @doc "Checks if the task has AI hooks configured."
+    @spec has_ai_hooks?(t()) :: boolean()
+    def has_ai_hooks?(%__MODULE__{ai_hooks: nil}), do: false
+    def has_ai_hooks?(%__MODULE__{ai_hooks: %AiHooks{on_fail: nil, select: nil}}), do: false
+    def has_ai_hooks?(_), do: true
+
+    @doc "Checks if the task uses smart selection."
+    @spec smart_select?(t()) :: boolean()
+    def smart_select?(%__MODULE__{ai_hooks: %AiHooks{select: :smart}}), do: true
+    def smart_select?(_), do: false
+
+    @doc "Checks if the task is critical."
+    @spec critical?(t()) :: boolean()
+    def critical?(%__MODULE__{semantic: %Semantic{criticality: :high}}), do: true
+    def critical?(_), do: false
+
+    @doc "Checks if the task is flaky."
+    @spec flaky?(t()) :: boolean()
+    def flaky?(%__MODULE__{history_hint: %HistoryHint{flaky: true}}), do: true
+    def flaky?(_), do: false
   end
 
   def parse(json) do
@@ -269,7 +323,11 @@ defmodule Sykli.Graph do
          # Target-specific options
          k8s: Sykli.Target.K8sOptions.parse(map["k8s"]),
          # Node placement
-         requires: map["requires"] || []
+         requires: map["requires"] || [],
+         # AI-native fields
+         semantic: Task.Semantic.from_map(map["semantic"]),
+         ai_hooks: Task.AiHooks.from_map(map["ai_hooks"]),
+         history_hint: Task.HistoryHint.from_map(map["history_hint"])
        }}
     end
   end

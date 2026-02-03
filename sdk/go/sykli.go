@@ -464,6 +464,50 @@ type TaskInput struct {
 	destPath   string // Path where the artifact should be available
 }
 
+// =============================================================================
+// AI-NATIVE METADATA
+// =============================================================================
+
+// Criticality represents task importance for AI prioritization.
+type Criticality string
+
+const (
+	CriticalityHigh   Criticality = "high"
+	CriticalityMedium Criticality = "medium"
+	CriticalityLow    Criticality = "low"
+)
+
+// OnFailAction specifies what AI should do when task fails.
+type OnFailAction string
+
+const (
+	OnFailAnalyze OnFailAction = "analyze" // AI should analyze failure
+	OnFailRetry   OnFailAction = "retry"   // AI should retry with modifications
+	OnFailSkip    OnFailAction = "skip"    // AI can skip without analysis
+)
+
+// SelectMode specifies how AI should select this task.
+type SelectMode string
+
+const (
+	SelectSmart  SelectMode = "smart"  // Only run if covers changed files
+	SelectAlways SelectMode = "always" // Always run regardless of changes
+	SelectManual SelectMode = "manual" // Only run when explicitly requested
+)
+
+// Semantic holds metadata for AI understanding of the task.
+type Semantic struct {
+	covers      []string
+	intent      string
+	criticality Criticality
+}
+
+// AiHooks holds behavioral hints for AI assistants.
+type AiHooks struct {
+	onFail OnFailAction
+	sel    SelectMode
+}
+
 // Task represents a single task in the pipeline.
 type Task struct {
 	pipeline     *Pipeline
@@ -489,6 +533,9 @@ type Task struct {
 	k8sRaw       string                 // Raw K8s JSON for advanced options
 	targetName   string                 // Per-task target override
 	requires     []string               // Required node labels for placement
+	// AI-native fields
+	semantic     Semantic
+	aiHooks      AiHooks
 }
 
 // Task creates a new task with the given name.
@@ -775,6 +822,101 @@ func (t *Task) Requires(labels ...string) *Task {
 		}
 	}
 	t.requires = append(t.requires, labels...)
+	return t
+}
+
+// =============================================================================
+// AI-NATIVE METHODS
+// =============================================================================
+
+// Covers sets the file patterns this task tests or affects.
+// Used for smart task selection - when files change, AI can identify
+// which tasks are relevant.
+//
+// Example:
+//
+//	s.Task("auth-test").
+//	    Run("go test ./auth/...").
+//	    Covers("src/auth/*", "src/lib/session.go")
+func (t *Task) Covers(patterns ...string) *Task {
+	t.semantic.covers = append(t.semantic.covers, patterns...)
+	return t
+}
+
+// Intent sets a human-readable description of what this task does.
+// Helps AI assistants understand the purpose of the task.
+//
+// Example:
+//
+//	s.Task("auth-test").
+//	    Run("go test ./auth/...").
+//	    Intent("Unit tests for authentication module")
+func (t *Task) Intent(description string) *Task {
+	t.semantic.intent = description
+	return t
+}
+
+// Critical marks this task as high-criticality for prioritization.
+// Shorthand for Criticality(CriticalityHigh).
+//
+// Example:
+//
+//	s.Task("security-scan").Run("snyk test").Critical()
+func (t *Task) Critical() *Task {
+	t.semantic.criticality = CriticalityHigh
+	return t
+}
+
+// SetCriticality sets the criticality level for this task.
+// Use Critical() as shorthand for high criticality.
+//
+// Example:
+//
+//	s.Task("lint").Run("golangci-lint run").SetCriticality(CriticalityLow)
+func (t *Task) SetCriticality(c Criticality) *Task {
+	t.semantic.criticality = c
+	return t
+}
+
+// OnFail sets what AI should do when this task fails.
+//
+// Example:
+//
+//	s.Task("test").Run("go test").OnFail(OnFailAnalyze)
+//	s.Task("lint").Run("golangci-lint run").OnFail(OnFailSkip)
+func (t *Task) OnFail(action OnFailAction) *Task {
+	t.aiHooks.onFail = action
+	return t
+}
+
+// SelectMode sets how AI should select this task for execution.
+//
+// Example:
+//
+//	s.Task("test").
+//	    Run("go test ./...").
+//	    Covers("**/*.go").
+//	    SelectMode(SelectSmart)  // Only run when Go files change
+//
+//	s.Task("deploy").
+//	    Run("kubectl apply -f k8s/").
+//	    SelectMode(SelectManual)  // Only run when explicitly requested
+func (t *Task) SelectMode(mode SelectMode) *Task {
+	t.aiHooks.sel = mode
+	return t
+}
+
+// Smart enables smart task selection based on covers patterns.
+// Shorthand for SelectMode(SelectSmart).
+//
+// Example:
+//
+//	s.Task("auth-test").
+//	    Run("go test ./auth/...").
+//	    Covers("src/auth/*").
+//	    Smart()
+func (t *Task) Smart() *Task {
+	t.aiHooks.sel = SelectSmart
 	return t
 }
 
@@ -1473,6 +1615,18 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 		Raw    string `json:"raw,omitempty"`    // Escape hatch: raw JSON for advanced options
 	}
 
+	// AI-native metadata JSON
+	type jsonSemantic struct {
+		Covers      []string `json:"covers,omitempty"`
+		Intent      string   `json:"intent,omitempty"`
+		Criticality string   `json:"criticality,omitempty"`
+	}
+
+	type jsonAiHooks struct {
+		OnFail string `json:"on_fail,omitempty"`
+		Select string `json:"select,omitempty"`
+	}
+
 	type jsonTask struct {
 		Name       string              `json:"name"`
 		Command    string              `json:"command"`
@@ -1494,6 +1648,9 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 		Target     string              `json:"target,omitempty"`       // Per-task target override
 		K8s        *jsonK8sOptions     `json:"k8s,omitempty"`          // K8s-specific options
 		Requires   []string            `json:"requires,omitempty"`     // Required node labels
+		// AI-native fields
+		Semantic   *jsonSemantic       `json:"semantic,omitempty"`
+		AiHooks    *jsonAiHooks        `json:"ai_hooks,omitempty"`
 	}
 
 	type jsonResource struct {
@@ -1651,6 +1808,25 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 					return nil
 				}
 				return t.requires
+			}(),
+			Semantic: func() *jsonSemantic {
+				if len(t.semantic.covers) == 0 && t.semantic.intent == "" && t.semantic.criticality == "" {
+					return nil
+				}
+				return &jsonSemantic{
+					Covers:      t.semantic.covers,
+					Intent:      t.semantic.intent,
+					Criticality: string(t.semantic.criticality),
+				}
+			}(),
+			AiHooks: func() *jsonAiHooks {
+				if t.aiHooks.onFail == "" && t.aiHooks.sel == "" {
+					return nil
+				}
+				return &jsonAiHooks{
+					OnFail: string(t.aiHooks.onFail),
+					Select: string(t.aiHooks.sel),
+				}
 			}(),
 		}
 	}

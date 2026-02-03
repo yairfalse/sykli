@@ -284,6 +284,147 @@ defmodule Sykli.DSL do
     update_current_task(fn t -> %{t | mounts: t.mounts ++ [mount]} end)
   end
 
+  # ============================================================================
+  # AI-NATIVE FEATURES
+  # ============================================================================
+
+  @doc """
+  Sets file patterns that this task covers/tests.
+
+  Used by AI assistants to determine which tasks are relevant
+  when specific files change.
+
+  ## Example
+
+      task "auth-test" do
+        run "mix test test/auth"
+        covers ["lib/auth/**/*.ex", "lib/auth.ex"]
+      end
+  """
+  def covers(patterns) when is_list(patterns) do
+    update_current_task(fn t ->
+      semantic = t.semantic || %{covers: [], intent: nil, criticality: nil}
+      %{t | semantic: %{semantic | covers: patterns}}
+    end)
+  end
+
+  @doc """
+  Sets a human-readable description of what this task does.
+
+  Helps AI assistants understand the purpose of the task.
+
+  ## Example
+
+      task "auth-test" do
+        run "mix test test/auth"
+        intent "Tests authentication and authorization logic"
+      end
+  """
+  def intent(description) when is_binary(description) do
+    update_current_task(fn t ->
+      semantic = t.semantic || %{covers: [], intent: nil, criticality: nil}
+      %{t | semantic: %{semantic | intent: description}}
+    end)
+  end
+
+  @doc """
+  Marks this task as high criticality.
+
+  Critical tasks are prioritized by AI assistants and may receive
+  special handling on failure.
+
+  ## Example
+
+      task "security-scan" do
+        run "./security-scan.sh"
+        critical()
+      end
+  """
+  def critical do
+    set_criticality(:high)
+  end
+
+  @doc """
+  Sets the criticality level of this task.
+
+  Levels: :high, :medium, :low
+
+  ## Example
+
+      task "lint" do
+        run "mix credo"
+        set_criticality(:low)
+      end
+  """
+  def set_criticality(level) when level in [:high, :medium, :low] do
+    update_current_task(fn t ->
+      semantic = t.semantic || %{covers: [], intent: nil, criticality: nil}
+      %{t | semantic: %{semantic | criticality: level}}
+    end)
+  end
+
+  @doc """
+  Sets the behavior when this task fails.
+
+  Actions:
+  - :analyze - AI should analyze the failure
+  - :retry - AI should attempt to fix and retry
+  - :skip - AI should skip analysis
+
+  ## Example
+
+      task "flaky-integration-test" do
+        run "mix test --only integration"
+        on_fail(:retry)
+      end
+  """
+  def on_fail(action) when action in [:analyze, :retry, :skip] do
+    update_current_task(fn t ->
+      ai_hooks = t.ai_hooks || %{on_fail: nil, select: nil}
+      %{t | ai_hooks: %{ai_hooks | on_fail: action}}
+    end)
+  end
+
+  @doc """
+  Sets the selection mode for this task.
+
+  Modes:
+  - :smart - Only run if covers patterns match changed files
+  - :always - Always include in runs
+  - :manual - Never auto-select, only run when explicitly requested
+
+  ## Example
+
+      task "deploy" do
+        run "./deploy.sh"
+        select_mode(:manual)
+      end
+  """
+  def select_mode(mode) when mode in [:smart, :always, :manual] do
+    update_current_task(fn t ->
+      ai_hooks = t.ai_hooks || %{on_fail: nil, select: nil}
+      %{t | ai_hooks: %{ai_hooks | select: mode}}
+    end)
+  end
+
+  @doc """
+  Enables smart task selection based on file coverage.
+
+  Shorthand for `select_mode(:smart)`. When smart mode is enabled,
+  this task only runs if the `covers` patterns match changed files.
+
+  ## Example
+
+      task "auth-test" do
+        run "mix test test/auth"
+        covers ["lib/auth/**/*.ex"]
+        smart()
+      end
+  """
+  def smart do
+    select_mode(:smart)
+  end
+
   @doc """
   Mounts the current working directory to /work and sets workdir.
   This is a convenience method that combines mount + workdir for the common case.
@@ -490,6 +631,42 @@ defmodule Sykli.DSL do
   @spec with_deps(Sykli.Task.t(), [String.t()]) :: Sykli.Task.t()
   def with_deps(%Sykli.Task{} = task, deps) when is_list(deps) do
     %{task | depends_on: task.depends_on ++ deps}
+  end
+
+  @doc """
+  Sets file coverage patterns on a task reference (for use outside task blocks).
+  """
+  @spec with_covers(Sykli.Task.t(), [String.t()]) :: Sykli.Task.t()
+  def with_covers(%Sykli.Task{} = task, patterns) when is_list(patterns) do
+    semantic = task.semantic || %{covers: [], intent: nil, criticality: nil}
+    %{task | semantic: %{semantic | covers: patterns}}
+  end
+
+  @doc """
+  Sets intent description on a task reference (for use outside task blocks).
+  """
+  @spec with_intent(Sykli.Task.t(), String.t()) :: Sykli.Task.t()
+  def with_intent(%Sykli.Task{} = task, description) when is_binary(description) do
+    semantic = task.semantic || %{covers: [], intent: nil, criticality: nil}
+    %{task | semantic: %{semantic | intent: description}}
+  end
+
+  @doc """
+  Marks a task reference as critical (for use outside task blocks).
+  """
+  @spec with_critical(Sykli.Task.t()) :: Sykli.Task.t()
+  def with_critical(%Sykli.Task{} = task) do
+    semantic = task.semantic || %{covers: [], intent: nil, criticality: nil}
+    %{task | semantic: %{semantic | criticality: :high}}
+  end
+
+  @doc """
+  Enables smart selection on a task reference (for use outside task blocks).
+  """
+  @spec with_smart(Sykli.Task.t()) :: Sykli.Task.t()
+  def with_smart(%Sykli.Task{} = task) do
+    ai_hooks = task.ai_hooks || %{on_fail: nil, select: nil}
+    %{task | ai_hooks: %{ai_hooks | select: :smart}}
   end
 
   @doc """

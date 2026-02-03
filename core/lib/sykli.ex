@@ -5,7 +5,7 @@ defmodule Sykli do
   Direct orchestration: detect SDK file, run it, parse JSON, execute tasks.
   """
 
-  alias Sykli.{Detector, Graph, Executor, Cache, RunHistory, GitContext}
+  alias Sykli.{Detector, Graph, Executor, Cache, RunHistory, GitContext, Context}
 
   @doc """
   Run the sykli pipeline.
@@ -156,16 +156,17 @@ defmodule Sykli do
     do_add_deps(rest ++ new_deps, new_result, task_map)
   end
 
-  # Save run history after execution
+  # Save run history and generate AI context after execution
   defp save_run_history(path, result, graph) do
     {overall, task_results} = extract_task_results(result, graph, path)
+    timestamp = DateTime.utc_now()
 
     # Add likely cause for failed tasks
     task_results_with_cause = add_likely_causes(task_results, path)
 
     run = %RunHistory.Run{
       id: generate_run_id(),
-      timestamp: DateTime.utc_now(),
+      timestamp: timestamp,
       git_ref: get_git_ref(path),
       git_branch: get_git_branch(path),
       tasks: task_results_with_cause,
@@ -174,10 +175,45 @@ defmodule Sykli do
 
     # save/2 uses File.write! so it raises on error (caught by rescue below)
     RunHistory.save(run, path: path)
+
+    # Generate AI context file
+    generate_context(path, graph, run)
   rescue
     e ->
       IO.puts(
         "#{IO.ANSI.yellow()}⚠ Warning: Failed to save run history: #{Exception.message(e)}#{IO.ANSI.reset()}"
+      )
+  end
+
+  # Generate .sykli/context.json for AI assistants
+  defp generate_context(path, graph, run) do
+    # Convert run to format expected by Context module
+    run_result = %{
+      timestamp: run.timestamp,
+      outcome: if(run.overall == :passed, do: :success, else: :failure),
+      duration_ms: Enum.reduce(run.tasks, 0, fn t, acc -> acc + (t.duration_ms || 0) end),
+      tasks: Enum.map(run.tasks, fn t ->
+        %{
+          name: t.name,
+          status: t.status,
+          duration_ms: t.duration_ms,
+          cached: t.cached,
+          error: t.error
+        }
+      end)
+    }
+
+    case Context.generate(graph, run_result, path) do
+      :ok -> :ok
+      {:error, reason} ->
+        IO.puts(
+          "#{IO.ANSI.yellow()}⚠ Warning: Failed to generate context: #{inspect(reason)}#{IO.ANSI.reset()}"
+        )
+    end
+  rescue
+    e ->
+      IO.puts(
+        "#{IO.ANSI.yellow()}⚠ Warning: Failed to generate context: #{Exception.message(e)}#{IO.ANSI.reset()}"
       )
   end
 
