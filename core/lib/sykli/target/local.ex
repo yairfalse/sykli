@@ -461,3 +461,148 @@ defmodule Sykli.Target.Local do
   defp format_runtime_info(%{shell: shell}), do: shell
   defp format_runtime_info(info), do: inspect(info)
 end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PROTOCOL IMPLEMENTATIONS
+# ─────────────────────────────────────────────────────────────────────────────
+
+defimpl Sykli.Target.Protocol.Secrets, for: Sykli.Target.Local do
+  def resolve(%Sykli.Target.Local{}, name) do
+    case System.get_env(name) do
+      nil -> {:error, :not_found}
+      "" -> {:error, :not_found}
+      value -> {:ok, value}
+    end
+  end
+end
+
+defimpl Sykli.Target.Protocol.Storage, for: Sykli.Target.Local do
+  def create_volume(%Sykli.Target.Local{workdir: workdir}, name, _opts) do
+    path = Path.join([workdir, ".sykli", "volumes", name])
+
+    case File.mkdir_p(path) do
+      :ok ->
+        {:ok, %{id: name, host_path: path, reference: path}}
+
+      {:error, reason} ->
+        {:error, {:mkdir_failed, reason}}
+    end
+  end
+
+  def artifact_path(%Sykli.Target.Local{}, task_name, artifact_name, workdir) do
+    Path.join([workdir, ".sykli", "artifacts", task_name, artifact_name])
+  end
+
+  def copy_artifact(%Sykli.Target.Local{}, source_path, dest_path, workdir) do
+    abs_source = Path.join(workdir, source_path) |> Path.expand()
+    abs_dest = Path.join(workdir, dest_path) |> Path.expand()
+    abs_workdir = Path.expand(workdir)
+
+    cond do
+      not path_within?(abs_source, abs_workdir) ->
+        {:error, {:path_traversal, source_path}}
+
+      not path_within?(abs_dest, abs_workdir) ->
+        {:error, {:path_traversal, dest_path}}
+
+      File.regular?(abs_source) ->
+        copy_file(abs_source, abs_dest)
+
+      File.dir?(abs_source) ->
+        copy_directory(abs_source, abs_dest)
+
+      true ->
+        {:error, {:source_not_found, source_path}}
+    end
+  end
+
+  defp path_within?(path, base) do
+    path == base or String.starts_with?(path, base <> "/")
+  end
+
+  defp copy_file(abs_source, abs_dest) do
+    dest_dir = Path.dirname(abs_dest)
+
+    with :ok <- File.mkdir_p(dest_dir),
+         {:ok, _bytes} <- File.copy(abs_source, abs_dest) do
+      case File.stat(abs_source) do
+        {:ok, %{mode: mode}} -> File.chmod(abs_dest, mode)
+        _ -> :ok
+      end
+
+      :ok
+    else
+      {:error, reason} -> {:error, {:copy_failed, reason}}
+    end
+  end
+
+  defp copy_directory(abs_source, abs_dest) do
+    with :ok <- File.mkdir_p(abs_dest),
+         {:ok, _} <- File.cp_r(abs_source, abs_dest) do
+      :ok
+    else
+      {:error, reason, _file} -> {:error, {:copy_failed, reason}}
+      {:error, reason} -> {:error, {:copy_failed, reason}}
+    end
+  end
+end
+
+defimpl Sykli.Target.Protocol.Services, for: Sykli.Target.Local do
+  def start_services(%Sykli.Target.Local{}, _task_name, []), do: {:ok, {nil, [], nil}}
+
+  def start_services(%Sykli.Target.Local{runtime: runtime}, task_name, services) do
+    unless function_exported?(runtime, :create_network, 1) do
+      {:error, {:runtime_no_services, runtime.name()}}
+    else
+      network_name = "sykli-#{sanitize_name(task_name)}-#{:rand.uniform(100_000)}"
+
+      case runtime.create_network(network_name) do
+        {:ok, _} ->
+          IO.puts("  #{IO.ANSI.faint()}Created network #{network_name}#{IO.ANSI.reset()}")
+          container_ids = start_service_containers(runtime, network_name, services)
+          if length(services) > 0, do: Process.sleep(1000)
+          {:ok, {network_name, container_ids, runtime}}
+
+        {:error, reason} ->
+          {:error, {:network_create_failed, reason}}
+      end
+    end
+  end
+
+  def stop_services(%Sykli.Target.Local{}, {nil, [], _}), do: :ok
+
+  def stop_services(%Sykli.Target.Local{}, {network_name, container_ids, runtime}) do
+    Enum.each(container_ids, fn container_id ->
+      runtime.stop_service(container_id)
+    end)
+
+    if network_name do
+      runtime.remove_network(network_name)
+      IO.puts("  #{IO.ANSI.faint()}Removed network #{network_name}#{IO.ANSI.reset()}")
+    end
+
+    :ok
+  end
+
+  defp sanitize_name(name), do: String.replace(name, ~r/[^a-zA-Z0-9_-]/, "_")
+
+  defp start_service_containers(runtime, network_name, services) do
+    Enum.map(services, fn %Sykli.Graph.Service{image: image, name: name} ->
+      container_name = "#{network_name}-#{name}"
+
+      case runtime.start_service(container_name, image, network_name, []) do
+        {:ok, container_id} ->
+          IO.puts("  #{IO.ANSI.faint()}Started service #{name} (#{image})#{IO.ANSI.reset()}")
+          container_id
+
+        {:error, reason} ->
+          IO.puts(
+            "  #{IO.ANSI.red()}Failed to start service #{name}: #{inspect(reason)}#{IO.ANSI.reset()}"
+          )
+
+          nil
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
+  end
+end

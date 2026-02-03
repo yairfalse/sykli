@@ -25,13 +25,22 @@ defmodule Sykli.Events do
     * `:task_completed` - Task finished
     * `:run_completed` - All tasks done
 
+  ## Typed Event Data
+
+  Event data is now typed using dedicated structs:
+    * `Sykli.Events.RunStarted` - run_started event data
+    * `Sykli.Events.RunCompleted` - run_completed event data
+    * `Sykli.Events.TaskStarted` - task_started event data
+    * `Sykli.Events.TaskCompleted` - task_completed event data
+    * `Sykli.Events.TaskOutput` - task_output event data
+
   ## Example
 
       # Subscribe to events (v2 format)
       Sykli.Events.subscribe(run_id)
 
       receive do
-        %Sykli.Events.Event{type: :task_completed} = event ->
+        %Sykli.Events.Event{type: :task_completed, data: %TaskCompleted{}} = event ->
           IO.puts("Task \#{event.data.task_name} completed!")
       end
 
@@ -45,6 +54,11 @@ defmodule Sykli.Events do
   """
 
   alias Sykli.Events.Event
+  alias Sykli.Events.RunStarted
+  alias Sykli.Events.RunCompleted
+  alias Sykli.Events.TaskStarted
+  alias Sykli.Events.TaskCompleted
+  alias Sykli.Events.TaskOutput
 
   @pubsub Sykli.PubSub
 
@@ -74,12 +88,8 @@ defmodule Sykli.Events do
   Broadcast a run_started event. Returns the Event struct.
   """
   def run_started(run_id, project_path, tasks) do
-    event =
-      Event.new(:run_started, run_id, %{
-        project_path: project_path,
-        tasks: tasks,
-        task_count: length(tasks)
-      })
+    data = RunStarted.new(project_path, tasks)
+    event = Event.new(:run_started, run_id, data)
 
     broadcast(event)
     broadcast_legacy({:run_started, run_id, project_path, tasks}, run_id)
@@ -90,7 +100,8 @@ defmodule Sykli.Events do
   Broadcast a task_started event. Returns the Event struct.
   """
   def task_started(run_id, task_name) do
-    event = Event.new(:task_started, run_id, %{task_name: task_name})
+    data = TaskStarted.new(task_name)
+    event = Event.new(:task_started, run_id, data)
 
     broadcast(event)
     broadcast_legacy({:task_started, run_id, task_name}, run_id)
@@ -101,11 +112,8 @@ defmodule Sykli.Events do
   Broadcast task output. Returns the Event struct.
   """
   def task_output(run_id, task_name, output) do
-    event =
-      Event.new(:task_output, run_id, %{
-        task_name: task_name,
-        output: output
-      })
+    data = TaskOutput.new(task_name, output)
+    event = Event.new(:task_output, run_id, data)
 
     broadcast(event)
     broadcast_legacy({:task_output, run_id, task_name, output}, run_id)
@@ -116,18 +124,8 @@ defmodule Sykli.Events do
   Broadcast a task_completed event. Returns the Event struct.
   """
   def task_completed(run_id, task_name, result) do
-    {outcome, error} =
-      case result do
-        :ok -> {:success, nil}
-        {:error, reason} -> {:failure, reason}
-      end
-
-    event =
-      Event.new(:task_completed, run_id, %{
-        task_name: task_name,
-        outcome: outcome,
-        error: error
-      })
+    data = TaskCompleted.from_result(task_name, result, nil)
+    event = Event.new(:task_completed, run_id, data)
 
     broadcast(event)
     broadcast_legacy({:task_completed, run_id, task_name, result}, run_id)
@@ -138,17 +136,8 @@ defmodule Sykli.Events do
   Broadcast a run_completed event. Returns the Event struct.
   """
   def run_completed(run_id, result) do
-    {outcome, error} =
-      case result do
-        :ok -> {:success, nil}
-        {:error, reason} -> {:failure, reason}
-      end
-
-    event =
-      Event.new(:run_completed, run_id, %{
-        outcome: outcome,
-        error: error
-      })
+    data = RunCompleted.from_result(result)
+    event = Event.new(:run_completed, run_id, data)
 
     broadcast(event)
     broadcast_legacy({:run_completed, run_id, result}, run_id)

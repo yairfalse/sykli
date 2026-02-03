@@ -551,6 +551,61 @@ impl SecretRef {
 }
 
 // =============================================================================
+// AI-NATIVE TYPES
+// =============================================================================
+
+/// Task criticality for AI prioritization.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum Criticality {
+    /// High priority task
+    High,
+    /// Medium priority task
+    #[default]
+    Medium,
+    /// Low priority task
+    Low,
+}
+
+/// What AI should do when a task fails.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum OnFailAction {
+    /// AI should analyze the failure
+    #[default]
+    Analyze,
+    /// AI should retry with modifications
+    Retry,
+    /// AI can skip without analysis
+    Skip,
+}
+
+/// How AI should select this task for execution.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum SelectMode {
+    /// Only run if covers changed files
+    Smart,
+    /// Always run regardless of changes
+    #[default]
+    Always,
+    /// Only run when explicitly requested
+    Manual,
+}
+
+/// Semantic metadata for AI understanding of the task.
+#[derive(Clone, Default)]
+struct Semantic {
+    covers: Vec<String>,
+    intent: Option<String>,
+    criticality: Option<Criticality>,
+}
+
+/// AI behavioral hooks.
+#[derive(Clone, Default)]
+struct AiHooks {
+    on_fail: Option<OnFailAction>,
+    select: Option<SelectMode>,
+}
+
+// =============================================================================
 // CONDITION BUILDER (Type-safe conditions)
 // =============================================================================
 
@@ -694,6 +749,9 @@ struct TaskData {
     target_name: Option<String>,
     // Node placement - required node labels
     requires: Vec<String>,
+    // AI-native fields
+    semantic: Semantic,
+    ai_hooks: AiHooks,
 }
 
 impl<'a> Task<'a> {
@@ -1082,6 +1140,62 @@ impl<'a> Task<'a> {
         self.pipeline.tasks[self.index]
             .requires
             .extend(labels.iter().map(|s| (*s).to_string()));
+        self
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // AI-NATIVE METHODS
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    /// Sets file patterns this task tests or affects (for smart selection).
+    #[must_use]
+    pub fn covers(self, patterns: &[&str]) -> Self {
+        self.pipeline.tasks[self.index]
+            .semantic
+            .covers
+            .extend(patterns.iter().map(|s| (*s).to_string()));
+        self
+    }
+
+    /// Sets a description of what this task does (for AI context).
+    #[must_use]
+    pub fn intent(self, description: &str) -> Self {
+        self.pipeline.tasks[self.index].semantic.intent = Some(description.to_string());
+        self
+    }
+
+    /// Marks this task as high-criticality.
+    #[must_use]
+    pub fn critical(self) -> Self {
+        self.pipeline.tasks[self.index].semantic.criticality = Some(Criticality::High);
+        self
+    }
+
+    /// Sets the criticality level.
+    #[must_use]
+    pub fn set_criticality(self, level: Criticality) -> Self {
+        self.pipeline.tasks[self.index].semantic.criticality = Some(level);
+        self
+    }
+
+    /// Sets what AI should do when this task fails.
+    #[must_use]
+    pub fn on_fail(self, action: OnFailAction) -> Self {
+        self.pipeline.tasks[self.index].ai_hooks.on_fail = Some(action);
+        self
+    }
+
+    /// Sets how AI should select this task for execution.
+    #[must_use]
+    pub fn select_mode(self, mode: SelectMode) -> Self {
+        self.pipeline.tasks[self.index].ai_hooks.select = Some(mode);
+        self
+    }
+
+    /// Enables smart task selection based on covers patterns.
+    #[must_use]
+    pub fn smart(self) -> Self {
+        self.pipeline.tasks[self.index].ai_hooks.select = Some(SelectMode::Smart);
         self
     }
 
@@ -1994,6 +2108,41 @@ impl Pipeline {
                     } else {
                         Some(t.requires.clone())
                     },
+                    semantic: {
+                        let s = &t.semantic;
+                        if s.covers.is_empty() && s.intent.is_none() && s.criticality.is_none() {
+                            None
+                        } else {
+                            Some(JsonSemantic {
+                                covers: if s.covers.is_empty() { None } else { Some(s.covers.clone()) },
+                                intent: s.intent.clone(),
+                                criticality: s.criticality.as_ref().map(|c| match c {
+                                    Criticality::High => "high".to_string(),
+                                    Criticality::Medium => "medium".to_string(),
+                                    Criticality::Low => "low".to_string(),
+                                }),
+                            })
+                        }
+                    },
+                    ai_hooks: {
+                        let h = &t.ai_hooks;
+                        if h.on_fail.is_none() && h.select.is_none() {
+                            None
+                        } else {
+                            Some(JsonAiHooks {
+                                on_fail: h.on_fail.as_ref().map(|a| match a {
+                                    OnFailAction::Analyze => "analyze".to_string(),
+                                    OnFailAction::Retry => "retry".to_string(),
+                                    OnFailAction::Skip => "skip".to_string(),
+                                }),
+                                select: h.select.as_ref().map(|s| match s {
+                                    SelectMode::Smart => "smart".to_string(),
+                                    SelectMode::Always => "always".to_string(),
+                                    SelectMode::Manual => "manual".to_string(),
+                                }),
+                            })
+                        }
+                    },
                 })
                 .collect(),
         };
@@ -2183,6 +2332,24 @@ struct JsonSecretRef {
 }
 
 #[derive(Serialize)]
+struct JsonSemantic {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    covers: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    intent: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    criticality: Option<String>,
+}
+
+#[derive(Serialize)]
+struct JsonAiHooks {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    on_fail: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    select: Option<String>,
+}
+
+#[derive(Serialize)]
 struct JsonTask {
     name: String,
     command: String,
@@ -2222,6 +2389,10 @@ struct JsonTask {
     k8s: Option<JsonK8sOptions>,
     #[serde(skip_serializing_if = "Option::is_none")]
     requires: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    semantic: Option<JsonSemantic>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ai_hooks: Option<JsonAiHooks>,
 }
 
 /// Minimal K8s options for JSON serialization.

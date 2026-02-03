@@ -410,6 +410,134 @@ defmodule SykliTest do
     end
   end
 
+  describe "AI-native features" do
+    test "semantic metadata (covers, intent, criticality)" do
+      use Sykli
+
+      result = pipeline do
+        task "auth-test" do
+          run "mix test test/auth"
+          covers ["lib/auth/**/*.ex", "lib/auth.ex"]
+          intent "Tests authentication and authorization"
+          critical()
+        end
+      end
+
+      task = hd(result.tasks)
+      assert task.semantic.covers == ["lib/auth/**/*.ex", "lib/auth.ex"]
+      assert task.semantic.intent == "Tests authentication and authorization"
+      assert task.semantic.criticality == :high
+    end
+
+    test "ai_hooks (on_fail, select)" do
+      use Sykli
+
+      result = pipeline do
+        task "flaky-test" do
+          run "mix test --only integration"
+          on_fail(:retry)
+          select_mode(:smart)
+        end
+      end
+
+      task = hd(result.tasks)
+      assert task.ai_hooks.on_fail == :retry
+      assert task.ai_hooks.select == :smart
+    end
+
+    test "smart() shorthand" do
+      use Sykli
+
+      result = pipeline do
+        task "unit-test" do
+          run "mix test"
+          covers ["lib/**/*.ex"]
+          smart()
+        end
+      end
+
+      task = hd(result.tasks)
+      assert task.ai_hooks.select == :smart
+    end
+
+    test "set_criticality with levels" do
+      use Sykli
+
+      result = pipeline do
+        task "lint" do
+          run "mix credo"
+          set_criticality(:low)
+        end
+      end
+
+      task = hd(result.tasks)
+      assert task.semantic.criticality == :low
+    end
+
+    test "AI-native fields emit to JSON" do
+      use Sykli
+
+      result = pipeline do
+        task "auth-test" do
+          run "mix test test/auth"
+          covers ["lib/auth/**/*.ex"]
+          intent "Auth tests"
+          critical()
+          on_fail(:analyze)
+          smart()
+        end
+      end
+
+      json = Sykli.Emitter.to_json(result)
+      decoded = Jason.decode!(json)
+
+      task = hd(decoded["tasks"])
+      assert task["semantic"]["covers"] == ["lib/auth/**/*.ex"]
+      assert task["semantic"]["intent"] == "Auth tests"
+      assert task["semantic"]["criticality"] == "high"
+      assert task["ai_hooks"]["on_fail"] == "analyze"
+      assert task["ai_hooks"]["select"] == "smart"
+    end
+
+    test "omits AI-native fields when not set" do
+      use Sykli
+
+      result = pipeline do
+        task "test" do
+          run "mix test"
+        end
+      end
+
+      json = Sykli.Emitter.to_json(result)
+      decoded = Jason.decode!(json)
+
+      task = hd(decoded["tasks"])
+      refute Map.has_key?(task, "semantic")
+      refute Map.has_key?(task, "ai_hooks")
+    end
+
+    test "fluent helpers for task_ref" do
+      use Sykli
+
+      result = pipeline do
+        parallel("tests", [
+          task_ref("auth-test")
+          |> run_cmd("mix test test/auth")
+          |> with_covers(["lib/auth/**/*.ex"])
+          |> with_intent("Auth tests")
+          |> with_critical()
+          |> with_smart()
+        ])
+      end
+
+      task = Enum.find(result.tasks, &(&1.name == "auth-test"))
+      assert task.semantic.covers == ["lib/auth/**/*.ex"]
+      assert task.semantic.intent == "Auth tests"
+      assert task.semantic.criticality == :high
+      assert task.ai_hooks.select == :smart
+    end
+  end
+
   describe "JSON emission" do
     test "emits v1 for simple pipeline" do
       use Sykli

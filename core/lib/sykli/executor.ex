@@ -22,6 +22,10 @@ defmodule Sykli.Executor do
 
   alias Sykli.Error
   alias Sykli.Error.Formatter
+  alias Sykli.Services.ArtifactResolver
+  alias Sykli.Services.CacheService
+  alias Sykli.Services.ConditionService
+  alias Sykli.Services.SecretValidator
 
   # Note: we DON'T alias Sykli.Graph.Task because it shadows Elixir's Task module
   # Use full path: %Sykli.Graph.Task{}
@@ -313,37 +317,26 @@ defmodule Sykli.Executor do
     prefix = progress_prefix(progress)
     workdir = state.workdir
 
-    # Check cache first (with detailed reason)
-    case Sykli.Cache.check_detailed(task, workdir) do
-      {:hit, key} ->
-        # Restore outputs from cache
-        case Sykli.Cache.restore(key, workdir) do
-          :ok ->
-            IO.puts(
-              "#{prefix}#{IO.ANSI.yellow()}⊙ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}CACHED#{IO.ANSI.reset()}"
-            )
+    # Check cache first using CacheService
+    case CacheService.check_and_restore(task, workdir) do
+      {:hit, _key} ->
+        IO.puts(
+          "#{prefix}#{IO.ANSI.yellow()}⊙ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}CACHED#{IO.ANSI.reset()}"
+        )
 
-            maybe_github_status(task.name, "success")
-            duration = System.monotonic_time(:millisecond) - start_time
+        maybe_github_status(task.name, "success")
+        duration = System.monotonic_time(:millisecond) - start_time
 
-            %TaskResult{
-              name: task.name,
-              status: :cached,
-              duration_ms: duration,
-              error: nil
-            }
-
-          {:error, reason} ->
-            IO.puts(
-              "#{prefix}#{IO.ANSI.yellow()}⚠ Cache restore failed for #{task.name}: #{inspect(reason)}#{IO.ANSI.reset()}"
-            )
-
-            run_with_retry(task, state, nil, progress, target, start_time)
-        end
+        %TaskResult{
+          name: task.name,
+          status: :cached,
+          duration_ms: duration,
+          error: nil
+        }
 
       {:miss, cache_key, reason} ->
         # Show miss reason for visibility
-        reason_str = Sykli.Cache.format_miss_reason(reason)
+        reason_str = CacheService.format_miss_reason(reason)
 
         IO.puts(
           "#{prefix}#{IO.ANSI.cyan()}▶ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(#{reason_str})#{IO.ANSI.reset()}"
@@ -500,24 +493,9 @@ defmodule Sykli.Executor do
   # ----- SECRET VALIDATION -----
 
   # Validates that all required secrets are present (via target)
-  defp validate_secrets(%Sykli.Graph.Task{secrets: nil}, _state, _target), do: :ok
-  defp validate_secrets(%Sykli.Graph.Task{secrets: []}, _state, _target), do: :ok
-
-  defp validate_secrets(%Sykli.Graph.Task{secrets: secrets}, state, target) do
-    missing =
-      secrets
-      |> Enum.filter(fn name ->
-        case target.resolve_secret(name, state) do
-          {:ok, _} -> false
-          {:error, _} -> true
-        end
-      end)
-
-    if missing == [] do
-      :ok
-    else
-      {:error, missing}
-    end
+  # Delegates to SecretValidator service
+  defp validate_secrets(task, state, target) do
+    SecretValidator.validate(task, state, target)
   end
 
   # ----- OUTPUT NORMALIZATION -----
@@ -527,165 +505,19 @@ defmodule Sykli.Executor do
   defp normalize_outputs_to_list(outputs) when is_list(outputs), do: outputs
   defp normalize_outputs_to_list(outputs) when is_map(outputs), do: Map.values(outputs)
 
-  # Convert outputs to map format (for artifact lookup by name)
-  defp normalize_outputs_to_map(nil), do: %{}
-  defp normalize_outputs_to_map(outputs) when is_map(outputs), do: outputs
-
-  defp normalize_outputs_to_map(outputs) when is_list(outputs) do
-    outputs
-    |> Enum.with_index()
-    |> Map.new(fn {path, idx} -> {"output_#{idx}", path} end)
-  end
-
   # ----- TASK INPUT RESOLUTION -----
 
   # Resolve and copy task_inputs (artifact passing between tasks)
-  defp resolve_task_inputs(%Sykli.Graph.Task{task_inputs: nil}, _graph, _state, _target),
-    do: :ok
-
-  defp resolve_task_inputs(%Sykli.Graph.Task{task_inputs: []}, _graph, _state, _target),
-    do: :ok
-
-  defp resolve_task_inputs(
-         %Sykli.Graph.Task{name: task_name, task_inputs: task_inputs},
-         graph,
-         state,
-         target
-       ) do
-    results =
-      task_inputs
-      |> Enum.map(fn %Sykli.Graph.TaskInput{from_task: from_task, output: output_name, dest: dest} ->
-        resolve_single_input(
-          task_name,
-          from_task,
-          output_name,
-          dest,
-          graph,
-          state,
-          target
-        )
-      end)
-
-    case Enum.find(results, &match?({:error, _}, &1)) do
-      nil -> :ok
-      error -> error
-    end
-  end
-
-  defp resolve_single_input(task_name, from_task, output_name, dest, graph, state, target) do
-    workdir = state.workdir
-
-    # Find the source task
-    case Map.get(graph, from_task) do
-      nil ->
-        IO.puts(
-          "#{IO.ANSI.red()}✗ #{task_name}: source task '#{from_task}' not found#{IO.ANSI.reset()}"
-        )
-
-        {:error, {:source_task_not_found, from_task}}
-
-      source_task ->
-        # Find the output path by name (normalize to map format)
-        outputs = normalize_outputs_to_map(source_task.outputs)
-
-        case Map.get(outputs, output_name) do
-          nil ->
-            IO.puts(
-              "#{IO.ANSI.red()}✗ #{task_name}: output '#{output_name}' not found in task '#{from_task}'#{IO.ANSI.reset()}"
-            )
-
-            {:error, {:output_not_found, from_task, output_name}}
-
-          source_path ->
-            # Copy artifact via target
-            case target.copy_artifact(source_path, dest, workdir, state) do
-              :ok ->
-                IO.puts("  #{IO.ANSI.faint()}← #{source_path} → #{dest}#{IO.ANSI.reset()}")
-                :ok
-
-              {:error, reason} ->
-                IO.puts(
-                  "#{IO.ANSI.red()}✗ #{task_name}: failed to copy #{source_path}: #{inspect(reason)}#{IO.ANSI.reset()}"
-                )
-
-                {:error, {:copy_failed, source_path, reason}}
-            end
-        end
-    end
+  # Delegates to ArtifactResolver service
+  defp resolve_task_inputs(task, graph, state, target) do
+    ArtifactResolver.resolve(task, graph, state, target)
   end
 
   # ----- CONDITION EVALUATION -----
 
   # Check if a task should run based on its condition
-  defp should_run?(%Sykli.Graph.Task{condition: nil}), do: true
-  defp should_run?(%Sykli.Graph.Task{condition: ""}), do: true
-
-  defp should_run?(%Sykli.Graph.Task{condition: condition}) do
-    context = build_context()
-    evaluate_condition(condition, context)
-  end
-
-  # Build context from environment variables (CI systems set these)
-  defp build_context do
-    %{
-      # GitHub Actions
-      "branch" => get_branch(),
-      "tag" => System.get_env("GITHUB_REF_TYPE") == "tag" && get_ref_name(),
-      "event" => System.get_env("GITHUB_EVENT_NAME"),
-      "pr_number" => System.get_env("GITHUB_PR_NUMBER"),
-      # Generic CI
-      "ci" => System.get_env("CI") == "true"
-    }
-  end
-
-  defp get_branch do
-    cond do
-      # GitHub Actions
-      ref = System.get_env("GITHUB_REF_NAME") ->
-        if System.get_env("GITHUB_REF_TYPE") == "branch", do: ref, else: nil
-
-      # GitLab CI
-      branch = System.get_env("CI_COMMIT_BRANCH") ->
-        branch
-
-      # Generic / local - try git (with timeout)
-      true ->
-        case Sykli.Git.branch(timeout: 5_000) do
-          {:ok, branch} -> branch
-          _ -> nil
-        end
-    end
-  end
-
-  defp get_ref_name do
-    System.get_env("GITHUB_REF_NAME") || System.get_env("CI_COMMIT_TAG")
-  end
-
-  # Evaluate a condition expression against context using safe evaluator
-  # Allows: branch == "main", tag != "", ci and branch == "main"
-  defp evaluate_condition(condition, context) do
-    # Convert context map to atom-keyed map for evaluator
-    eval_context = %{
-      branch: context["branch"],
-      tag: context["tag"] || "",
-      event: context["event"],
-      pr_number: context["pr_number"],
-      ci: context["ci"] || false
-    }
-
-    case Sykli.ConditionEvaluator.evaluate(condition, eval_context) do
-      {:ok, result} ->
-        !!result
-
-      {:error, reason} ->
-        IO.puts(
-          "#{IO.ANSI.yellow()}⚠ Invalid condition: #{condition} (#{reason})#{IO.ANSI.reset()}"
-        )
-
-        # On error, skip the task (safer than running)
-        false
-    end
-  end
+  # Delegates to ConditionService
+  defp should_run?(task), do: ConditionService.should_run?(task)
 
   # ----- PROGRESS PREFIX -----
 

@@ -77,6 +77,32 @@ export function fromVault(path: string): SecretRef {
 }
 
 // =============================================================================
+// AI-NATIVE TYPES
+// =============================================================================
+
+/** Task criticality for AI prioritization */
+export type Criticality = 'high' | 'medium' | 'low';
+
+/** Action for AI when task fails */
+export type OnFailAction = 'analyze' | 'retry' | 'skip';
+
+/** Task selection mode for AI */
+export type SelectMode = 'smart' | 'always' | 'manual';
+
+/** Semantic metadata for AI understanding */
+interface Semantic {
+  covers: string[];
+  intent?: string;
+  criticality?: Criticality;
+}
+
+/** AI behavioral hooks */
+interface AiHooks {
+  onFail?: OnFailAction;
+  select?: SelectMode;
+}
+
+// =============================================================================
 // CONDITIONS
 // =============================================================================
 
@@ -339,6 +365,8 @@ export class Task {
   private _k8s?: K8sOptions;
   private _k8sRaw?: string;
   private _requires: string[] = [];
+  private _semantic: Semantic = { covers: [] };
+  private _aiHooks: AiHooks = {};
 
   constructor(
     private readonly pipeline: Pipeline,
@@ -556,6 +584,52 @@ export class Task {
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
+  // AI-NATIVE METHODS
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /** Set file patterns this task tests or affects (for smart selection) */
+  covers(...patterns: string[]): this {
+    this._semantic.covers.push(...patterns);
+    return this;
+  }
+
+  /** Set a description of what this task does (for AI context) */
+  intent(description: string): this {
+    this._semantic.intent = description;
+    return this;
+  }
+
+  /** Mark this task as high-criticality */
+  critical(): this {
+    this._semantic.criticality = 'high';
+    return this;
+  }
+
+  /** Set the criticality level */
+  setCriticality(level: Criticality): this {
+    this._semantic.criticality = level;
+    return this;
+  }
+
+  /** Set what AI should do when this task fails */
+  onFail(action: OnFailAction): this {
+    this._aiHooks.onFail = action;
+    return this;
+  }
+
+  /** Set how AI should select this task for execution */
+  selectMode(mode: SelectMode): this {
+    this._aiHooks.select = mode;
+    return this;
+  }
+
+  /** Enable smart task selection based on covers patterns */
+  smart(): this {
+    this._aiHooks.select = 'smart';
+    return this;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
   // Internal accessors (for Template and Pipeline use)
   // ─────────────────────────────────────────────────────────────────────────────
 
@@ -669,6 +743,31 @@ export class Task {
     if (k8sJson) json.k8s = k8sJson;
     if (this._requires.length > 0) json.requires = this._requires;
 
+    // AI-native fields
+    const semanticJson = this._semanticToJSON();
+    if (semanticJson) json.semantic = semanticJson;
+    const aiHooksJson = this._aiHooksToJSON();
+    if (aiHooksJson) json.ai_hooks = aiHooksJson;
+
+    return json;
+  }
+
+  private _semanticToJSON(): Record<string, unknown> | null {
+    const { covers, intent, criticality } = this._semantic;
+    if (covers.length === 0 && !intent && !criticality) return null;
+    const json: Record<string, unknown> = {};
+    if (covers.length > 0) json.covers = covers;
+    if (intent) json.intent = intent;
+    if (criticality) json.criticality = criticality;
+    return json;
+  }
+
+  private _aiHooksToJSON(): Record<string, unknown> | null {
+    const { onFail, select } = this._aiHooks;
+    if (!onFail && !select) return null;
+    const json: Record<string, unknown> = {};
+    if (onFail) json.on_fail = onFail;
+    if (select) json.select = select;
     return json;
   }
 

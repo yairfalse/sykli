@@ -1,6 +1,247 @@
-# SYKLI: CI in Your Language
+# SYKLI: AI-Native CI
 
-**A learning project for BEAM-native CI orchestration**
+**CI built for the AI era. Pipelines in your language. Context for AI assistants.**
+
+---
+
+## VISION: CONTEXT, NOT LOGS
+
+Traditional CI outputs logs for humans. Sykli outputs **structured context** for AI.
+
+```
+Traditional CI: "here's a log, good luck"
+Sykli:          "here's everything you need to understand and fix this"
+```
+
+Every feature is a **context generator**:
+- Run pipeline → history context (patterns, durations, pass/fail)
+- Task fails → error context (code location, recent changes, suggested fix)
+- Cache miss → change context (what changed and why)
+- Test runs → coverage context (which code is tested by what)
+
+The `.sykli/` directory is the **AI's memory** of your project.
+
+---
+
+## AI-NATIVE TASK SCHEMA
+
+Tasks carry semantic metadata that AI understands:
+
+```json
+{
+  "name": "test",
+  "command": "npm test",
+  "after": ["lint"],
+  "inputs": ["**/*.ts"],
+
+  "semantic": {
+    "covers": ["src/auth/*", "src/api/*"],
+    "intent": "unit tests for auth and api modules",
+    "criticality": "high"
+  },
+
+  "ai_hooks": {
+    "on_fail": "analyze",
+    "select": "smart"
+  },
+
+  "history_hint": {
+    "flaky": false,
+    "avg_duration_ms": 3200,
+    "last_failure": "2024-01-10",
+    "failure_rate": 0.02,
+    "common_errors": ["timeout", "connection refused"]
+  }
+}
+```
+
+### Three Layers
+
+**Static** (user declares in SDK):
+```go
+s.Task("test").
+  Run("npm test").
+  Covers("src/auth/*", "src/api/*").
+  Intent("unit tests for auth and api").
+  Criticality("high")
+```
+
+**Behavioral** (user configures):
+```go
+s.Task("test").
+  OnFail("analyze").   // or "fix", "notify", "ignore"
+  Select("smart")      // AI decides if this needs to run
+```
+
+**Learned** (Sykli populates from runs):
+- Flakiness detection
+- Average duration
+- Failure patterns
+- Common error types
+
+---
+
+## PLANNED AI FEATURES
+
+### Phase 1: Context Generation (Foundation)
+
+**`.sykli/context.json`** - Project understanding
+```json
+{
+  "project": {
+    "name": "my-app",
+    "languages": ["typescript", "go"],
+    "frameworks": ["express", "react"]
+  },
+  "pipeline": {
+    "tasks": 5,
+    "avg_duration_ms": 45000,
+    "parallelism": 2
+  },
+  "health": {
+    "last_success": "2024-01-15T10:30:00Z",
+    "success_rate_7d": 0.94,
+    "flaky_tasks": []
+  }
+}
+```
+
+**`.sykli/test-map.json`** - Coverage mapping
+```json
+{
+  "src/auth/login.ts": ["test:auth", "test:e2e"],
+  "src/api/users.ts": ["test:api", "test:integration"]
+}
+```
+
+### Phase 2: CLI Commands
+
+**`sykli explain`** - AI-readable pipeline description
+```bash
+$ sykli explain --json
+{
+  "tasks": [...],
+  "dependencies": {...},
+  "estimated_duration_ms": 45000,
+  "critical_path": ["lint", "test", "build"]
+}
+```
+
+**`sykli plan`** - Dry run based on current diff
+```bash
+$ sykli plan
+Based on changes to src/auth/*, would run:
+  ✓ lint (always)
+  ✓ test:auth (covers changed files)
+  ○ test:api (skipped - no relevant changes)
+  ✓ build (depends on test:auth)
+```
+
+**`sykli query`** - Natural language queries
+```bash
+$ sykli query "what tests cover the auth module?"
+$ sykli query "why did build fail yesterday?"
+$ sykli query "what's flaky?"
+```
+
+### Phase 3: AI-Assisted Repair
+
+**`sykli fix`** - Analyze and suggest fixes
+```bash
+$ sykli fix
+Analyzing last failure...
+
+Task: test:auth
+Error: expected 200 got 401
+Location: src/auth/login.test.ts:42
+Recent changes: src/auth/login.ts:15-20
+
+Suggested fix:
+  The token validation was changed but tests weren't updated.
+  Update line 42 to use the new token format.
+
+Apply fix? [y/n]
+```
+
+### Phase 4: Rich Structured Errors
+
+```json
+{
+  "task": "test",
+  "status": "failed",
+  "error": {
+    "type": "assertion",
+    "file": "src/auth/login.test.ts",
+    "line": 42,
+    "message": "expected 200 got 401",
+    "code_context": "expect(response.status).toBe(200)",
+    "recent_changes": [
+      {"file": "src/auth/login.ts", "lines": "15-20", "author": "alice"}
+    ],
+    "suggested_fix": "Check token validation in login.ts",
+    "similar_failures": ["2024-01-10", "2024-01-03"]
+  }
+}
+```
+
+### Phase 5: MCP Server (Optional Interface)
+
+```json
+{
+  "mcpServers": {
+    "sykli": { "command": "sykli", "args": ["mcp"] }
+  }
+}
+```
+
+Tools exposed:
+- `run_pipeline` - Execute with options
+- `explain_pipeline` - Get structured description
+- `get_failure` - Get last failure with context
+- `suggest_tests` - What tests to run for changes
+- `get_history` - Recent runs and patterns
+
+---
+
+## THE KILLER WORKFLOW
+
+```
+User: "CI is failing, fix it"
+
+Claude Code:
+1. Reads .sykli/context.json     → understands the project
+2. Runs sykli explain --json     → sees pipeline structure
+3. Reads structured error        → knows exactly what failed
+4. Sees recent_changes           → knows what caused it
+5. Fixes the code                → applies the fix
+6. Runs sykli plan               → verifies fix will work
+7. Done
+```
+
+---
+
+## IMPLEMENTATION ROADMAP
+
+### Milestone 1: Schema & Context (Current)
+- [ ] Extend Task struct with `semantic`, `ai_hooks` fields
+- [ ] Add `Sykli.Context` module for context.json generation
+- [ ] Add `--json` flag to existing commands
+- [ ] Update all SDKs with new API (Covers, Intent, Criticality, OnFail)
+
+### Milestone 2: Explain & Plan
+- [ ] `sykli explain` command
+- [ ] `sykli plan` command with diff analysis
+- [ ] Enhanced error output with code context
+
+### Milestone 3: Query & Fix
+- [ ] `sykli query` with structured data queries
+- [ ] `sykli fix` with failure analysis
+- [ ] test-map.json generation from coverage data
+
+### Milestone 4: MCP Integration
+- [ ] MCP server implementation
+- [ ] Tool definitions for AI assistants
+- [ ] Streaming output support
 
 ---
 
@@ -18,11 +259,12 @@
 - Retry with exponential backoff
 - Conditional execution
 - GitHub status API
+- DDD refactoring (services, protocols, typed events)
 
 **Code Stats:**
-- ~3000 lines Elixir (core)
+- ~3500 lines Elixir (core)
 - ~3800 lines SDK code (Go + Rust + TypeScript + Elixir)
-- 17 core modules
+- 25+ core modules
 
 ---
 
@@ -31,51 +273,46 @@
 ```
 sykli.go  ──run──▶  JSON task graph  ──▶  parallel execution
    SDK                  stdout              Elixir engine
+                           │
+                           ▼
+                    .sykli/context.json  ◄── AI reads this
 ```
 
-### Core Pipeline
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         Elixir Core                              │
-│                                                                  │
-│  Sykli.Detector                                                  │
-│  └── Finds sykli.go/rs/exs, runs with --emit                    │
-│                                                                  │
-│  Sykli.Graph                                                     │
-│  ├── Parses JSON task graph                                      │
-│  ├── Matrix expansion (generates combinations)                   │
-│  ├── Cycle detection (3-color DFS)                              │
-│  └── Topological sort (Kahn's algorithm)                        │
-│                                                                  │
-│  Sykli.Executor                                                  │
-│  ├── Groups tasks by level                                       │
-│  ├── Task.async + Task.await_many                               │
-│  └── run_with_retry/4 for retries                               │
-│                                                                  │
-│  Sykli.Cache                                                     │
-│  └── SHA256(task|command|inputs|env|container|mounts|version)   │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Key Modules
+### Core Modules
 
 | Module | Purpose |
 |--------|---------|
 | `Detector` | Finds SDK file, runs `--emit` |
 | `Graph` | JSON parsing, topological sort, cycle detection |
 | `Executor` | Parallel execution by level |
-| `Cache` | Content-addressed caching |
-| `CLI` | Command-line interface |
-| `TaskError` | Structured errors with hints |
-| `ConditionEvaluator` | `when:` condition parsing |
-| `GitHub` | Status API integration |
+| `Cache` | Content-addressed caching (repository pattern) |
+| `Services.*` | CacheService, RetryService, ConditionService, etc. |
+| `Target.*` | Local (Docker/shell), K8s (Jobs) |
+| `Events.*` | Typed event structs for observability |
+| `Context` | (planned) AI context generation |
+| `Explain` | (planned) Pipeline description |
+| `Plan` | (planned) Dry run with diff analysis |
+
+### File Locations
+
+| What | Where |
+|------|-------|
+| CLI entry | `core/lib/sykli/cli.ex` |
+| Graph parsing | `core/lib/sykli/graph.ex` |
+| Executor | `core/lib/sykli/executor.ex` |
+| Services | `core/lib/sykli/services/` |
+| Cache | `core/lib/sykli/cache/` |
+| Target protocols | `core/lib/sykli/target/protocols/` |
+| Events | `core/lib/sykli/events/` |
+| Go SDK | `sdk/go/sykli.go` |
+| Rust SDK | `sdk/rust/src/lib.rs` |
+| TypeScript SDK | `sdk/typescript/src/index.ts` |
 
 ---
 
-## SDK INTERFACE
+## SDK API (Current + Planned)
 
-### Go (current API)
+### Go
 
 ```go
 package main
@@ -85,144 +322,48 @@ import sykli "github.com/yairfalse/sykli/sdk/go"
 func main() {
     s := sykli.New()
 
-    // Basic
-    s.Task("test").Run("go test ./...")
-    s.Task("build").Run("go build -o app").After("test")
-
-    // With inputs (enables caching)
-    s.Task("test").Run("go test ./...").Inputs("**/*.go")
-
-    // Matrix
-    s.Task("test").Run("go test").Matrix("version", "1.21", "1.22")
-
-    // Container (v2)
-    src := s.Dir(".")
-    cache := s.Cache("go-mod")
+    // Current API
     s.Task("test").
-        Container("golang:1.21").
-        Mount(src, "/src").
-        MountCache(cache, "/go/pkg/mod").
-        Workdir("/src").
-        Run("go test ./...")
+        Run("go test ./...").
+        Inputs("**/*.go").
+        After("lint")
+
+    // Planned: Semantic metadata
+    s.Task("test").
+        Run("go test ./...").
+        Inputs("**/*.go").
+        Covers("src/auth/*", "src/api/*").
+        Intent("unit tests for auth and api").
+        Criticality("high").
+        OnFail("analyze")
 
     s.Emit()
-}
-```
-
-### Rust
-
-```rust
-use sykli::Pipeline;
-
-fn main() {
-    let mut p = Pipeline::new();
-    p.task("test").run("cargo test");
-    p.task("build").run("cargo build --release").after(&["test"]);
-    p.emit();
 }
 ```
 
 ### TypeScript
 
 ```typescript
-import { Pipeline, branch, ValidationError } from 'sykli';
+import { Pipeline } from 'sykli';
 
 const p = new Pipeline();
 
-p.task('test').run('npm test').inputs('**/*.ts');
-p.task('build').run('npm run build').after('test');
-p.task('deploy').run('./deploy.sh').after('build').whenCond(branch('main'));
+// Current API
+p.task('test')
+  .run('npm test')
+  .inputs('**/*.ts')
+  .after('lint');
 
-// Dry-run visualization
-console.log(p.explain({ branch: 'feature/foo' }));
+// Planned: Semantic metadata
+p.task('test')
+  .run('npm test')
+  .inputs('**/*.ts')
+  .covers('src/auth/*', 'src/api/*')
+  .intent('unit tests for auth and api')
+  .criticality('high')
+  .onFail('analyze');
 
 p.emit();
-```
-
-### Elixir
-
-```elixir
-defmodule Pipeline do
-  use Sykli
-
-  pipeline do
-    task "test" do
-      run "mix test"
-      inputs ["**/*.ex"]
-    end
-
-    task "build" do
-      run "mix compile"
-      after_ ["test"]
-    end
-  end
-end
-```
-
----
-
-## FILE LOCATIONS
-
-| What | Where |
-|------|-------|
-| CLI entry | `core/lib/sykli/cli.ex` |
-| SDK detection | `core/lib/sykli/detector.ex` |
-| Graph parsing | `core/lib/sykli/graph.ex` |
-| Parallel executor | `core/lib/sykli/executor.ex` |
-| Cache | `core/lib/sykli/cache.ex` |
-| Go SDK | `sdk/go/sykli.go` |
-| Rust SDK | `sdk/rust/src/lib.rs` |
-| TypeScript SDK | `sdk/typescript/src/index.ts` |
-| Elixir SDK | `sdk/elixir/lib/sykli/` |
-
----
-
-## KEY ALGORITHMS
-
-### Topological Sort (Kahn's Algorithm)
-
-```elixir
-# Calculate in-degrees, process nodes with 0 in-degree
-defp do_topological_sort(tasks, in_degree, sorted) do
-  case find_zero_in_degree(in_degree) do
-    nil -> {:ok, Enum.reverse(sorted)}
-    task_name ->
-      # Remove task, decrement dependents' in-degrees
-      do_topological_sort(remaining, updated_degrees, [task | sorted])
-  end
-end
-```
-
-### Cycle Detection (3-Color DFS)
-
-```elixir
-# WHITE = unvisited, GRAY = in progress, BLACK = done
-defp dfs_visit(node, graph, colors) do
-  case Map.get(colors, node) do
-    :gray -> {:error, :cycle}  # Back edge = cycle
-    :black -> {:ok, colors}    # Already processed
-    :white ->
-      colors = Map.put(colors, node, :gray)
-      # Visit all neighbors
-      colors = Map.put(colors, node, :black)
-      {:ok, colors}
-  end
-end
-```
-
-### Content-Addressed Cache Key
-
-```elixir
-# Deterministic hash of all task inputs
-hash = :crypto.hash(:sha256,
-  task_name <> "|" <>
-  command <> "|" <>
-  inputs_hash <> "|" <>
-  env_hash <> "|" <>
-  container <> "|" <>
-  mounts_hash <> "|" <>
-  version
-)
 ```
 
 ---
@@ -249,110 +390,14 @@ mix escript.build
 
 ---
 
-## RUN HISTORY & OBSERVABILITY
-
-### Philosophy
-
-CI should be:
-- **Deterministic** - Same inputs → same outputs, every time
-- **Observable** - Know what passed AND what failed (not just failures)
-- **Historical** - Track runs, know "last known good"
-- **Helpful** - Show what changed that likely caused a failure
-
-### RunHistory Module
-
-Stores run manifests for every execution:
-
-```
-.sykli/
-├── cache/                 # Existing content-addressed cache
-└── runs/                  # New run history
-    ├── latest.json        # Symlink to most recent
-    ├── last_good.json     # Most recent all-passing run
-    └── 2024-01-15T10:30:00Z.json
-```
-
-### Run Manifest Schema
-
-```json
-{
-  "id": "abc123",
-  "timestamp": "2024-01-15T10:30:00Z",
-  "git_ref": "abc1234",
-  "git_branch": "main",
-  "tasks": [
-    {
-      "name": "test",
-      "status": "passed",
-      "duration_ms": 1234,
-      "cached": false,
-      "streak": 15
-    },
-    {
-      "name": "build",
-      "status": "failed",
-      "duration_ms": 567,
-      "error": "exit code 1",
-      "streak": 0,
-      "likely_cause": ["src/main.go", "src/lib.go"]
-    }
-  ],
-  "overall": "failed"
-}
-```
-
-### Likely Cause Detection
-
-When a task fails after previously passing:
-
-```elixir
-# 1. Get files changed since last_good
-changed_files = git_diff(last_good.git_ref, current_ref)
-
-# 2. Get failed task's inputs
-task_inputs = expand_globs(task.inputs)
-
-# 3. Intersect = likely cause
-likely_cause = MapSet.intersection(changed_files, task_inputs)
-```
-
-Uses existing `sykli delta` logic to correlate changes with task inputs.
-
-### CLI Commands
-
-```bash
-sykli report           # Show last run summary
-sykli report --last-good  # Show last successful run
-sykli history          # List recent runs
-sykli trends           # Task pass rates over time
-```
-
-### Example Output
-
-```
-╭──────────────────────────────────────────────────╮
-│ Run: 2024-01-15 10:30:00                         │
-│ Commit: abc1234 (main)                           │
-╰──────────────────────────────────────────────────╯
-
-  ✓ lint      12ms   (streak: 23)
-  ✓ test      1.2s   (streak: 15)
-  ✗ build     567ms  (streak: 0 ← was 8)
-    └─ Likely cause: src/main.go changed
-
-Last good: 2024-01-14 18:45:00 (abc1233)
-```
-
----
-
 ## AGENT INSTRUCTIONS
 
 When working on this codebase:
 
-1. **Read first** - Understand existing patterns
-2. **SDK changes** - Update all four SDKs consistently
-3. **JSON schema** - Core and SDKs must agree on JSON format
-4. **No shadowing** - Don't alias `Sykli.Graph.Task` (shadows Elixir's Task)
+1. **AI-native first** - Every feature should generate context for AI
+2. **Structured output** - Use `--json` flags, typed structs, not strings
+3. **SDK consistency** - Update all four SDKs together
+4. **Read first** - Understand existing patterns before changing
 5. **Run tests** - `cd core && mix test`
 
-**This is a learning project** - exploring BEAM patterns for CI. Ask questions if unclear.
+The goal: make Sykli the CI that AI assistants understand natively.

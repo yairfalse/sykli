@@ -23,7 +23,9 @@ defmodule Sykli.Task do
             task_inputs: [],
             target_name: nil,       # Per-task target override
             k8s: nil,               # Kubernetes-specific options
-            requires: []            # Node labels required for mesh placement
+            requires: [],           # Node labels required for mesh placement
+            semantic: nil,          # AI-native: semantic metadata (covers, intent, criticality)
+            ai_hooks: nil           # AI-native: behavioral hooks (on_fail, select)
 
   @type secret_source :: :env | :file | :vault
 
@@ -34,6 +36,21 @@ defmodule Sykli.Task do
         }
 
   @type task_input :: %{from_task: String.t(), output: String.t(), dest: String.t()}
+
+  @type criticality :: :high | :medium | :low
+  @type on_fail_action :: :analyze | :retry | :skip
+  @type select_mode :: :smart | :always | :manual
+
+  @type semantic :: %{
+          covers: [String.t()],
+          intent: String.t() | nil,
+          criticality: criticality() | nil
+        }
+
+  @type ai_hooks :: %{
+          on_fail: on_fail_action() | nil,
+          select: select_mode() | nil
+        }
 
   @type t :: %__MODULE__{
           name: String.t(),
@@ -56,7 +73,9 @@ defmodule Sykli.Task do
           task_inputs: [task_input()],
           target_name: String.t() | nil,
           k8s: Sykli.K8s.t() | nil,
-          requires: [String.t()]
+          requires: [String.t()],
+          semantic: semantic() | nil,
+          ai_hooks: ai_hooks() | nil
         }
 
   @doc "Creates a new task with the given name."
