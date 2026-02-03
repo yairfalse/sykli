@@ -890,3 +890,161 @@ defmodule Sykli.Target.K8s do
   defp format_duration(ms) when ms < 60_000, do: "#{Float.round(ms / 1000, 1)}s"
   defp format_duration(ms), do: "#{Float.round(ms / 60_000, 1)}m"
 end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PROTOCOL IMPLEMENTATIONS
+# ─────────────────────────────────────────────────────────────────────────────
+
+defimpl Sykli.Target.Protocol.Secrets, for: Sykli.Target.K8s do
+  alias Sykli.K8s.Client
+  alias Sykli.K8s.Error
+
+  def resolve(%Sykli.Target.K8s{} = target, name) do
+    {secret_name, secret_key} = parse_secret_ref(name)
+
+    case read_k8s_secret(secret_name, secret_key, target) do
+      {:ok, value} ->
+        {:ok, value}
+
+      {:error, _reason} ->
+        # Fall back to environment variable
+        case System.get_env(name) do
+          nil -> {:error, :not_found}
+          "" -> {:error, :not_found}
+          value -> {:ok, value}
+        end
+    end
+  end
+
+  defp parse_secret_ref(name) do
+    case String.split(name, "/", parts: 2) do
+      [secret_name, key] -> {secret_name, key}
+      [secret_name] -> {secret_name, "value"}
+    end
+  end
+
+  defp read_k8s_secret(secret_name, secret_key, target) do
+    path = "/api/v1/namespaces/#{target.namespace}/secrets/#{secret_name}"
+
+    case Client.request(:get, path, nil, target.auth_config, []) do
+      {:ok, %{"data" => data}} when is_map(data) ->
+        case Map.get(data, secret_key) do
+          nil ->
+            {:error, :key_not_found}
+
+          base64_value ->
+            case Base.decode64(base64_value) do
+              {:ok, decoded} -> {:ok, decoded}
+              :error -> {:error, :invalid_base64}
+            end
+        end
+
+      {:ok, _} ->
+        {:error, :no_data}
+
+      {:error, %Error{type: :not_found}} ->
+        {:error, :not_found}
+
+      {:error, _reason} ->
+        {:error, :api_error}
+    end
+  end
+end
+
+defimpl Sykli.Target.Protocol.Storage, for: Sykli.Target.K8s do
+  alias Sykli.K8s.Client
+  alias Sykli.K8s.Error
+
+  def create_volume(%Sykli.Target.K8s{} = target, name, opts) do
+    size = Map.get(opts, :size, "1Gi")
+    type = Map.get(opts, :type, :cache)
+    storage_class = Map.get(opts, :storage_class)
+
+    type_prefix = if type == :cache, do: "cache", else: "dir"
+    pvc_name = "sykli-#{type_prefix}-#{name}"
+
+    case check_pvc_exists(pvc_name, target) do
+      {:ok, :exists} ->
+        {:ok, %{id: pvc_name, host_path: nil, reference: "pvc:#{pvc_name}"}}
+
+      {:ok, :not_found} ->
+        case create_pvc(pvc_name, size, storage_class, target) do
+          {:ok, _} ->
+            {:ok, %{id: pvc_name, host_path: nil, reference: "pvc:#{pvc_name}"}}
+
+          {:error, reason} ->
+            {:error, {:pvc_creation_failed, reason}}
+        end
+
+      {:error, reason} ->
+        {:error, {:pvc_check_failed, reason}}
+    end
+  end
+
+  def artifact_path(%Sykli.Target.K8s{}, task_name, artifact_name, _workdir) do
+    Path.join(["/artifacts", task_name, artifact_name])
+  end
+
+  def copy_artifact(%Sykli.Target.K8s{}, _source_path, _dest_path, _workdir) do
+    # In K8s, artifacts are on shared PVC
+    # The init container will handle copying
+    :ok
+  end
+
+  defp check_pvc_exists(pvc_name, target) do
+    path = "/api/v1/namespaces/#{target.namespace}/persistentvolumeclaims/#{pvc_name}"
+
+    case Client.request(:get, path, nil, target.auth_config, []) do
+      {:ok, _} -> {:ok, :exists}
+      {:error, %Error{type: :not_found}} -> {:ok, :not_found}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp create_pvc(pvc_name, size, storage_class, target) do
+    path = "/api/v1/namespaces/#{target.namespace}/persistentvolumeclaims"
+
+    pvc = %{
+      "apiVersion" => "v1",
+      "kind" => "PersistentVolumeClaim",
+      "metadata" => %{
+        "name" => pvc_name,
+        "namespace" => target.namespace
+      },
+      "spec" => %{
+        "accessModes" => ["ReadWriteOnce"],
+        "resources" => %{
+          "requests" => %{"storage" => size}
+        }
+      }
+    }
+
+    pvc =
+      if storage_class do
+        put_in(pvc, ["spec", "storageClassName"], storage_class)
+      else
+        pvc
+      end
+
+    case Client.request(:post, path, pvc, target.auth_config, []) do
+      {:ok, _} -> {:ok, pvc_name}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+end
+
+defimpl Sykli.Target.Protocol.Services, for: Sykli.Target.K8s do
+  def start_services(%Sykli.Target.K8s{}, _task_name, []), do: {:ok, nil}
+
+  def start_services(%Sykli.Target.K8s{}, task_name, services) do
+    # Services in K8s are added as sidecars in the Job spec
+    {:ok, %{services: services, task_name: task_name}}
+  end
+
+  def stop_services(%Sykli.Target.K8s{}, nil), do: :ok
+
+  def stop_services(%Sykli.Target.K8s{}, _network_info) do
+    # Sidecars terminate with the Job - nothing to cleanup
+    :ok
+  end
+end

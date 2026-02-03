@@ -36,13 +36,21 @@ defmodule Sykli.Events.Event do
   @type outcome :: :success | :failure | :timeout | :unknown
   @type severity :: :info | :warning | :error | :critical
 
+  @type event_data ::
+          Sykli.Events.RunStarted.t()
+          | Sykli.Events.RunCompleted.t()
+          | Sykli.Events.TaskStarted.t()
+          | Sykli.Events.TaskCompleted.t()
+          | Sykli.Events.TaskOutput.t()
+          | map()
+
   @type t :: %__MODULE__{
           id: String.t(),
           timestamp: DateTime.t(),
           type: atom(),
           run_id: String.t(),
           node: atom() | nil,
-          data: map(),
+          data: event_data(),
           trace_id: String.t() | nil,
           span_id: String.t() | nil,
           parent_span_id: String.t() | nil,
@@ -173,13 +181,28 @@ defmodule Sykli.Events.Event do
   defp ahti_subtype(:task_output), do: "ci_task_output"
   defp ahti_subtype(type), do: "ci_#{type}"
 
-  # Determine severity from event type and outcome
-  defp ahti_severity(%{type: :task_completed, data: %{outcome: :failure}}), do: "error"
-  defp ahti_severity(%{type: :run_completed, data: %{outcome: :failure}}), do: "error"
+  # Determine severity from event type and outcome - handle both struct and map
+  defp ahti_severity(%{type: :task_completed, data: data}) do
+    outcome = if is_struct(data), do: data.outcome, else: data[:outcome]
+    if outcome == :failure, do: "error", else: "info"
+  end
+
+  defp ahti_severity(%{type: :run_completed, data: data}) do
+    outcome = if is_struct(data), do: data.outcome, else: data[:outcome]
+    if outcome == :failure, do: "error", else: "info"
+  end
+
   defp ahti_severity(%{type: :task_output}), do: "info"
   defp ahti_severity(_), do: "info"
 
-  # Determine outcome
+  # Determine outcome - handle both struct and map data formats
+  defp ahti_outcome(%{data: data}) when is_struct(data) do
+    case Map.get(data, :outcome) do
+      outcome when outcome in [:success, :failure, :timeout] -> to_string(outcome)
+      _ -> "unknown"
+    end
+  end
+
   defp ahti_outcome(%{data: %{outcome: outcome}})
        when outcome in [:success, :failure, :timeout] do
     to_string(outcome)
@@ -189,8 +212,12 @@ defmodule Sykli.Events.Event do
   defp ahti_outcome(%{type: :run_started}), do: "unknown"
   defp ahti_outcome(_), do: "success"
 
-  # Build AHTI entities from event
+  # Build AHTI entities from event - handle both struct and map data
   defp build_entities(%{type: :run_started} = event, cluster) do
+    data = event.data
+    project_path = get_data_field(data, :project_path) || ""
+    task_count = get_data_field(data, :task_count) || 0
+
     [
       %{
         type: "deployment",
@@ -199,8 +226,8 @@ defmodule Sykli.Events.Event do
         cluster_id: cluster,
         state: "active",
         attributes: %{
-          "project_path" => event.data[:project_path] || "",
-          "task_count" => to_string(event.data[:task_count] || 0)
+          "project_path" => project_path,
+          "task_count" => to_string(task_count)
         }
       }
     ]
@@ -208,16 +235,18 @@ defmodule Sykli.Events.Event do
 
   defp build_entities(%{type: type} = event, cluster)
        when type in [:task_started, :task_completed, :task_output] do
+    task_name = get_data_field(event.data, :task_name) || ""
+
     [
       %{
         type: "container",
-        id: "sykli-task-#{event.run_id}-#{event.data[:task_name]}",
-        name: event.data[:task_name],
+        id: "sykli-task-#{event.run_id}-#{task_name}",
+        name: task_name,
         cluster_id: cluster,
         state: if(type == :task_completed, do: "deleted", else: "active"),
         attributes: %{
           "run_id" => event.run_id,
-          "task_name" => event.data[:task_name] || ""
+          "task_name" => task_name
         }
       }
     ]
@@ -240,24 +269,35 @@ defmodule Sykli.Events.Event do
 
   # Add event-specific data structures (matching AHTI's typed data fields)
   defp event_specific_data(%{type: :task_completed, data: data}) do
+    task_name = get_data_field(data, :task_name) || ""
+    outcome = get_data_field(data, :outcome)
+
     %{
       process_data: %{
-        command: data[:task_name] || "",
-        exit_code: if(data[:outcome] == :success, do: 0, else: 1)
+        command: task_name,
+        exit_code: if(outcome == :success, do: 0, else: 1)
       }
     }
   end
 
   defp event_specific_data(%{type: :task_output, data: data}) do
+    task_name = get_data_field(data, :task_name) || ""
+    output = get_data_field(data, :output) || ""
+
     %{
       process_data: %{
-        command: data[:task_name] || "",
-        args: String.slice(data[:output] || "", 0, 1000)
+        command: task_name,
+        args: String.slice(output, 0, 1000)
       }
     }
   end
 
   defp event_specific_data(_), do: %{}
+
+  # Helper to access data fields from both structs and maps
+  defp get_data_field(data, field) when is_struct(data), do: Map.get(data, field)
+  defp get_data_field(data, field) when is_map(data), do: data[field]
+  defp get_data_field(_, _), do: nil
 
   defp remove_nil_values(map) when is_map(map) do
     map

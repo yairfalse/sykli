@@ -16,7 +16,42 @@ defmodule Sykli.Graph do
   end
 
   defmodule Task do
-    @moduledoc "Represents a single task in the pipeline"
+    @moduledoc """
+    Represents a single task in the pipeline.
+
+    ## Field Organization
+
+    Fields are organized into logical groups (accessible via sub-structs
+    for DDD purposes, while maintaining backward compatibility):
+
+    **Execution** - Core execution properties
+      - `name`, `command`, `container`, `workdir`, `timeout`
+
+    **Caching** - Cache-related properties
+      - `inputs`, `outputs`, `task_inputs`
+
+    **Dependencies** - Ordering and conditions
+      - `depends_on`, `condition`, `matrix`, `matrix_values`
+
+    **Robustness** - Reliability and security
+      - `retry`, `secrets`, `env`
+
+    **Infrastructure** - Environment configuration
+      - `mounts`, `services`, `k8s`, `requires`
+
+    ## Accessor Functions
+
+    Use the accessor functions to access fields - they provide a consistent
+    interface and will work with both the flat struct and future sub-struct
+    organization.
+    """
+
+    alias Sykli.Graph.Task.Execution
+    alias Sykli.Graph.Task.Caching
+    alias Sykli.Graph.Task.Dependencies
+    alias Sykli.Graph.Task.Robustness
+    alias Sykli.Graph.Task.Infrastructure
+
     defstruct [
       :name,
       :command,
@@ -56,6 +91,132 @@ defmodule Sykli.Graph do
       # List of required node labels (e.g., ["gpu", "docker"])
       :requires
     ]
+
+    @type t :: %__MODULE__{}
+
+    # ─────────────────────────────────────────────────────────────────────────────
+    # ACCESSOR FUNCTIONS
+    # ─────────────────────────────────────────────────────────────────────────────
+
+    @doc "Returns the task name."
+    @spec name(t()) :: String.t()
+    def name(%__MODULE__{name: n}), do: n
+
+    @doc "Returns the task command."
+    @spec command(t()) :: String.t()
+    def command(%__MODULE__{command: c}), do: c
+
+    @doc "Returns the container image (or nil for shell execution)."
+    @spec container(t()) :: String.t() | nil
+    def container(%__MODULE__{container: c}), do: c
+
+    @doc "Returns the working directory."
+    @spec workdir(t()) :: String.t() | nil
+    def workdir(%__MODULE__{workdir: w}), do: w
+
+    @doc "Returns the timeout in seconds."
+    @spec timeout(t()) :: pos_integer() | nil
+    def timeout(%__MODULE__{timeout: t}), do: t
+
+    @doc "Returns the list of input patterns."
+    @spec inputs(t()) :: [String.t()]
+    def inputs(%__MODULE__{inputs: i}), do: i || []
+
+    @doc "Returns the outputs (map or list)."
+    @spec outputs(t()) :: map() | [String.t()]
+    def outputs(%__MODULE__{outputs: o}), do: o || %{}
+
+    @doc "Returns the list of task dependencies."
+    @spec depends_on(t()) :: [String.t()]
+    def depends_on(%__MODULE__{depends_on: d}), do: d || []
+
+    @doc "Returns the condition expression."
+    @spec condition(t()) :: String.t() | nil
+    def condition(%__MODULE__{condition: c}), do: c
+
+    @doc "Returns the retry count."
+    @spec retry(t()) :: non_neg_integer() | nil
+    def retry(%__MODULE__{retry: r}), do: r
+
+    @doc "Returns the list of required secrets."
+    @spec secrets(t()) :: [String.t()]
+    def secrets(%__MODULE__{secrets: s}), do: s || []
+
+    @doc "Returns the environment variables map."
+    @spec env(t()) :: map()
+    def env(%__MODULE__{env: e}), do: e || %{}
+
+    @doc "Returns the list of mounts."
+    @spec mounts(t()) :: [map()]
+    def mounts(%__MODULE__{mounts: m}), do: m || []
+
+    @doc "Returns the list of services."
+    @spec services(t()) :: [Sykli.Graph.Service.t()]
+    def services(%__MODULE__{services: s}), do: s || []
+
+    @doc "Returns the K8s options."
+    @spec k8s(t()) :: Sykli.Target.K8sOptions.t() | nil
+    def k8s(%__MODULE__{k8s: k}), do: k
+
+    @doc "Returns the node requirements."
+    @spec requires(t()) :: [String.t()]
+    def requires(%__MODULE__{requires: r}), do: r || []
+
+    @doc "Returns the task inputs (artifact dependencies)."
+    @spec task_inputs(t()) :: [Sykli.Graph.TaskInput.t()]
+    def task_inputs(%__MODULE__{task_inputs: ti}), do: ti || []
+
+    # ─────────────────────────────────────────────────────────────────────────────
+    # SUB-STRUCT ACCESSORS
+    # ─────────────────────────────────────────────────────────────────────────────
+
+    @doc "Returns the execution sub-struct."
+    @spec execution(t()) :: Execution.t()
+    def execution(%__MODULE__{} = task), do: Execution.from_task(task)
+
+    @doc "Returns the caching sub-struct."
+    @spec caching(t()) :: Caching.t()
+    def caching(%__MODULE__{} = task), do: Caching.from_task(task)
+
+    @doc "Returns the dependencies sub-struct."
+    @spec dependencies(t()) :: Dependencies.t()
+    def dependencies(%__MODULE__{} = task), do: Dependencies.from_task(task)
+
+    @doc "Returns the robustness sub-struct."
+    @spec robustness(t()) :: Robustness.t()
+    def robustness(%__MODULE__{} = task), do: Robustness.from_task(task)
+
+    @doc "Returns the infrastructure sub-struct."
+    @spec infrastructure(t()) :: Infrastructure.t()
+    def infrastructure(%__MODULE__{} = task), do: Infrastructure.from_task(task)
+
+    # ─────────────────────────────────────────────────────────────────────────────
+    # PREDICATES
+    # ─────────────────────────────────────────────────────────────────────────────
+
+    @doc "Checks if the task uses a container."
+    @spec containerized?(t()) :: boolean()
+    def containerized?(%__MODULE__{container: c}), do: c != nil && c != ""
+
+    @doc "Checks if the task is cacheable (has inputs defined)."
+    @spec cacheable?(t()) :: boolean()
+    def cacheable?(%__MODULE__{inputs: i}), do: i != nil && i != []
+
+    @doc "Checks if the task has retry enabled."
+    @spec retriable?(t()) :: boolean()
+    def retriable?(%__MODULE__{retry: r}), do: r != nil && r > 0
+
+    @doc "Checks if the task has a condition."
+    @spec conditional?(t()) :: boolean()
+    def conditional?(%__MODULE__{condition: c}), do: c != nil && c != ""
+
+    @doc "Checks if this is a matrix task (before expansion)."
+    @spec matrix?(t()) :: boolean()
+    def matrix?(%__MODULE__{matrix: m}), do: m != nil && map_size(m) > 0
+
+    @doc "Checks if this is an expanded matrix task."
+    @spec expanded_matrix?(t()) :: boolean()
+    def expanded_matrix?(%__MODULE__{matrix_values: mv}), do: mv != nil && map_size(mv) > 0
   end
 
   def parse(json) do
