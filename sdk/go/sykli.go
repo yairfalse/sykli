@@ -857,7 +857,7 @@ func (t *Task) Intent(description string) *Task {
 }
 
 // Critical marks this task as high-criticality for prioritization.
-// Shorthand for Criticality(CriticalityHigh).
+// Shorthand for SetCriticality(CriticalityHigh).
 //
 // Example:
 //

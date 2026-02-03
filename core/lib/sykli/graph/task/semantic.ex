@@ -69,8 +69,7 @@ defmodule Sykli.Graph.Task.Semantic do
   def covers_any?(%__MODULE__{covers: patterns}, paths) do
     Enum.any?(paths, fn path ->
       Enum.any?(patterns, fn pattern ->
-        Path.wildcard(pattern) |> Enum.member?(path) or
-          match_pattern?(pattern, path)
+        match_pattern?(pattern, path)
       end)
     end)
   end
