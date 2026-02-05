@@ -192,19 +192,22 @@ defmodule Sykli do
       timestamp: run.timestamp,
       outcome: if(run.overall == :passed, do: :success, else: :failure),
       duration_ms: Enum.reduce(run.tasks, 0, fn t, acc -> acc + (t.duration_ms || 0) end),
-      tasks: Enum.map(run.tasks, fn t ->
-        %{
-          name: t.name,
-          status: t.status,
-          duration_ms: t.duration_ms,
-          cached: t.cached,
-          error: t.error
-        }
-      end)
+      tasks:
+        Enum.map(run.tasks, fn t ->
+          %{
+            name: t.name,
+            status: t.status,
+            duration_ms: t.duration_ms,
+            cached: t.cached,
+            error: t.error
+          }
+        end)
     }
 
     case Context.generate(graph, run_result, path) do
-      :ok -> :ok
+      :ok ->
+        :ok
+
       {:error, reason} ->
         IO.puts(
           "#{IO.ANSI.yellow()}⚠ Warning: Failed to generate context: #{inspect(reason)}#{IO.ANSI.reset()}"

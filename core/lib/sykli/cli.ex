@@ -72,7 +72,7 @@ defmodule Sykli.CLI do
       -v, --version             Show version
       --mesh                    Distribute tasks across connected BEAM nodes
       --filter=NAME             Only run tasks matching NAME
-      --timeout=DURATION        Task timeout (default: 5m). Use 10m, 30s, 2h, 1d, or 0 for no timeout
+      --timeout=DURATION        Per-task and per-level timeout (default: 5m). Use 10m, 30s, 2h, 1d, or 0 for no timeout
       --target=TARGET           Execution target: local (default), k8s
       --allow-dirty             Allow running with uncommitted changes (K8s)
       --git-ssh-secret=NAME     K8s Secret for SSH git auth
@@ -795,7 +795,10 @@ defmodule Sykli.CLI do
         halt(0)
 
       {:error, reason} ->
-        IO.puts("#{IO.ANSI.red()}✗#{IO.ANSI.reset()} Failed to generate context: #{inspect(reason)}")
+        IO.puts(
+          "#{IO.ANSI.red()}✗#{IO.ANSI.reset()} Failed to generate context: #{inspect(reason)}"
+        )
+
         halt(1)
     end
   end
@@ -814,15 +817,16 @@ defmodule Sykli.CLI do
               timestamp: run.timestamp,
               outcome: if(run.overall == :passed, do: :success, else: :failure),
               duration_ms: Enum.reduce(run.tasks, 0, fn t, acc -> acc + (t.duration_ms || 0) end),
-              tasks: Enum.map(run.tasks, fn t ->
-                %{
-                  name: t.name,
-                  status: t.status,
-                  duration_ms: t.duration_ms,
-                  cached: t.cached,
-                  error: t.error
-                }
-              end)
+              tasks:
+                Enum.map(run.tasks, fn t ->
+                  %{
+                    name: t.name,
+                    status: t.status,
+                    duration_ms: t.duration_ms,
+                    cached: t.cached,
+                    error: t.error
+                  }
+                end)
             }
 
           {:error, _} ->
