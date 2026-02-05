@@ -1,0 +1,85 @@
+{
+  "coverage": {
+    "file_to_tasks": {},
+    "uncovered_patterns": []
+  },
+  "generated_at": "2026-02-03T01:33:11.188441Z",
+  "last_run": {
+    "duration_ms": 88,
+    "outcome": "failure",
+    "tasks": [
+      {
+        "cached": false,
+        "duration_ms": 45,
+        "error": "%Sykli.Error{code: \"task_failed\", type: :execution, message: \"task 'lint' failed\", task: \"lint\", step: :run, command: \"go vet ./...\", output: \"go: warning: \\\"./...\\\" matched no packages\\nno packages to vet\\n\", exit_code: 1, duration_ms: 22, cause: nil, hints: [], notes: [\"task ran for 22ms before failing\"]}",
+        "name": "lint",
+        "status": "failed"
+      },
+      {
+        "cached": false,
+        "duration_ms": 43,
+        "error": "%Sykli.Error{code: \"task_failed\", type: :execution, message: \"task 'test' failed\", task: \"test\", step: :run, command: \"go test ./...\", output: \"go: warning: \\\"./...\\\" matched no packages\\nno packages to test\\n\", exit_code: 1, duration_ms: 14, cause: nil, hints: [], notes: [\"task ran for 14ms before failing\"]}",
+        "name": "test",
+        "status": "failed"
+      },
+      {
+        "cached": false,
+        "duration_ms": 0,
+        "error": ":dependency_failed",
+        "name": "build",
+        "status": "skipped"
+      },
+      {
+        "cached": false,
+        "duration_ms": 0,
+        "error": ":dependency_failed",
+        "name": "deploy",
+        "status": "skipped"
+      }
+    ],
+    "timestamp": "2026-02-03T01:33:11.137943Z"
+  },
+  "pipeline": {
+    "critical_tasks": [],
+    "dependencies": {
+      "build": [
+        "lint",
+        "test"
+      ],
+      "deploy": [
+        "build"
+      ],
+      "lint": [],
+      "test": []
+    },
+    "task_count": 4,
+    "tasks": [
+      {
+        "command": "go build -o ./app",
+        "depends_on": [
+          "lint",
+          "test"
+        ],
+        "name": "build"
+      },
+      {
+        "command": "echo 'Deploying...'",
+        "depends_on": [
+          "build"
+        ],
+        "name": "deploy"
+      },
+      {
+        "command": "go vet ./...",
+        "depends_on": [],
+        "name": "lint"
+      },
+      {
+        "command": "go test ./...",
+        "depends_on": [],
+        "name": "test"
+      }
+    ]
+  },
+  "version": "1.0"
+}
