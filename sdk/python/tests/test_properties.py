@@ -5,7 +5,7 @@ import json
 import pytest
 
 try:
-    from hypothesis import given, settings, assume
+    from hypothesis import given, settings
     from hypothesis import strategies as st
 
     HAS_HYPOTHESIS = True

@@ -9,9 +9,7 @@ from sykli import (
     Pipeline,
     PythonPreset,
     Task,
-    TaskGroup,
     Template,
-    ValidationError,
 )
 
 
@@ -22,7 +20,7 @@ class TestPipelineConstruction:
 
     def test_with_k8s_defaults(self):
         p = Pipeline(k8s_defaults=K8sOptions(memory="512Mi", cpu="1"))
-        t = p.task("test").run("pytest")
+        p.task("test").run("pytest")
         d = p.to_dict()
         assert d["tasks"][0]["k8s"] == {"memory": "512Mi", "cpu": "1"}
 
@@ -86,7 +84,7 @@ class TestResourceCreation:
         p = Pipeline()
         c = p.cache("pip")
         assert isinstance(c, CacheVolume)
-        assert c.id == "cache:pip"
+        assert c.id == "pip"
 
     def test_cache_deduplication(self):
         p = Pipeline()
@@ -141,7 +139,7 @@ class TestPythonPreset:
 
     def test_preset_test(self):
         p = Pipeline()
-        t = p.python().test()
+        p.python().test()
         d = p.to_dict()
         assert d["tasks"][0]["name"] == "test"
         assert d["tasks"][0]["command"] == "pytest"
@@ -149,19 +147,19 @@ class TestPythonPreset:
 
     def test_preset_lint(self):
         p = Pipeline()
-        t = p.python().lint()
+        p.python().lint()
         d = p.to_dict()
         assert d["tasks"][0]["command"] == "ruff check ."
 
     def test_preset_typecheck(self):
         p = Pipeline()
-        t = p.python().typecheck()
+        p.python().typecheck()
         d = p.to_dict()
         assert d["tasks"][0]["command"] == "mypy ."
 
     def test_preset_build(self):
         p = Pipeline()
-        t = p.python().build()
+        p.python().build()
         d = p.to_dict()
         assert d["tasks"][0]["command"] == "python -m build"
 

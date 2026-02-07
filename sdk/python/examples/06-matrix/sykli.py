@@ -10,9 +10,11 @@ p.task("lint").run("ruff check .")
 g = p.matrix(
     "test",
     ["3.11", "3.12", "3.13"],
-    lambda v: p.task(f"test-py{v}")
+    lambda v: (
+        p.task(f"test-py{v}")
         .run(f"python{v} -m pytest")
-        .after("lint"),
+        .after("lint")
+    ),
 )
 
 p.task("build") \

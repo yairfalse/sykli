@@ -284,7 +284,7 @@ class CacheVolume:
 
     @property
     def id(self) -> str:
-        return f"cache:{self._name}"
+        return self._name
 
     @property
     def cache_name(self) -> str:
@@ -541,6 +541,13 @@ class Task:
         return self
 
     def secret_from(self, name: str, ref: SecretRef) -> Self:
+        if not name:
+            raise ValueError(f"task {self._name!r}: secret name cannot be empty")
+        if ref.name != name:
+            raise ValueError(
+                f"task {self._name!r}: secret name mismatch: argument {name!r} "
+                f"does not match SecretRef.name {ref.name!r}"
+            )
         self._secret_refs.append(ref)
         return self
 
@@ -696,9 +703,18 @@ class Task:
             d["inputs"] = list(self._inputs)
         if self._task_inputs:
             d["task_inputs"] = list(self._task_inputs)
-        if self._outputs:
+        if self._outputs and self._outputs_v1:
+            # Merge: named outputs + auto-named v1 outputs
+            merged = dict(self._outputs)
+            for idx, val in enumerate(self._outputs_v1):
+                key = f"output_{idx}"
+                while key in merged:
+                    key = f"output_{idx}_{idx}"
+                merged[key] = val
+            d["outputs"] = merged
+        elif self._outputs:
             d["outputs"] = dict(self._outputs)
-        if self._outputs_v1:
+        elif self._outputs_v1:
             d["outputs"] = list(self._outputs_v1)
         if self._depends_on:
             d["depends_on"] = list(self._depends_on)
@@ -782,6 +798,11 @@ class Task:
             d["select"] = self._select
         return d
 
+    def k8s_raw(self, raw: str) -> Self:
+        """Set raw JSON for advanced K8s options (escape hatch)."""
+        self._k8s_raw = raw
+        return self
+
     def _k8s_to_dict(self) -> dict[str, Any] | None:
         if self._k8s is None and not self._k8s_raw:
             return None
@@ -793,6 +814,8 @@ class Task:
                 d["cpu"] = self._k8s.cpu
             if self._k8s.gpu:
                 d["gpu"] = self._k8s.gpu
+            if self._k8s.raw:
+                d["raw"] = self._k8s.raw
         if self._k8s_raw:
             d["raw"] = self._k8s_raw
         return d or None
@@ -854,6 +877,8 @@ class Pipeline:
     # ─────────────────────────────────────────────────────────────────────────
 
     def dir(self, path: str) -> Directory:
+        if not path or not path.strip():
+            raise ValueError("directory path cannot be empty")
         for d in self._dirs:
             if d.path == path:
                 return d
@@ -862,6 +887,8 @@ class Pipeline:
         return d
 
     def cache(self, name: str) -> CacheVolume:
+        if not name or not name.strip():
+            raise ValueError("cache name cannot be empty")
         for c in self._caches:
             if c.cache_name == name:
                 return c
@@ -879,6 +906,8 @@ class Pipeline:
     # ─────────────────────────────────────────────────────────────────────────
 
     def template(self, name: str) -> Template:
+        if not name:
+            raise ValueError("template name cannot be empty")
         if name in self._templates:
             raise ValueError(f"template {name!r} already exists")
         tmpl = Template(name)

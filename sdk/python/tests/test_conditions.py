@@ -1,6 +1,6 @@
 """Tests for Condition value object — builders, operators, string output."""
 
-from sykli import Condition, branch, tag, has_tag, event, in_ci, not_
+from sykli import branch, tag, has_tag, event, in_ci, not_
 
 
 class TestConditionFactories:

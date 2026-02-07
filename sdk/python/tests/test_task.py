@@ -3,12 +3,8 @@
 import pytest
 
 from sykli import (
-    CacheVolume,
-    Directory,
     K8sOptions,
     Pipeline,
-    SecretRef,
-    Template,
     from_env,
     from_file,
     from_vault,
@@ -70,7 +66,7 @@ class TestTaskCore:
     def test_fluent_chaining(self):
         p = Pipeline()
         p.task("lint").run("ruff check .")
-        t = (
+        (
             p.task("test")
             .run("pytest")
             .inputs("**/*.py")
@@ -117,7 +113,7 @@ class TestTaskContainer:
         p.task("test").run("pytest").mount_cache(c, "/cache")
         d = p.to_dict()
         assert d["tasks"][0]["mounts"] == [
-            {"resource": "cache:pip", "path": "/cache", "type": "cache"}
+            {"resource": "pip", "path": "/cache", "type": "cache"}
         ]
 
     def test_mount_path_not_absolute_raises(self):

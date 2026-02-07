@@ -8,7 +8,7 @@ class TestChain:
         p = Pipeline()
         a = p.task("a").run("a")
         b = p.task("b").run("b")
-        g = p.chain(a, b)
+        p.chain(a, b)
         d = p.to_dict()
         task_b = next(t for t in d["tasks"] if t["name"] == "b")
         assert task_b["depends_on"] == ["a"]

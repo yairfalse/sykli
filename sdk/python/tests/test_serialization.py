@@ -3,8 +3,6 @@
 import io
 import json
 
-import pytest
-
 from sykli import K8sOptions, Pipeline, from_env, branch
 
 
@@ -132,8 +130,8 @@ class TestResourceSerialization:
         c = p.cache("pip")
         p.task("test").run("pytest").mount_cache(c, "/cache")
         d = p.to_dict()
-        assert "cache:pip" in d["resources"]
-        assert d["resources"]["cache:pip"] == {"type": "cache", "name": "pip"}
+        assert "pip" in d["resources"]
+        assert d["resources"]["pip"] == {"type": "cache", "name": "pip"}
 
     def test_directory_with_globs(self):
         p = Pipeline()
