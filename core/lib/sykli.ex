@@ -35,30 +35,38 @@ defmodule Sykli do
       # Expand matrix tasks into individual tasks
       expanded_graph = Graph.expand_matrix(graph)
 
-      # Apply filter if provided
-      filtered_graph =
-        if filter_fn do
-          filter_graph(expanded_graph, filter_fn)
-        else
-          expanded_graph
-        end
+      # Resolve capability-based dependencies (provides/needs)
+      case Sykli.Services.CapabilityResolver.resolve(expanded_graph) do
+        {:ok, resolved_graph} ->
+          # Apply filter if provided
+          filtered_graph =
+            if filter_fn do
+              filter_graph(resolved_graph, filter_fn)
+            else
+              resolved_graph
+            end
 
-      case Graph.topo_sort(filtered_graph) do
-        {:ok, order} ->
-          # Pass all opts to executor, ensuring workdir is set
-          executor_opts = Keyword.merge(opts, workdir: path)
+          case Graph.topo_sort(filtered_graph) do
+            {:ok, order} ->
+              # Pass all opts to executor, ensuring workdir is set
+              executor_opts = Keyword.merge(opts, workdir: path)
 
-          result = Executor.run(order, filtered_graph, executor_opts)
+              result = Executor.run(order, filtered_graph, executor_opts)
 
-          # Save run history if enabled
-          if save_history do
-            save_run_history(path, result, filtered_graph)
+              # Save run history if enabled
+              if save_history do
+                save_run_history(path, result, filtered_graph)
+              end
+
+              result
+
+            error ->
+              error
           end
 
-          result
-
-        error ->
-          error
+        {:error, error} ->
+          IO.puts(:stderr, "\e[31m✗ #{Exception.message(error)}\e[0m")
+          {:error, error}
       end
     else
       {:error, :no_sdk_file} ->

@@ -268,6 +268,10 @@ defmodule Sykli.Executor do
   defp run_single(%Sykli.Graph.Task{} = task, state, progress, target) do
     start_time = System.monotonic_time(:millisecond)
 
+    # Handle gates (approval points)
+    if Sykli.Graph.Task.gate?(task) do
+      run_gate(task, state, progress)
+    else
     # Check condition first
     if should_run?(task) do
       # Validate required secrets are present (via target)
@@ -303,6 +307,46 @@ defmodule Sykli.Executor do
         duration_ms: duration,
         error: nil
       }
+    end
+    end
+  end
+
+  defp run_gate(%Sykli.Graph.Task{} = task, _state, progress) do
+    prefix = progress_prefix(progress)
+    gate = Sykli.Graph.Task.gate(task)
+
+    IO.puts(
+      "#{prefix}#{IO.ANSI.yellow()}\u23F8 #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(gate: #{gate.strategy})#{IO.ANSI.reset()}"
+    )
+
+    start_time = System.monotonic_time(:millisecond)
+    result = Sykli.Services.GateService.wait(gate)
+    duration = System.monotonic_time(:millisecond) - start_time
+
+    case result do
+      {:approved, approver} ->
+        IO.puts(
+          "#{prefix}#{IO.ANSI.green()}\u2713 #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(approved by #{approver})#{IO.ANSI.reset()}"
+        )
+        %TaskResult{name: task.name, status: :passed, duration_ms: duration, error: nil}
+
+      {:denied, reason} ->
+        IO.puts(
+          "#{prefix}#{IO.ANSI.red()}\u2717 #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(denied: #{reason})#{IO.ANSI.reset()}"
+        )
+        %TaskResult{
+          name: task.name, status: :failed, duration_ms: duration,
+          error: Error.internal("gate '#{task.name}' denied: #{reason}")
+        }
+
+      {:timed_out} ->
+        IO.puts(
+          "#{prefix}#{IO.ANSI.red()}\u2717 #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(timed out after #{gate.timeout}s)#{IO.ANSI.reset()}"
+        )
+        %TaskResult{
+          name: task.name, status: :failed, duration_ms: duration,
+          error: Error.internal("gate '#{task.name}' timed out after #{gate.timeout}s")
+        }
     end
   end
 

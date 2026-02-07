@@ -365,6 +365,8 @@ export class Task {
   private _k8s?: K8sOptions;
   private _k8sRaw?: string;
   private _requires: string[] = [];
+  private _provides: Array<{name: string, value?: string}> = [];
+  private _needs: string[] = [];
   private _semantic: Semantic = { covers: [] };
   private _aiHooks: AiHooks = {};
 
@@ -630,6 +632,29 @@ export class Task {
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
+  // CAPABILITY-BASED DEPENDENCIES
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Declare that this task produces a named capability.
+   * Other tasks can declare they need this capability via needs().
+   * The optional value is injected as SYKLI_CAP_{NAME} env var in needing tasks.
+   */
+  provides(name: string, value?: string): this {
+    this._provides.push({ name, value });
+    return this;
+  }
+
+  /**
+   * Declare that this task needs named capabilities.
+   * A dependency on the providing task is auto-resolved by the engine.
+   */
+  needs(...names: string[]): this {
+    this._needs.push(...names);
+    return this;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
   // Internal accessors (for Template and Pipeline use)
   // ─────────────────────────────────────────────────────────────────────────────
 
@@ -742,6 +767,16 @@ export class Task {
     const k8sJson = this._k8sToJSON(this._k8s, this._k8sRaw);
     if (k8sJson) json.k8s = k8sJson;
     if (this._requires.length > 0) json.requires = this._requires;
+
+    // Capability-based dependencies
+    if (this._provides.length > 0) {
+      json.provides = this._provides.map(p => {
+        const obj: Record<string, string> = { name: p.name };
+        if (p.value) obj.value = p.value;
+        return obj;
+      });
+    }
+    if (this._needs.length > 0) json.needs = this._needs;
 
     // AI-native fields
     const semanticJson = this._semanticToJSON();

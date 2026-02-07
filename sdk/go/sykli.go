@@ -508,6 +508,15 @@ type AiHooks struct {
 	sel    SelectMode
 }
 
+// gateConfig holds gate metadata for approval gates.
+type gateConfig struct {
+	strategy string
+	timeout  int
+	message  string
+	envVar   string
+	filePath string
+}
+
 // Task represents a single task in the pipeline.
 type Task struct {
 	pipeline     *Pipeline
@@ -536,6 +545,11 @@ type Task struct {
 	// AI-native fields
 	semantic     Semantic
 	aiHooks      AiHooks
+	// Capability-based dependencies
+	provides     []struct{ name, value string }
+	needs        []string
+	// Gate fields (if set, this is a gate not a regular task)
+	gate         *gateConfig
 }
 
 // Task creates a new task with the given name.
@@ -557,6 +571,68 @@ func (p *Pipeline) Task(name string) *Task {
 	}
 	log.Debug().Str("task", name).Msg("registered task")
 	p.tasks = append(p.tasks, t)
+	return t
+}
+
+// Gate creates an approval gate that pauses the pipeline until approved.
+// A gate is a special task with no command that waits for an approval signal.
+func (p *Pipeline) Gate(name string) *Task {
+	if name == "" {
+		log.Panic().Msg("gate name cannot be empty")
+	}
+	for _, existing := range p.tasks {
+		if existing.name == name {
+			log.Panic().Str("gate", name).Msg("task/gate already exists with this name")
+		}
+	}
+	t := &Task{
+		pipeline: p,
+		name:     name,
+		env:      make(map[string]string),
+		mounts:   make([]Mount, 0),
+		outputs:  make(map[string]string),
+		gate: &gateConfig{
+			strategy: "prompt",
+			timeout:  3600,
+		},
+	}
+	log.Debug().Str("gate", name).Msg("registered gate")
+	p.tasks = append(p.tasks, t)
+	return t
+}
+
+// GateStrategy sets the approval strategy for this gate task.
+func (t *Task) GateStrategy(s string) *Task {
+	if t.gate == nil { t.gate = &gateConfig{strategy: "prompt", timeout: 3600} }
+	t.gate.strategy = s
+	return t
+}
+
+// GateMessage sets the approval prompt message for this gate task.
+func (t *Task) GateMessage(msg string) *Task {
+	if t.gate == nil { t.gate = &gateConfig{strategy: "prompt", timeout: 3600} }
+	t.gate.message = msg
+	return t
+}
+
+// GateTimeout sets the timeout in seconds for this gate task.
+func (t *Task) GateTimeout(seconds int) *Task {
+	if t.gate == nil { t.gate = &gateConfig{strategy: "prompt", timeout: 3600} }
+	t.gate.timeout = seconds
+	return t
+}
+
+// GateEnvVar sets the environment variable to poll for the env strategy.
+func (t *Task) GateEnvVar(v string) *Task {
+	if t.gate == nil { t.gate = &gateConfig{strategy: "prompt", timeout: 3600} }
+	t.gate.envVar = v
+	return t
+}
+
+// GateFilePath sets the file path to poll for the file strategy.
+func (t *Task) GateFilePath(fp string) *Task {
+	if t.gate == nil { t.gate = &gateConfig{strategy: "prompt", timeout: 3600} }
+	t.gate.filePath = fp
 	return t
 }
 
@@ -917,6 +993,53 @@ func (t *Task) SelectMode(mode SelectMode) *Task {
 //	    Smart()
 func (t *Task) Smart() *Task {
 	t.aiHooks.sel = SelectSmart
+	return t
+}
+
+// =============================================================================
+// CAPABILITY-BASED DEPENDENCIES
+// =============================================================================
+
+// Provides declares that this task produces a named capability.
+// Other tasks can declare they need this capability via Needs().
+// The optional value is injected as SYKLI_CAP_{NAME} env var in needing tasks.
+//
+// Example:
+//
+//	s.Task("build").
+//	    Run("go build -o /out/app").
+//	    Provides("binary", "/out/app")
+//
+//	s.Task("migrate").
+//	    Run("./migrate.sh").
+//	    Provides("database-migrated")
+func (t *Task) Provides(name string, value ...string) *Task {
+	if name == "" {
+		log.Panic().Str("task", t.name).Msg("capability name cannot be empty")
+	}
+	v := ""
+	if len(value) > 0 {
+		v = value[0]
+	}
+	t.provides = append(t.provides, struct{ name, value string }{name, v})
+	return t
+}
+
+// Needs declares that this task requires a named capability.
+// A dependency on the providing task is auto-resolved by the engine.
+//
+// Example:
+//
+//	s.Task("deploy").
+//	    Run("./deploy.sh").
+//	    Needs("binary", "database-migrated")
+func (t *Task) Needs(names ...string) *Task {
+	for _, name := range names {
+		if name == "" {
+			log.Panic().Str("task", t.name).Msg("capability name cannot be empty")
+		}
+	}
+	t.needs = append(t.needs, names...)
 	return t
 }
 
@@ -1536,7 +1659,7 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 		taskNames[t.name] = true
 	}
 	for _, t := range p.tasks {
-		if t.command == "" {
+		if t.command == "" && t.gate == nil {
 			log.Error().Str("task", t.name).Msg("task has no command")
 			return fmt.Errorf("task %q has no command", t.name)
 		}
@@ -1615,6 +1738,12 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 		Raw    string `json:"raw,omitempty"`    // Escape hatch: raw JSON for advanced options
 	}
 
+	// Capability-based dependencies JSON
+	type jsonProvide struct {
+		Name  string `json:"name"`
+		Value string `json:"value,omitempty"`
+	}
+
 	// AI-native metadata JSON
 	type jsonSemantic struct {
 		Covers      []string `json:"covers,omitempty"`
@@ -1648,6 +1777,9 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 		Target     string              `json:"target,omitempty"`       // Per-task target override
 		K8s        *jsonK8sOptions     `json:"k8s,omitempty"`          // K8s-specific options
 		Requires   []string            `json:"requires,omitempty"`     // Required node labels
+		// Capability-based dependencies
+		Provides   []jsonProvide       `json:"provides,omitempty"`
+		Needs      []string            `json:"needs,omitempty"`
 		// AI-native fields
 		Semantic   *jsonSemantic       `json:"semantic,omitempty"`
 		AiHooks    *jsonAiHooks        `json:"ai_hooks,omitempty"`
@@ -1808,6 +1940,22 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 					return nil
 				}
 				return t.requires
+			}(),
+			Provides: func() []jsonProvide {
+				if len(t.provides) == 0 {
+					return nil
+				}
+				ps := make([]jsonProvide, len(t.provides))
+				for j, p := range t.provides {
+					ps[j] = jsonProvide{Name: p.name, Value: p.value}
+				}
+				return ps
+			}(),
+			Needs: func() []string {
+				if len(t.needs) == 0 {
+					return nil
+				}
+				return t.needs
 			}(),
 			Semantic: func() *jsonSemantic {
 				if len(t.semantic.covers) == 0 && t.semantic.intent == "" && t.semantic.criticality == "" {

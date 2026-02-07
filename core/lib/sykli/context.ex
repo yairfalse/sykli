@@ -37,7 +37,7 @@ defmodule Sykli.Context do
   """
 
   alias Sykli.Graph.Task
-  alias Sykli.Graph.Task.{Semantic, AiHooks, HistoryHint}
+  alias Sykli.Graph.Task.{Semantic, AiHooks, HistoryHint, Capability}
 
   @context_version "1.0"
 
@@ -111,6 +111,7 @@ defmodule Sykli.Context do
     |> maybe_add_ai_hooks(task)
     |> maybe_add_history_hint(task)
     |> maybe_add_execution_context(task)
+    |> maybe_add_capability(task)
   end
 
   # Private implementation
@@ -221,6 +222,17 @@ defmodule Sykli.Context do
     |> maybe_put("retry", task.retry)
     |> maybe_put("inputs", non_empty_list(task.inputs))
     |> maybe_put("outputs", non_empty_map(task.outputs))
+  end
+
+  defp maybe_add_capability(map, task) do
+    cap = task.capability
+
+    if cap != nil do
+      cap_map = Capability.to_map(cap)
+      if cap_map, do: Map.put(map, "capability", cap_map), else: map
+    else
+      map
+    end
   end
 
   defp maybe_put(map, _key, nil), do: map
