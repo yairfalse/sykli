@@ -755,6 +755,18 @@ struct TaskData {
     // Capability-based dependencies
     provides: Vec<(String, Option<String>)>,
     needs: Vec<String>,
+    // Gate fields (if set, this is a gate not a regular task)
+    gate: Option<GateConfig>,
+}
+
+/// Gate configuration for approval gates.
+#[derive(Clone, Default)]
+struct GateConfig {
+    strategy: String,
+    timeout: u32,
+    message: Option<String>,
+    env_var: Option<String>,
+    file_path: Option<String>,
 }
 
 impl<'a> Task<'a> {
@@ -1237,6 +1249,76 @@ impl<'a> Task<'a> {
         self
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // GATE METHODS
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// Sets the approval strategy for this gate task.
+    ///
+    /// # Panics
+    /// Panics if called on a non-gate task.
+    #[must_use]
+    pub fn gate_strategy(self, strategy: &str) -> Self {
+        let task = &mut self.pipeline.tasks[self.index];
+        let gate = task.gate.as_mut()
+            .unwrap_or_else(|| panic!("task {:?}: gate methods can only be used on gate tasks created via Pipeline::gate()", task.name));
+        gate.strategy = strategy.to_string();
+        self
+    }
+
+    /// Sets the approval prompt message for this gate task.
+    ///
+    /// # Panics
+    /// Panics if called on a non-gate task.
+    #[must_use]
+    pub fn gate_message(self, message: &str) -> Self {
+        let task = &mut self.pipeline.tasks[self.index];
+        let gate = task.gate.as_mut()
+            .unwrap_or_else(|| panic!("task {:?}: gate methods can only be used on gate tasks created via Pipeline::gate()", task.name));
+        gate.message = Some(message.to_string());
+        self
+    }
+
+    /// Sets the timeout in seconds for this gate task.
+    ///
+    /// # Panics
+    /// Panics if called on a non-gate task or if seconds is 0.
+    #[must_use]
+    pub fn gate_timeout(self, seconds: u32) -> Self {
+        assert!(seconds > 0, "gate timeout must be positive");
+        let task = &mut self.pipeline.tasks[self.index];
+        let gate = task.gate.as_mut()
+            .unwrap_or_else(|| panic!("task {:?}: gate methods can only be used on gate tasks created via Pipeline::gate()", task.name));
+        gate.timeout = seconds;
+        self
+    }
+
+    /// Sets the environment variable to poll for the env strategy.
+    ///
+    /// # Panics
+    /// Panics if called on a non-gate task.
+    #[must_use]
+    pub fn gate_env_var(self, env_var: &str) -> Self {
+        let task = &mut self.pipeline.tasks[self.index];
+        let gate = task.gate.as_mut()
+            .unwrap_or_else(|| panic!("task {:?}: gate methods can only be used on gate tasks created via Pipeline::gate()", task.name));
+        gate.env_var = Some(env_var.to_string());
+        self
+    }
+
+    /// Sets the file path to poll for the file strategy.
+    ///
+    /// # Panics
+    /// Panics if called on a non-gate task.
+    #[must_use]
+    pub fn gate_file_path(self, path: &str) -> Self {
+        let task = &mut self.pipeline.tasks[self.index];
+        let gate = task.gate.as_mut()
+            .unwrap_or_else(|| panic!("task {:?}: gate methods can only be used on gate tasks created via Pipeline::gate()", task.name));
+        gate.file_path = Some(path.to_string());
+        self
+    }
+
     /// Declares a typed secret reference with explicit source.
     ///
     /// This provides better DX than plain secret names by making the source explicit.
@@ -1612,6 +1694,34 @@ impl Pipeline {
         }
     }
 
+    /// Creates an approval gate that pauses the pipeline until approved.
+    ///
+    /// A gate is a special task with no command that waits for an approval signal.
+    ///
+    /// # Panics
+    /// Panics if `name` is empty or if a task with the same name already exists.
+    pub fn gate(&mut self, name: &str) -> Task<'_> {
+        assert!(!name.is_empty(), "gate name cannot be empty");
+        assert!(
+            !self.tasks.iter().any(|t| t.name == name),
+            "task/gate {name:?} already exists"
+        );
+        self.tasks.push(TaskData {
+            name: name.to_string(),
+            gate: Some(GateConfig {
+                strategy: "prompt".to_string(),
+                timeout: 3600,
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        let index = self.tasks.len() - 1;
+        Task {
+            pipeline: self,
+            index,
+        }
+    }
+
     /// Returns a Rust preset builder.
     pub fn rust(&mut self) -> RustPreset<'_> {
         RustPreset { pipeline: self }
@@ -1918,7 +2028,7 @@ impl Pipeline {
         // Validate
         let task_names: Vec<_> = self.tasks.iter().map(|t| t.name.as_str()).collect();
         for t in &self.tasks {
-            if t.command.is_empty() {
+            if t.command.is_empty() && t.gate.is_none() {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
                     format!("task {:?} has no command", t.name),
@@ -2023,7 +2133,7 @@ impl Pipeline {
                 .iter()
                 .map(|t| JsonTask {
                     name: t.name.clone(),
-                    command: t.command.clone(),
+                    command: if t.command.is_empty() { None } else { Some(t.command.clone()) },
                     container: t.container.clone(),
                     workdir: t.workdir.clone(),
                     env: if t.env.is_empty() {
@@ -2199,6 +2309,13 @@ impl Pipeline {
                             })
                         }
                     },
+                    gate: t.gate.as_ref().map(|g| JsonGate {
+                        strategy: g.strategy.clone(),
+                        timeout: if g.timeout > 0 { Some(g.timeout) } else { None },
+                        message: g.message.clone(),
+                        env_var: g.env_var.clone(),
+                        file_path: g.file_path.clone(),
+                    }),
                 })
                 .collect(),
         };
@@ -2415,7 +2532,8 @@ struct JsonAiHooks {
 #[derive(Serialize)]
 struct JsonTask {
     name: String,
-    command: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    command: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     container: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2460,6 +2578,21 @@ struct JsonTask {
     semantic: Option<JsonSemantic>,
     #[serde(skip_serializing_if = "Option::is_none")]
     ai_hooks: Option<JsonAiHooks>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    gate: Option<JsonGate>,
+}
+
+#[derive(Serialize)]
+struct JsonGate {
+    strategy: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    timeout: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    env_var: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    file_path: Option<String>,
 }
 
 /// Minimal K8s options for JSON serialization.

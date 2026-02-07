@@ -19,9 +19,9 @@ defmodule Sykli.Emitter do
       raise "duplicate task names detected"
     end
 
-    # Check all tasks have commands
+    # Check all non-gate tasks have commands
     Enum.each(pipeline.tasks, fn task ->
-      if is_nil(task.command) or task.command == "" do
+      if is_nil(task.gate) and (is_nil(task.command) or task.command == "") do
         Logger.error("task has no command", task: task.name)
         raise "task #{inspect(task.name)} has no command"
       end
@@ -179,7 +179,8 @@ defmodule Sykli.Emitter do
       _ -> task.condition
     end
 
-    %{name: task.name, command: task.command}
+    %{name: task.name}
+    |> maybe_put(:command, task.command)
     |> maybe_put(:container, task.container)
     |> maybe_put(:workdir, task.workdir)
     |> maybe_put(:env, non_empty_map(task.env))
@@ -200,6 +201,16 @@ defmodule Sykli.Emitter do
     |> maybe_put(:requires, non_empty(task.requires))
     |> maybe_put(:semantic, semantic_to_json(task.semantic))
     |> maybe_put(:ai_hooks, ai_hooks_to_json(task.ai_hooks))
+    |> maybe_put(:gate, gate_to_json(task.gate))
+  end
+
+  defp gate_to_json(nil), do: nil
+  defp gate_to_json(gate) do
+    %{strategy: gate.strategy}
+    |> maybe_put(:timeout, gate.timeout)
+    |> maybe_put(:message, gate.message)
+    |> maybe_put(:env_var, gate.env_var)
+    |> maybe_put(:file_path, gate.file_path)
   end
 
   defp semantic_to_json(nil), do: nil

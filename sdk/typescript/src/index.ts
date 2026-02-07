@@ -102,6 +102,18 @@ interface AiHooks {
   select?: SelectMode;
 }
 
+/** Gate approval strategy */
+export type GateStrategy = 'prompt' | 'env' | 'file' | 'webhook';
+
+/** Gate configuration for approval gates */
+interface GateConfig {
+  strategy: GateStrategy;
+  timeout: number;
+  message?: string;
+  envVar?: string;
+  filePath?: string;
+}
+
 // =============================================================================
 // CONDITIONS
 // =============================================================================
@@ -369,11 +381,17 @@ export class Task {
   private _needs: string[] = [];
   private _semantic: Semantic = { covers: [] };
   private _aiHooks: AiHooks = {};
+  private _gate?: GateConfig;
 
   constructor(
     private readonly pipeline: Pipeline,
-    public readonly name: string
-  ) {}
+    public readonly name: string,
+    gate?: GateConfig
+  ) {
+    if (gate) {
+      this._gate = gate;
+    }
+  }
 
   /** Set the command to run */
   run(command: string): this {
@@ -655,6 +673,63 @@ export class Task {
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
+  // GATE METHODS
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /** Set the approval strategy for this gate task */
+  gateStrategy(strategy: GateStrategy): this {
+    if (!this._gate) {
+      throw new Error(`Task "${this.name}": gate methods can only be used on gate tasks created via Pipeline.gate()`);
+    }
+    this._gate.strategy = strategy;
+    return this;
+  }
+
+  /** Set the approval prompt message for this gate task */
+  gateMessage(message: string): this {
+    if (!this._gate) {
+      throw new Error(`Task "${this.name}": gate methods can only be used on gate tasks created via Pipeline.gate()`);
+    }
+    this._gate.message = message;
+    return this;
+  }
+
+  /** Set the timeout in seconds for this gate task */
+  gateTimeout(seconds: number): this {
+    if (!this._gate) {
+      throw new Error(`Task "${this.name}": gate methods can only be used on gate tasks created via Pipeline.gate()`);
+    }
+    if (!Number.isInteger(seconds) || seconds <= 0) {
+      throw new Error(`Task "${this.name}": gate timeout must be a positive integer, got ${seconds}`);
+    }
+    this._gate.timeout = seconds;
+    return this;
+  }
+
+  /** Set the environment variable to poll for the env strategy */
+  gateEnvVar(envVar: string): this {
+    if (!this._gate) {
+      throw new Error(`Task "${this.name}": gate methods can only be used on gate tasks created via Pipeline.gate()`);
+    }
+    this._gate.envVar = envVar;
+    return this;
+  }
+
+  /** Set the file path to poll for the file strategy */
+  gateFilePath(filePath: string): this {
+    if (!this._gate) {
+      throw new Error(`Task "${this.name}": gate methods can only be used on gate tasks created via Pipeline.gate()`);
+    }
+    this._gate.filePath = filePath;
+    return this;
+  }
+
+  /** @internal Check if this is a gate task */
+  _isGate(): boolean {
+    return this._gate !== undefined;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
   // Internal accessors (for Template and Pipeline use)
   // ─────────────────────────────────────────────────────────────────────────────
 
@@ -717,8 +792,8 @@ export class Task {
   _toJSON(): Record<string, unknown> {
     const json: Record<string, unknown> = {
       name: this.name,
-      command: this._command,
     };
+    if (this._command) json.command = this._command;
 
     if (this._container) json.container = this._container;
     if (this._workdir) json.workdir = this._workdir;
@@ -783,6 +858,16 @@ export class Task {
     if (semanticJson) json.semantic = semanticJson;
     const aiHooksJson = this._aiHooksToJSON();
     if (aiHooksJson) json.ai_hooks = aiHooksJson;
+
+    // Gate config
+    if (this._gate) {
+      const gate: Record<string, unknown> = { strategy: this._gate.strategy };
+      if (this._gate.timeout) gate.timeout = this._gate.timeout;
+      if (this._gate.message) gate.message = this._gate.message;
+      if (this._gate.envVar) gate.env_var = this._gate.envVar;
+      if (this._gate.filePath) gate.file_path = this._gate.filePath;
+      json.gate = gate;
+    }
 
     return json;
   }
@@ -899,6 +984,19 @@ export class Pipeline {
     return task;
   }
 
+  /** Create an approval gate that pauses the pipeline until approved */
+  gate(name: string): Task {
+    if (!name || name.trim() === '') {
+      throw new ValidationError('Gate name cannot be empty', 'EMPTY_NAME');
+    }
+    if (this.tasks.some((t) => t.name === name)) {
+      throw new ValidationError(`Duplicate task/gate name: "${name}"`, 'DUPLICATE_TASK');
+    }
+    const task = new Task(this, name, { strategy: 'prompt', timeout: 3600 });
+    this.tasks.push(task);
+    return task;
+  }
+
   /** Create a reusable template (validates name immediately) */
   template(name: string): Template {
     if (!name || name.trim() === '') {
@@ -1011,8 +1109,8 @@ export class Pipeline {
       }
       taskNames.add(task.name);
 
-      // Missing command check
-      if (!task._getCommand()) {
+      // Missing command check (gates don't need a command)
+      if (!task._getCommand() && !task._isGate()) {
         throw new ValidationError(
           `Task "${task.name}" has no command`,
           'MISSING_COMMAND',
