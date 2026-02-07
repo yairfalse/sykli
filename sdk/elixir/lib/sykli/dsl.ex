@@ -40,6 +40,42 @@ defmodule Sykli.DSL do
   end
 
   # ============================================================================
+  # GATE MACRO
+  # ============================================================================
+
+  @doc """
+  Defines an approval gate in the pipeline.
+
+  A gate is a special task with no command that waits for an approval signal.
+
+      gate "approve-deploy" do
+        after_ ["build"]
+        gate_strategy "env"
+        gate_timeout 600
+        gate_message "Approve deployment to production?"
+        gate_env_var "DEPLOY_APPROVED"
+      end
+  """
+  defmacro gate(name, do: block) do
+    quote do
+      Process.put(:sykli_current_task, %Sykli.Task{
+        name: unquote(name),
+        gate: %{strategy: "prompt", timeout: 3600, message: nil, env_var: nil, file_path: nil}
+      })
+
+      unquote(block)
+
+      completed_task = Process.get(:sykli_current_task)
+      tasks = Process.get(:sykli_tasks)
+      Process.put(:sykli_tasks, [completed_task | tasks])
+
+      Logger.debug("registered gate", gate: unquote(name))
+
+      Process.delete(:sykli_current_task)
+    end
+  end
+
+  # ============================================================================
   # TASK OPTIONS
   # ============================================================================
 
@@ -423,6 +459,54 @@ defmodule Sykli.DSL do
   """
   def smart do
     select_mode(:smart)
+  end
+
+  # ============================================================================
+  # GATE OPTIONS
+  # ============================================================================
+
+  @doc """
+  Sets the approval strategy for this gate task.
+
+  Strategies: "prompt", "env", "file", "webhook"
+  """
+  def gate_strategy(strategy) when is_binary(strategy) and strategy in ~w(prompt env file webhook) do
+    update_current_task(fn t ->
+      gate = t.gate || raise "gate_strategy can only be used inside a gate block"
+      %{t | gate: %{gate | strategy: strategy}}
+    end)
+  end
+
+  @doc "Sets the approval prompt message for this gate task."
+  def gate_message(message) when is_binary(message) do
+    update_current_task(fn t ->
+      gate = t.gate || raise "gate_message can only be used inside a gate block"
+      %{t | gate: %{gate | message: message}}
+    end)
+  end
+
+  @doc "Sets the timeout in seconds for this gate task."
+  def gate_timeout(seconds) when is_integer(seconds) and seconds > 0 do
+    update_current_task(fn t ->
+      gate = t.gate || raise "gate_timeout can only be used inside a gate block"
+      %{t | gate: %{gate | timeout: seconds}}
+    end)
+  end
+
+  @doc "Sets the environment variable to poll for the env strategy."
+  def gate_env_var(var) when is_binary(var) do
+    update_current_task(fn t ->
+      gate = t.gate || raise "gate_env_var can only be used inside a gate block"
+      %{t | gate: %{gate | env_var: var}}
+    end)
+  end
+
+  @doc "Sets the file path to poll for the file strategy."
+  def gate_file_path(path) when is_binary(path) do
+    update_current_task(fn t ->
+      gate = t.gate || raise "gate_file_path can only be used inside a gate block"
+      %{t | gate: %{gate | file_path: path}}
+    end)
   end
 
   @doc """

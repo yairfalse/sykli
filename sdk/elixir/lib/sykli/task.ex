@@ -27,7 +27,8 @@ defmodule Sykli.Task do
             semantic: nil,          # AI-native: semantic metadata (covers, intent, criticality)
             ai_hooks: nil,          # AI-native: behavioral hooks (on_fail, select)
             provides: [],           # Capability-based: what this task provides
-            needs: []               # Capability-based: what this task needs
+            needs: [],              # Capability-based: what this task needs
+            gate: nil               # Gate config: %{strategy, timeout, message, env_var, file_path}
 
   @type secret_source :: :env | :file | :vault
 
@@ -77,7 +78,8 @@ defmodule Sykli.Task do
           k8s: Sykli.K8s.t() | nil,
           requires: [String.t()],
           semantic: semantic() | nil,
-          ai_hooks: ai_hooks() | nil
+          ai_hooks: ai_hooks() | nil,
+          gate: map() | nil
         }
 
   @doc "Creates a new task with the given name."

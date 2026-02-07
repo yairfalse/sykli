@@ -1,0 +1,25 @@
+{
+  "version": "1",
+  "tasks": [
+    {
+      "name": "compile",
+      "command": "go build -o /out/app ./cmd/server",
+      "provides": [
+        {"name": "binary", "value": "/out/app"}
+      ]
+    },
+    {
+      "name": "migrate",
+      "command": "dbmate up",
+      "provides": [
+        {"name": "db-ready"}
+      ]
+    },
+    {
+      "name": "integration-test",
+      "command": "go test -tags=integration ./...",
+      "needs": ["binary", "db-ready"],
+      "timeout": 300
+    }
+  ]
+}

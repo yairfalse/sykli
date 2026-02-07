@@ -1,0 +1,24 @@
+{
+  "version": "1",
+  "tasks": [
+    {
+      "name": "build",
+      "command": "make build"
+    },
+    {
+      "name": "approve-deploy",
+      "depends_on": ["build"],
+      "gate": {
+        "strategy": "env",
+        "timeout": 600,
+        "message": "Approve deployment to production?",
+        "env_var": "DEPLOY_APPROVED"
+      }
+    },
+    {
+      "name": "deploy",
+      "command": "make deploy",
+      "depends_on": ["approve-deploy"]
+    }
+  ]
+}
