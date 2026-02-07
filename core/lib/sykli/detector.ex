@@ -7,7 +7,8 @@ defmodule Sykli.Detector do
     {"sykli.go", &__MODULE__.run_go/1},
     {"sykli.rs", &__MODULE__.run_rust/1},
     {"sykli.exs", &__MODULE__.run_elixir/1},
-    {"sykli.ts", &__MODULE__.run_typescript/1}
+    {"sykli.ts", &__MODULE__.run_typescript/1},
+    {"sykli.py", &__MODULE__.run_python/1}
   ]
 
   # SDK emission timeout (2 minutes - allows for compilation)
@@ -197,5 +198,32 @@ defmodule Sykli.Detector do
     end
   rescue
     _ -> false
+  end
+
+  def run_python(path) do
+    runner =
+      cond do
+        command_exists?("python3") -> "python3"
+        command_exists?("python") -> "python"
+        true -> nil
+      end
+
+    if runner == nil do
+      {:error, {:missing_tool, "python", "Install Python from https://python.org/"}}
+    else
+      dir = Path.dirname(path)
+      file = Path.basename(path)
+
+      case run_cmd(runner, [file, "--emit"], cd: dir, stderr_to_stdout: true) do
+        {output, 0} ->
+          extract_json(output)
+
+        {:error, :timeout} ->
+          {:error, {:python_timeout, "SDK emission timed out after 2 minutes"}}
+
+        {error, _} ->
+          {:error, {:python_failed, error}}
+      end
+    end
   end
 end
