@@ -4062,4 +4062,53 @@ mod tests {
         // "unknown" doesn't exist
         p.parallel("checks", &["lint", "unknown"]);
     }
+
+    #[test]
+    fn test_gate_basic() {
+        let mut p = Pipeline::new();
+        p.task("build").run("make build");
+        p.gate("approve-deploy")
+            .after(&["build"])
+            .gate_strategy("env")
+            .gate_timeout(600)
+            .gate_message("Approve deployment to production?")
+            .gate_env_var("DEPLOY_APPROVED");
+        p.task("deploy").run("make deploy").after(&["approve-deploy"]);
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        // Gate task has no command
+        assert_eq!(json["tasks"][1]["name"], "approve-deploy");
+        assert!(json["tasks"][1]["command"].is_null());
+        // Gate config
+        assert_eq!(json["tasks"][1]["gate"]["strategy"], "env");
+        assert_eq!(json["tasks"][1]["gate"]["timeout"], 600);
+        assert_eq!(json["tasks"][1]["gate"]["message"], "Approve deployment to production?");
+        assert_eq!(json["tasks"][1]["gate"]["env_var"], "DEPLOY_APPROVED");
+        // Non-gate tasks still have commands
+        assert_eq!(json["tasks"][0]["command"], "make build");
+        assert_eq!(json["tasks"][2]["command"], "make deploy");
+    }
+
+    #[test]
+    #[should_panic(expected = "gate methods can only be used on gate tasks")]
+    fn test_gate_methods_on_non_gate_panics() {
+        let mut p = Pipeline::new();
+        p.task("build").run("make build").gate_strategy("env");
+    }
+
+    #[test]
+    fn test_gate_no_command_validation() {
+        // Gates should not fail validation for missing command
+        let mut p = Pipeline::new();
+        p.gate("approve");
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap(); // should not error
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+        assert_eq!(json["tasks"][0]["gate"]["strategy"], "prompt");
+        assert_eq!(json["tasks"][0]["gate"]["timeout"], 3600);
+    }
 }
