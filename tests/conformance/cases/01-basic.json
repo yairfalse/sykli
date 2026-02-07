@@ -1,0 +1,22 @@
+{
+  "version": "1",
+  "tasks": [
+    {
+      "name": "lint",
+      "command": "npm run lint",
+      "inputs": ["**/*.ts"]
+    },
+    {
+      "name": "test",
+      "command": "npm test",
+      "depends_on": ["lint"],
+      "inputs": ["**/*.ts", "**/*.test.ts"],
+      "timeout": 120
+    },
+    {
+      "name": "build",
+      "command": "npm run build",
+      "depends_on": ["test"]
+    }
+  ]
+}

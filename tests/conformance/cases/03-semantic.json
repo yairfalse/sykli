@@ -1,0 +1,19 @@
+{
+  "version": "1",
+  "tasks": [
+    {
+      "name": "test-auth",
+      "command": "pytest tests/auth/",
+      "inputs": ["src/auth/**/*.py", "tests/auth/**/*.py"],
+      "semantic": {
+        "covers": ["src/auth/*"],
+        "intent": "unit tests for auth module",
+        "criticality": "high"
+      },
+      "ai_hooks": {
+        "on_fail": "analyze",
+        "select": "smart"
+      }
+    }
+  ]
+}
