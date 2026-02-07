@@ -3,35 +3,47 @@ defmodule Sykli.Graph.Task.CredentialBinding do
   OIDC credential binding for cloud provider authentication.
   """
 
-  defstruct [:provider, :role_arn, :project_number, :pool_id, :provider_id,
-             :tenant_id, :client_id, :duration, :audience]
+  defstruct [
+    :provider,
+    :role_arn,
+    :project_number,
+    :pool_id,
+    :provider_id,
+    :tenant_id,
+    :client_id,
+    :duration,
+    :audience
+  ]
 
   @type provider :: :aws | :gcp | :azure
   @type t :: %__MODULE__{
-    provider: provider(),
-    role_arn: String.t() | nil,
-    project_number: String.t() | nil,
-    pool_id: String.t() | nil,
-    provider_id: String.t() | nil,
-    tenant_id: String.t() | nil,
-    client_id: String.t() | nil,
-    duration: pos_integer(),
-    audience: String.t() | nil
-  }
+          provider: provider(),
+          role_arn: String.t() | nil,
+          project_number: String.t() | nil,
+          pool_id: String.t() | nil,
+          provider_id: String.t() | nil,
+          tenant_id: String.t() | nil,
+          client_id: String.t() | nil,
+          duration: pos_integer(),
+          audience: String.t() | nil
+        }
 
   @default_duration 3600
 
   def from_map(nil), do: nil
-  def from_map(map) when is_map(map) do
-    provider = case map["provider"] do
-      "aws" -> :aws
-      "gcp" -> :gcp
-      "azure" -> :azure
-      _ -> nil
-    end
 
-    if is_nil(provider), do: nil, else:
-      %__MODULE__{
+  def from_map(map) when is_map(map) do
+    provider =
+      case map["provider"] do
+        "aws" -> :aws
+        "gcp" -> :gcp
+        "azure" -> :azure
+        _ -> nil
+      end
+
+    if is_nil(provider),
+      do: nil,
+      else: %__MODULE__{
         provider: provider,
         role_arn: map["role_arn"],
         project_number: map["project_number"],
@@ -45,6 +57,7 @@ defmodule Sykli.Graph.Task.CredentialBinding do
   end
 
   def to_map(nil), do: nil
+
   def to_map(%__MODULE__{} = cb) do
     %{"provider" => Atom.to_string(cb.provider), "duration" => cb.duration}
     |> maybe_put("role_arn", cb.role_arn)

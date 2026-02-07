@@ -7,13 +7,13 @@ defmodule Sykli.MergeQueueContext do
 
   @type provider :: :github | :gitlab | :generic
   @type t :: %__MODULE__{
-    provider: provider(),
-    head_sha: String.t() | nil,
-    base_sha: String.t() | nil,
-    target_branch: String.t() | nil,
-    pr_numbers: [integer()],
-    queue_depth: non_neg_integer() | nil
-  }
+          provider: provider(),
+          head_sha: String.t() | nil,
+          base_sha: String.t() | nil,
+          target_branch: String.t() | nil,
+          pr_numbers: [integer()],
+          queue_depth: non_neg_integer() | nil
+        }
 
   def to_map(%__MODULE__{} = ctx) do
     %{

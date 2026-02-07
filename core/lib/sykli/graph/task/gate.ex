@@ -10,25 +10,27 @@ defmodule Sykli.Graph.Task.Gate do
 
   @type strategy :: :prompt | :env | :file | :webhook
   @type t :: %__MODULE__{
-    strategy: strategy(),
-    timeout: pos_integer(),
-    message: String.t() | nil,
-    env_var: String.t() | nil,
-    file_path: String.t() | nil
-  }
+          strategy: strategy(),
+          timeout: pos_integer(),
+          message: String.t() | nil,
+          env_var: String.t() | nil,
+          file_path: String.t() | nil
+        }
 
   @default_timeout 3600
 
   def from_map(nil), do: nil
+
   def from_map(map) when is_map(map) do
-    strategy = case map["strategy"] do
-      "prompt" -> :prompt
-      "env" -> :env
-      "file" -> :file
-      "webhook" -> :webhook
-      nil -> :prompt
-      _ -> :prompt
-    end
+    strategy =
+      case map["strategy"] do
+        "prompt" -> :prompt
+        "env" -> :env
+        "file" -> :file
+        "webhook" -> :webhook
+        nil -> :prompt
+        _ -> :prompt
+      end
 
     %__MODULE__{
       strategy: strategy,
@@ -40,6 +42,7 @@ defmodule Sykli.Graph.Task.Gate do
   end
 
   def to_map(nil), do: nil
+
   def to_map(%__MODULE__{} = gate) do
     %{
       "strategy" => Atom.to_string(gate.strategy),

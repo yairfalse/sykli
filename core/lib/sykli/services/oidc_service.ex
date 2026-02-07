@@ -34,7 +34,8 @@ defmodule Sykli.Services.OIDCService do
 
       # Local dev - no OIDC available
       true ->
-        {:error, "OIDC not available: not running in a supported CI environment (GitHub Actions, GitLab CI). Use SecretFrom(FromEnv(...)) for local development."}
+        {:error,
+         "OIDC not available: not running in a supported CI environment (GitHub Actions, GitLab CI). Use SecretFrom(FromEnv(...)) for local development."}
     end
   end
 
@@ -42,6 +43,21 @@ defmodule Sykli.Services.OIDCService do
     url = System.get_env("ACTIONS_ID_TOKEN_REQUEST_URL")
     token = System.get_env("ACTIONS_ID_TOKEN_REQUEST_TOKEN")
 
+    # Validate both env vars are present
+    cond do
+      is_nil(url) or url == "" ->
+        {:error, "ACTIONS_ID_TOKEN_REQUEST_URL is not set"}
+
+      is_nil(token) or token == "" ->
+        {:error,
+         "ACTIONS_ID_TOKEN_REQUEST_TOKEN is not set — ensure the job has `permissions: id-token: write`"}
+
+      true ->
+        do_acquire_github_token(url, token, audience)
+    end
+  end
+
+  defp do_acquire_github_token(url, token, audience) do
     url = if audience, do: "#{url}&audience=#{URI.encode_www_form(audience)}", else: url
 
     # Use :httpc for HTTP request (available in OTP)
@@ -59,8 +75,10 @@ defmodule Sykli.Services.OIDCService do
           {:ok, %{"value" => id_token}} -> {:ok, id_token}
           _ -> {:error, "failed to parse GitHub OIDC response"}
         end
+
       {:ok, {{_, status, _}, _, body}} ->
         {:error, "GitHub OIDC request failed (HTTP #{status}): #{to_string(body)}"}
+
       {:error, reason} ->
         {:error, "GitHub OIDC request failed: #{inspect(reason)}"}
     end
@@ -83,22 +101,25 @@ defmodule Sykli.Services.OIDCService do
     :inets.start()
     :ssl.start()
 
-    params = URI.encode_query(%{
-      "Action" => "AssumeRoleWithWebIdentity",
-      "Version" => "2011-06-15",
-      "RoleArn" => role_arn,
-      "RoleSessionName" => "sykli-#{System.os_time(:second)}",
-      "WebIdentityToken" => id_token,
-      "DurationSeconds" => to_string(duration)
-    })
+    params =
+      URI.encode_query(%{
+        "Action" => "AssumeRoleWithWebIdentity",
+        "Version" => "2011-06-15",
+        "RoleArn" => role_arn,
+        "RoleSessionName" => "sykli-#{System.os_time(:second)}",
+        "WebIdentityToken" => id_token,
+        "DurationSeconds" => to_string(duration)
+      })
 
     url = ~c"https://sts.amazonaws.com/?#{params}"
 
     case :httpc.request(:get, {url, []}, [{:timeout, 30_000}], []) do
       {:ok, {{_, 200, _}, _headers, body}} ->
         parse_aws_response(to_string(body))
+
       {:ok, {{_, status, _}, _, body}} ->
         {:error, "AWS STS request failed (HTTP #{status}): #{to_string(body)}"}
+
       {:error, reason} ->
         {:error, "AWS STS request failed: #{inspect(reason)}"}
     end
@@ -111,11 +132,12 @@ defmodule Sykli.Services.OIDCService do
     session_token = extract_xml_value(xml, "SessionToken")
 
     if access_key && secret_key && session_token do
-      {:ok, %{
-        "AWS_ACCESS_KEY_ID" => access_key,
-        "AWS_SECRET_ACCESS_KEY" => secret_key,
-        "AWS_SESSION_TOKEN" => session_token
-      }}
+      {:ok,
+       %{
+         "AWS_ACCESS_KEY_ID" => access_key,
+         "AWS_SECRET_ACCESS_KEY" => secret_key,
+         "AWS_SESSION_TOKEN" => session_token
+       }}
     else
       {:error, "failed to parse AWS STS response"}
     end
@@ -128,48 +150,72 @@ defmodule Sykli.Services.OIDCService do
     end
   end
 
-  defp exchange_gcp(%CredentialBinding{project_number: pn, pool_id: pool, provider_id: prov}, id_token) do
+  defp exchange_gcp(
+         %CredentialBinding{project_number: pn, pool_id: pool, provider_id: prov},
+         id_token
+       ) do
     :inets.start()
     :ssl.start()
 
     # Step 1: Exchange for STS token
-    audience = "//iam.googleapis.com/projects/#{pn}/locations/global/workloadIdentityPools/#{pool}/providers/#{prov}"
+    audience =
+      "//iam.googleapis.com/projects/#{pn}/locations/global/workloadIdentityPools/#{pool}/providers/#{prov}"
 
-    body = Jason.encode!(%{
-      "audience" => audience,
-      "grantType" => "urn:ietf:params:oauth:grant-type:token-exchange",
-      "requestedTokenType" => "urn:ietf:params:oauth:token-type:access_token",
-      "scope" => "https://www.googleapis.com/auth/cloud-platform",
-      "subjectTokenType" => "urn:ietf:params:oauth:token-type:jwt",
-      "subjectToken" => id_token
-    })
+    body =
+      Jason.encode!(%{
+        "audience" => audience,
+        "grantType" => "urn:ietf:params:oauth:grant-type:token-exchange",
+        "requestedTokenType" => "urn:ietf:params:oauth:token-type:access_token",
+        "scope" => "https://www.googleapis.com/auth/cloud-platform",
+        "subjectTokenType" => "urn:ietf:params:oauth:token-type:jwt",
+        "subjectToken" => id_token
+      })
 
     headers = [{~c"Content-Type", ~c"application/json"}]
 
-    case :httpc.request(:post, {~c"https://sts.googleapis.com/v1/token", headers, ~c"application/json", String.to_charlist(body)}, [{:timeout, 30_000}], []) do
+    case :httpc.request(
+           :post,
+           {~c"https://sts.googleapis.com/v1/token", headers, ~c"application/json",
+            String.to_charlist(body)},
+           [{:timeout, 30_000}],
+           []
+         ) do
       {:ok, {{_, 200, _}, _, resp_body}} ->
         case Jason.decode(to_string(resp_body)) do
           {:ok, %{"access_token" => access_token}} ->
-            # Write credentials to temp file
-            creds_file = Path.join(System.tmp_dir!(), "sykli-gcp-creds-#{System.os_time(:second)}.json")
-            creds = Jason.encode!(%{
-              "type" => "external_account",
-              "audience" => audience,
-              "token_url" => "https://sts.googleapis.com/v1/token",
-              "credential_source" => %{"file" => ""},
-              "service_account_impersonation_url" => ""
-            })
-            File.write!(creds_file, creds)
+            # Write token to a secure temp file first
+            token_file = secure_temp_file("sykli-gcp-token", ".jwt")
+            File.write!(token_file, id_token)
+            File.chmod!(token_file, 0o600)
 
-            {:ok, %{
-              "GOOGLE_APPLICATION_CREDENTIALS" => creds_file,
-              "CLOUDSDK_AUTH_ACCESS_TOKEN" => access_token
-            }}
+            # Write credentials file referencing the token file
+            creds_file = secure_temp_file("sykli-gcp-creds", ".json")
+
+            creds =
+              Jason.encode!(%{
+                "type" => "external_account",
+                "audience" => audience,
+                "subject_token_type" => "urn:ietf:params:oauth:token-type:jwt",
+                "token_url" => "https://sts.googleapis.com/v1/token",
+                "credential_source" => %{"file" => token_file}
+              })
+
+            File.write!(creds_file, creds)
+            File.chmod!(creds_file, 0o600)
+
+            {:ok,
+             %{
+               "GOOGLE_APPLICATION_CREDENTIALS" => creds_file,
+               "CLOUDSDK_AUTH_ACCESS_TOKEN" => access_token
+             }}
+
           _ ->
             {:error, "failed to parse GCP STS response"}
         end
+
       {:ok, {{_, status, _}, _, resp_body}} ->
         {:error, "GCP STS request failed (HTTP #{status}): #{to_string(resp_body)}"}
+
       {:error, reason} ->
         {:error, "GCP STS request failed: #{inspect(reason)}"}
     end
@@ -177,13 +223,21 @@ defmodule Sykli.Services.OIDCService do
 
   defp exchange_azure(%CredentialBinding{tenant_id: tenant, client_id: client}, id_token) do
     # Azure uses federated token file approach
-    token_file = Path.join(System.tmp_dir!(), "sykli-azure-token-#{System.os_time(:second)}")
+    token_file = secure_temp_file("sykli-azure-token", "")
     File.write!(token_file, id_token)
+    File.chmod!(token_file, 0o600)
 
-    {:ok, %{
-      "AZURE_FEDERATED_TOKEN_FILE" => token_file,
-      "AZURE_CLIENT_ID" => client,
-      "AZURE_TENANT_ID" => tenant
-    }}
+    {:ok,
+     %{
+       "AZURE_FEDERATED_TOKEN_FILE" => token_file,
+       "AZURE_CLIENT_ID" => client,
+       "AZURE_TENANT_ID" => tenant
+     }}
+  end
+
+  # Generate a secure temp file path with random suffix
+  defp secure_temp_file(prefix, extension) do
+    random = :crypto.strong_rand_bytes(16) |> Base.url_encode64(padding: false)
+    Path.join(System.tmp_dir!(), "#{prefix}-#{random}#{extension}")
   end
 end

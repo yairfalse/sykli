@@ -71,7 +71,10 @@ defmodule Sykli.Graph.Task.Capability do
 
   def to_map(%__MODULE__{} = cap) do
     %{}
-    |> maybe_put("provides", if(cap.provides != [], do: Enum.map(cap.provides, &provide_to_map/1)))
+    |> maybe_put(
+      "provides",
+      if(cap.provides != [], do: Enum.map(cap.provides, &provide_to_map/1))
+    )
     |> maybe_put("needs", if(cap.needs != [], do: cap.needs))
   end
 

@@ -56,6 +56,7 @@ defmodule Sykli.Services.MergeQueueDetector do
 
   # Parse PR numbers from GitHub merge group ref (e.g., "gh-readonly-queue/main/pr-123-...")
   defp parse_pr_numbers(nil), do: []
+
   defp parse_pr_numbers(ref) do
     Regex.scan(~r/pr-(\d+)/, ref)
     |> Enum.map(fn [_, num] -> String.to_integer(num) end)
@@ -63,8 +64,14 @@ defmodule Sykli.Services.MergeQueueDetector do
 
   defp parse_gitlab_mr_iid do
     case System.get_env("CI_MERGE_REQUEST_IID") do
-      nil -> []
-      iid -> [String.to_integer(iid)]
+      nil ->
+        []
+
+      iid ->
+        case Integer.parse(iid) do
+          {n, _} -> [n]
+          :error -> []
+        end
     end
   end
 end

@@ -772,7 +772,7 @@ export class Task {
     if (this._provides.length > 0) {
       json.provides = this._provides.map(p => {
         const obj: Record<string, string> = { name: p.name };
-        if (p.value) obj.value = p.value;
+        if (p.value !== undefined) obj.value = p.value;
         return obj;
       });
     }

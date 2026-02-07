@@ -110,7 +110,9 @@ defmodule Sykli.Graph do
       # Capability-based dependencies (provides/needs)
       :capability,
       # Gate (approval point)
-      :gate
+      :gate,
+      # OIDC credential binding
+      :oidc
     ]
 
     @type t :: %__MODULE__{}
@@ -355,7 +357,8 @@ defmodule Sykli.Graph do
          history_hint: Task.HistoryHint.from_map(map["history_hint"]),
          capability:
            Task.Capability.from_map(%{"provides" => map["provides"], "needs" => map["needs"]}),
-         gate: Task.Gate.from_map(map["gate"])
+         gate: Task.Gate.from_map(map["gate"]),
+         oidc: Task.CredentialBinding.from_map(map["oidc"])
        }}
     end
   end

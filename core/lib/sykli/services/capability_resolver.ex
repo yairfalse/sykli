@@ -59,10 +59,14 @@ defmodule Sykli.Services.CapabilityResolver do
 
   defp validate_task_cap_names(task_name, cap) do
     invalid_provides =
-      Enum.reject(cap.provides, fn p -> Regex.match?(@capability_name_regex, p.name) end)
+      Enum.reject(cap.provides, fn p ->
+        is_binary(p.name) and Regex.match?(@capability_name_regex, p.name)
+      end)
 
     invalid_needs =
-      Enum.reject(cap.needs, fn n -> Regex.match?(@capability_name_regex, n) end)
+      Enum.reject(cap.needs, fn n ->
+        is_binary(n) and Regex.match?(@capability_name_regex, n)
+      end)
 
     cond do
       invalid_provides != [] ->
@@ -110,9 +114,7 @@ defmodule Sykli.Services.CapabilityResolver do
 
           {:halt,
            {:error,
-            Error.internal(
-              "task '#{task.name}' both provides and needs capability '#{cap_name}'"
-            )
+            Error.internal("task '#{task.name}' both provides and needs capability '#{cap_name}'")
             |> Error.add_hint("a task cannot provide and need the same capability")}}
         else
           {:cont, :ok}
@@ -221,8 +223,7 @@ defmodule Sykli.Services.CapabilityResolver do
       else
         # Add dependency on provider tasks and inject env vars
         {new_deps, new_env} =
-          Enum.reduce(cap.needs, {task.depends_on || [], task.env || %{}}, fn need,
-                                                                             {deps, env} ->
+          Enum.reduce(cap.needs, {task.depends_on || [], task.env || %{}}, fn need, {deps, env} ->
             {provider_task, value} = Map.fetch!(registry, need)
 
             # Add dependency (deduplicated)

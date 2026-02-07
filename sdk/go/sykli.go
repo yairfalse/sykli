@@ -1756,9 +1756,18 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 		Select string `json:"select,omitempty"`
 	}
 
+	// Gate JSON representation
+	type jsonGate struct {
+		Strategy string `json:"strategy"`
+		Timeout  int    `json:"timeout,omitempty"`
+		Message  string `json:"message,omitempty"`
+		EnvVar   string `json:"env_var,omitempty"`
+		FilePath string `json:"file_path,omitempty"`
+	}
+
 	type jsonTask struct {
 		Name       string              `json:"name"`
-		Command    string              `json:"command"`
+		Command    string              `json:"command,omitempty"`
 		Container  string              `json:"container,omitempty"`
 		Workdir    string              `json:"workdir,omitempty"`
 		Env        map[string]string   `json:"env,omitempty"`
@@ -1783,6 +1792,8 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 		// AI-native fields
 		Semantic   *jsonSemantic       `json:"semantic,omitempty"`
 		AiHooks    *jsonAiHooks        `json:"ai_hooks,omitempty"`
+		// Gate (approval point)
+		Gate       *jsonGate           `json:"gate,omitempty"`
 	}
 
 	type jsonResource struct {
@@ -1974,6 +1985,18 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 				return &jsonAiHooks{
 					OnFail: string(t.aiHooks.onFail),
 					Select: string(t.aiHooks.sel),
+				}
+			}(),
+			Gate: func() *jsonGate {
+				if t.gate == nil {
+					return nil
+				}
+				return &jsonGate{
+					Strategy: t.gate.strategy,
+					Timeout:  t.gate.timeout,
+					Message:  t.gate.message,
+					EnvVar:   t.gate.envVar,
+					FilePath: t.gate.filePath,
 				}
 			}(),
 		}

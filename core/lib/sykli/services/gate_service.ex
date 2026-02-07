@@ -29,31 +29,34 @@ defmodule Sykli.Services.GateService do
   defp wait_prompt(%Gate{message: message, timeout: timeout}) do
     prompt = message || "Approve? [y/n]"
 
-    # Check if we have a TTY
-    if IO.ANSI.enabled?() do
+    # Check if we have a TTY (io:columns succeeds when connected to a terminal)
+    if match?({:ok, _}, :io.columns()) do
       IO.puts("")
       IO.puts("#{IO.ANSI.yellow()}⏸ GATE: #{prompt}#{IO.ANSI.reset()}")
 
-      task = Task.async(fn ->
-        response = IO.gets("  Enter [y]es / [n]o: ")
-        case String.trim(String.downcase(response || "")) do
-          r when r in ["y", "yes"] -> {:approved, "interactive"}
-          _ -> {:denied, "interactive"}
-        end
-      end)
+      task =
+        Task.async(fn ->
+          response = IO.gets("  Enter [y]es / [n]o: ")
+
+          case String.trim(String.downcase(response || "")) do
+            r when r in ["y", "yes"] -> {:approved, "interactive"}
+            _ -> {:denied, "interactive"}
+          end
+        end)
 
       case Task.yield(task, timeout * 1000) || Task.shutdown(task) do
         {:ok, result} -> result
         nil -> {:timed_out}
       end
     else
-      {:denied, "no TTY available for prompt strategy — use env or file strategy in non-interactive environments"}
+      {:denied,
+       "no TTY available for prompt strategy — use env or file strategy in non-interactive environments"}
     end
   end
 
   defp wait_env(%Gate{env_var: env_var, timeout: timeout}) when is_binary(env_var) do
     poll_interval = 1_000
-    deadline = System.monotonic_time(:millisecond) + (timeout * 1000)
+    deadline = System.monotonic_time(:millisecond) + timeout * 1000
     do_wait_env(env_var, poll_interval, deadline)
   end
 
@@ -67,17 +70,25 @@ defmodule Sykli.Services.GateService do
         nil ->
           Process.sleep(poll_interval)
           do_wait_env(env_var, poll_interval, deadline)
-        "approved" -> {:approved, "env:#{env_var}"}
-        "denied" -> {:denied, "env:#{env_var}"}
-        val when val in ["1", "true", "yes"] -> {:approved, "env:#{env_var}"}
-        _ -> {:denied, "env:#{env_var}"}
+
+        "approved" ->
+          {:approved, "env:#{env_var}"}
+
+        "denied" ->
+          {:denied, "env:#{env_var}"}
+
+        val when val in ["1", "true", "yes"] ->
+          {:approved, "env:#{env_var}"}
+
+        _ ->
+          {:denied, "env:#{env_var}"}
       end
     end
   end
 
   defp wait_file(%Gate{file_path: file_path, timeout: timeout}) when is_binary(file_path) do
     poll_interval = 1_000
-    deadline = System.monotonic_time(:millisecond) + (timeout * 1000)
+    deadline = System.monotonic_time(:millisecond) + timeout * 1000
     do_wait_file(file_path, poll_interval, deadline)
   end
 
@@ -96,7 +107,9 @@ defmodule Sykli.Services.GateService do
               "" -> {:approved, "file:#{file_path}"}
               _ -> {:approved, "file:#{file_path}"}
             end
-          {:error, _} -> {:approved, "file:#{file_path}"}
+
+          {:error, _} ->
+            {:approved, "file:#{file_path}"}
         end
       else
         Process.sleep(poll_interval)

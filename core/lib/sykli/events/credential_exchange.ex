@@ -4,11 +4,11 @@ defmodule Sykli.Events.CredentialExchange do
   defstruct [:task_name, :provider, :outcome, :duration_ms]
 
   @type t :: %__MODULE__{
-    task_name: String.t(),
-    provider: atom(),
-    outcome: :success | :failure,
-    duration_ms: non_neg_integer()
-  }
+          task_name: String.t(),
+          provider: atom(),
+          outcome: :success | :failure,
+          duration_ms: non_neg_integer()
+        }
 
   def new(task_name, provider, outcome, duration_ms) do
     %__MODULE__{

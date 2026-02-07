@@ -4,11 +4,11 @@ defmodule Sykli.Events.GateWaiting do
   defstruct [:gate_name, :strategy, :message, :timeout]
 
   @type t :: %__MODULE__{
-    gate_name: String.t(),
-    strategy: atom(),
-    message: String.t() | nil,
-    timeout: pos_integer()
-  }
+          gate_name: String.t(),
+          strategy: atom(),
+          message: String.t() | nil,
+          timeout: pos_integer()
+        }
 
   def new(gate_name, strategy, message, timeout) do
     %__MODULE__{
