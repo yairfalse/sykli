@@ -22,9 +22,11 @@ defmodule Sykli.Executor do
 
   alias Sykli.Error
   alias Sykli.Error.Formatter
+  alias Sykli.Events
   alias Sykli.Services.ArtifactResolver
   alias Sykli.Services.CacheService
   alias Sykli.Services.ConditionService
+  alias Sykli.Services.OIDCService
   alias Sykli.Services.SecretValidator
 
   # Note: we DON'T alias Sykli.Graph.Task because it shadows Elixir's Task module
@@ -268,41 +270,133 @@ defmodule Sykli.Executor do
   defp run_single(%Sykli.Graph.Task{} = task, state, progress, target) do
     start_time = System.monotonic_time(:millisecond)
 
-    # Check condition first
-    if should_run?(task) do
-      # Validate required secrets are present (via target)
-      case validate_secrets(task, state, target) do
-        :ok ->
-          run_task_with_cache(task, state, progress, target, start_time)
-
-        {:error, missing} ->
-          IO.puts(
-            "#{IO.ANSI.red()}✗ #{task.name}#{IO.ANSI.reset()} " <>
-              "#{IO.ANSI.faint()}(missing secrets: #{Enum.join(missing, ", ")})#{IO.ANSI.reset()}"
-          )
-
-          duration = System.monotonic_time(:millisecond) - start_time
-
-          %TaskResult{
-            name: task.name,
-            status: :failed,
-            duration_ms: duration,
-            error: Error.missing_secrets(task.name, missing)
-          }
-      end
+    # Handle gates (approval points)
+    if Sykli.Graph.Task.gate?(task) do
+      run_gate(task, state, progress)
     else
-      IO.puts(
-        "#{IO.ANSI.faint()}○ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(skipped: condition not met)#{IO.ANSI.reset()}"
-      )
+      # Check condition first
+      if should_run?(task) do
+        # OIDC credential exchange (if configured)
+        try do
+          case OIDCService.exchange(task, state) do
+            {:ok, oidc_env} ->
+              # Merge OIDC env vars into task env
+              task =
+                if map_size(oidc_env) > 0 do
+                  %{task | env: Map.merge(task.env || %{}, oidc_env)}
+                else
+                  task
+                end
 
-      duration = System.monotonic_time(:millisecond) - start_time
+              # Validate required secrets are present (via target)
+              case validate_secrets(task, state, target) do
+                :ok ->
+                  run_task_with_cache(task, state, progress, target, start_time)
 
-      %TaskResult{
-        name: task.name,
-        status: :skipped,
-        duration_ms: duration,
-        error: nil
-      }
+                {:error, missing} ->
+                  IO.puts(
+                    "#{IO.ANSI.red()}✗ #{task.name}#{IO.ANSI.reset()} " <>
+                      "#{IO.ANSI.faint()}(missing secrets: #{Enum.join(missing, ", ")})#{IO.ANSI.reset()}"
+                  )
+
+                  duration = System.monotonic_time(:millisecond) - start_time
+
+                  %TaskResult{
+                    name: task.name,
+                    status: :failed,
+                    duration_ms: duration,
+                    error: Error.missing_secrets(task.name, missing)
+                  }
+              end
+
+            {:error, reason} ->
+              IO.puts(
+                "#{IO.ANSI.red()}✗ #{task.name}#{IO.ANSI.reset()} " <>
+                  "#{IO.ANSI.faint()}(OIDC exchange failed: #{reason})#{IO.ANSI.reset()}"
+              )
+
+              duration = System.monotonic_time(:millisecond) - start_time
+
+              %TaskResult{
+                name: task.name,
+                status: :failed,
+                duration_ms: duration,
+                error: Error.internal("OIDC credential exchange failed: #{reason}")
+              }
+          end
+        after
+          OIDCService.cleanup_temp_files()
+        end
+      else
+        IO.puts(
+          "#{IO.ANSI.faint()}○ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(skipped: condition not met)#{IO.ANSI.reset()}"
+        )
+
+        duration = System.monotonic_time(:millisecond) - start_time
+
+        %TaskResult{
+          name: task.name,
+          status: :skipped,
+          duration_ms: duration,
+          error: nil
+        }
+      end
+    end
+  end
+
+  defp run_gate(%Sykli.Graph.Task{} = task, _state, progress) do
+    prefix = progress_prefix(progress)
+    gate = Sykli.Graph.Task.gate(task)
+
+    IO.puts(
+      "#{prefix}#{IO.ANSI.yellow()}\u23F8 #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(gate: #{gate.strategy})#{IO.ANSI.reset()}"
+    )
+
+    # Emit gate waiting event (run_id may be nil for CLI runs)
+    run_id = Process.get(:sykli_run_id)
+    maybe_emit_gate_waiting(run_id, task.name, gate)
+
+    start_time = System.monotonic_time(:millisecond)
+    result = Sykli.Services.GateService.wait(gate)
+    duration = System.monotonic_time(:millisecond) - start_time
+
+    case result do
+      {:approved, approver} ->
+        maybe_emit_gate_resolved(run_id, task.name, :approved, approver, duration)
+
+        IO.puts(
+          "#{prefix}#{IO.ANSI.green()}\u2713 #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(approved by #{approver})#{IO.ANSI.reset()}"
+        )
+
+        %TaskResult{name: task.name, status: :passed, duration_ms: duration, error: nil}
+
+      {:denied, reason} ->
+        maybe_emit_gate_resolved(run_id, task.name, :denied, reason, duration)
+
+        IO.puts(
+          "#{prefix}#{IO.ANSI.red()}\u2717 #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(denied: #{reason})#{IO.ANSI.reset()}"
+        )
+
+        %TaskResult{
+          name: task.name,
+          status: :failed,
+          duration_ms: duration,
+          error: Error.internal("gate '#{task.name}' denied: #{reason}")
+        }
+
+      {:timed_out} ->
+        maybe_emit_gate_resolved(run_id, task.name, :timed_out, nil, duration)
+
+        IO.puts(
+          "#{prefix}#{IO.ANSI.red()}\u2717 #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(timed out after #{gate.timeout}s)#{IO.ANSI.reset()}"
+        )
+
+        %TaskResult{
+          name: task.name,
+          status: :failed,
+          duration_ms: duration,
+          error: Error.internal("gate '#{task.name}' timed out after #{gate.timeout}s")
+        }
     end
   end
 
@@ -587,6 +681,20 @@ defmodule Sykli.Executor do
 
       IO.puts("")
     end
+  end
+
+  # ----- GATE EVENT EMISSION -----
+
+  defp maybe_emit_gate_waiting(nil, _name, _gate), do: :ok
+
+  defp maybe_emit_gate_waiting(run_id, name, gate) do
+    Events.gate_waiting(run_id, name, gate.strategy, gate.message, gate.timeout)
+  end
+
+  defp maybe_emit_gate_resolved(nil, _name, _outcome, _approver, _duration), do: :ok
+
+  defp maybe_emit_gate_resolved(run_id, name, outcome, approver, duration) do
+    Events.gate_resolved(run_id, name, outcome, approver, duration)
   end
 
   # Build a map of task_name => status for the graph visualization

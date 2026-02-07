@@ -74,7 +74,12 @@ defmodule Sykli.Graph.Task.HistoryHintTest do
       results = [
         %{status: :passed, duration_ms: 100, timestamp: ~U[2024-01-15 10:00:00Z]},
         %{status: :passed, duration_ms: 200, timestamp: ~U[2024-01-15 11:00:00Z]},
-        %{status: :failed, duration_ms: 150, error: "timeout", timestamp: ~U[2024-01-15 12:00:00Z]}
+        %{
+          status: :failed,
+          duration_ms: 150,
+          error: "timeout",
+          timestamp: ~U[2024-01-15 12:00:00Z]
+        }
       ]
 
       hint = HistoryHint.from_history(results)

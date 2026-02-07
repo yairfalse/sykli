@@ -16,19 +16,21 @@ defmodule Sykli.ContextTest do
 
   describe "generate/3" do
     test "creates context.json in .sykli directory", %{workdir: workdir} do
-      {:ok, graph} = parse_graph([
-        %{"name" => "test", "command" => "mix test"}
-      ])
+      {:ok, graph} =
+        parse_graph([
+          %{"name" => "test", "command" => "mix test"}
+        ])
 
       assert :ok = Context.generate(graph, nil, workdir)
       assert File.exists?(Path.join(workdir, ".sykli/context.json"))
     end
 
     test "includes pipeline information", %{workdir: workdir} do
-      {:ok, graph} = parse_graph([
-        %{"name" => "build", "command" => "mix compile"},
-        %{"name" => "test", "command" => "mix test", "depends_on" => ["build"]}
-      ])
+      {:ok, graph} =
+        parse_graph([
+          %{"name" => "build", "command" => "mix compile"},
+          %{"name" => "test", "command" => "mix test", "depends_on" => ["build"]}
+        ])
 
       :ok = Context.generate(graph, nil, workdir)
       context = read_context(workdir)
@@ -40,17 +42,18 @@ defmodule Sykli.ContextTest do
     end
 
     test "includes semantic metadata in tasks", %{workdir: workdir} do
-      {:ok, graph} = parse_graph([
-        %{
-          "name" => "auth-test",
-          "command" => "mix test",
-          "semantic" => %{
-            "covers" => ["lib/auth/*"],
-            "intent" => "Auth tests",
-            "criticality" => "high"
+      {:ok, graph} =
+        parse_graph([
+          %{
+            "name" => "auth-test",
+            "command" => "mix test",
+            "semantic" => %{
+              "covers" => ["lib/auth/*"],
+              "intent" => "Auth tests",
+              "criticality" => "high"
+            }
           }
-        }
-      ])
+        ])
 
       :ok = Context.generate(graph, nil, workdir)
       context = read_context(workdir)
@@ -62,18 +65,19 @@ defmodule Sykli.ContextTest do
     end
 
     test "includes critical_tasks list", %{workdir: workdir} do
-      {:ok, graph} = parse_graph([
-        %{
-          "name" => "critical",
-          "command" => "mix test",
-          "semantic" => %{"criticality" => "high"}
-        },
-        %{
-          "name" => "normal",
-          "command" => "mix test",
-          "semantic" => %{"criticality" => "low"}
-        }
-      ])
+      {:ok, graph} =
+        parse_graph([
+          %{
+            "name" => "critical",
+            "command" => "mix test",
+            "semantic" => %{"criticality" => "high"}
+          },
+          %{
+            "name" => "normal",
+            "command" => "mix test",
+            "semantic" => %{"criticality" => "low"}
+          }
+        ])
 
       :ok = Context.generate(graph, nil, workdir)
       context = read_context(workdir)
@@ -83,9 +87,10 @@ defmodule Sykli.ContextTest do
     end
 
     test "includes run results when provided", %{workdir: workdir} do
-      {:ok, graph} = parse_graph([
-        %{"name" => "test", "command" => "mix test"}
-      ])
+      {:ok, graph} =
+        parse_graph([
+          %{"name" => "test", "command" => "mix test"}
+        ])
 
       run_result = %{
         timestamp: ~U[2024-01-15 10:30:00Z],
@@ -107,18 +112,19 @@ defmodule Sykli.ContextTest do
 
   describe "generate_test_map/2" do
     test "creates test-map.json", %{workdir: workdir} do
-      {:ok, graph} = parse_graph([
-        %{
-          "name" => "auth-test",
-          "command" => "mix test",
-          "semantic" => %{"covers" => ["lib/auth/*"]}
-        },
-        %{
-          "name" => "api-test",
-          "command" => "mix test",
-          "semantic" => %{"covers" => ["lib/api/*"]}
-        }
-      ])
+      {:ok, graph} =
+        parse_graph([
+          %{
+            "name" => "auth-test",
+            "command" => "mix test",
+            "semantic" => %{"covers" => ["lib/auth/*"]}
+          },
+          %{
+            "name" => "api-test",
+            "command" => "mix test",
+            "semantic" => %{"covers" => ["lib/api/*"]}
+          }
+        ])
 
       :ok = Context.generate_test_map(graph, workdir)
 
@@ -128,18 +134,19 @@ defmodule Sykli.ContextTest do
     end
 
     test "groups multiple tasks covering same pattern", %{workdir: workdir} do
-      {:ok, graph} = parse_graph([
-        %{
-          "name" => "unit-test",
-          "command" => "mix test",
-          "semantic" => %{"covers" => ["lib/core/*"]}
-        },
-        %{
-          "name" => "integration-test",
-          "command" => "mix test",
-          "semantic" => %{"covers" => ["lib/core/*"]}
-        }
-      ])
+      {:ok, graph} =
+        parse_graph([
+          %{
+            "name" => "unit-test",
+            "command" => "mix test",
+            "semantic" => %{"covers" => ["lib/core/*"]}
+          },
+          %{
+            "name" => "integration-test",
+            "command" => "mix test",
+            "semantic" => %{"covers" => ["lib/core/*"]}
+          }
+        ])
 
       :ok = Context.generate_test_map(graph, workdir)
 
@@ -150,20 +157,21 @@ defmodule Sykli.ContextTest do
 
   describe "tasks_for_changes/2" do
     test "returns tasks covering changed files" do
-      {:ok, graph} = parse_graph([
-        %{
-          "name" => "auth-test",
-          "command" => "mix test",
-          "semantic" => %{"covers" => ["lib/auth/*"]},
-          "ai_hooks" => %{"select" => "smart"}
-        },
-        %{
-          "name" => "api-test",
-          "command" => "mix test",
-          "semantic" => %{"covers" => ["lib/api/*"]},
-          "ai_hooks" => %{"select" => "smart"}
-        }
-      ])
+      {:ok, graph} =
+        parse_graph([
+          %{
+            "name" => "auth-test",
+            "command" => "mix test",
+            "semantic" => %{"covers" => ["lib/auth/*"]},
+            "ai_hooks" => %{"select" => "smart"}
+          },
+          %{
+            "name" => "api-test",
+            "command" => "mix test",
+            "semantic" => %{"covers" => ["lib/api/*"]},
+            "ai_hooks" => %{"select" => "smart"}
+          }
+        ])
 
       tasks = Context.tasks_for_changes(graph, ["lib/auth/login.ex"])
 
@@ -172,19 +180,20 @@ defmodule Sykli.ContextTest do
     end
 
     test "includes non-smart tasks regardless of changes" do
-      {:ok, graph} = parse_graph([
-        %{
-          "name" => "lint",
-          "command" => "mix credo",
-          "ai_hooks" => %{"select" => "always"}
-        },
-        %{
-          "name" => "auth-test",
-          "command" => "mix test",
-          "semantic" => %{"covers" => ["lib/auth/*"]},
-          "ai_hooks" => %{"select" => "smart"}
-        }
-      ])
+      {:ok, graph} =
+        parse_graph([
+          %{
+            "name" => "lint",
+            "command" => "mix credo",
+            "ai_hooks" => %{"select" => "always"}
+          },
+          %{
+            "name" => "auth-test",
+            "command" => "mix test",
+            "semantic" => %{"covers" => ["lib/auth/*"]},
+            "ai_hooks" => %{"select" => "smart"}
+          }
+        ])
 
       tasks = Context.tasks_for_changes(graph, ["lib/unrelated.ex"])
 
@@ -193,13 +202,14 @@ defmodule Sykli.ContextTest do
     end
 
     test "excludes manual tasks" do
-      {:ok, graph} = parse_graph([
-        %{
-          "name" => "deploy",
-          "command" => "./deploy.sh",
-          "ai_hooks" => %{"select" => "manual"}
-        }
-      ])
+      {:ok, graph} =
+        parse_graph([
+          %{
+            "name" => "deploy",
+            "command" => "./deploy.sh",
+            "ai_hooks" => %{"select" => "manual"}
+          }
+        ])
 
       tasks = Context.tasks_for_changes(graph, ["lib/auth/login.ex"])
 
@@ -209,13 +219,14 @@ defmodule Sykli.ContextTest do
 
   describe "task_to_map/1" do
     test "includes basic fields" do
-      {:ok, graph} = parse_graph([
-        %{
-          "name" => "test",
-          "command" => "mix test",
-          "depends_on" => ["build"]
-        }
-      ])
+      {:ok, graph} =
+        parse_graph([
+          %{
+            "name" => "test",
+            "command" => "mix test",
+            "depends_on" => ["build"]
+          }
+        ])
 
       task = graph["test"]
       map = Context.task_to_map(task)
@@ -226,16 +237,17 @@ defmodule Sykli.ContextTest do
     end
 
     test "includes execution context when present" do
-      {:ok, graph} = parse_graph([
-        %{
-          "name" => "test",
-          "command" => "npm test",
-          "container" => "node:18",
-          "workdir" => "/app",
-          "timeout" => 300,
-          "retry" => 3
-        }
-      ])
+      {:ok, graph} =
+        parse_graph([
+          %{
+            "name" => "test",
+            "command" => "npm test",
+            "container" => "node:18",
+            "workdir" => "/app",
+            "timeout" => 300,
+            "retry" => 3
+          }
+        ])
 
       task = graph["test"]
       map = Context.task_to_map(task)

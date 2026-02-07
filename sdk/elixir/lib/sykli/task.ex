@@ -25,7 +25,9 @@ defmodule Sykli.Task do
             k8s: nil,               # Kubernetes-specific options
             requires: [],           # Node labels required for mesh placement
             semantic: nil,          # AI-native: semantic metadata (covers, intent, criticality)
-            ai_hooks: nil           # AI-native: behavioral hooks (on_fail, select)
+            ai_hooks: nil,          # AI-native: behavioral hooks (on_fail, select)
+            provides: [],           # Capability-based: what this task provides
+            needs: []               # Capability-based: what this task needs
 
   @type secret_source :: :env | :file | :vault
 

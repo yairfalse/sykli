@@ -752,6 +752,9 @@ struct TaskData {
     // AI-native fields
     semantic: Semantic,
     ai_hooks: AiHooks,
+    // Capability-based dependencies
+    provides: Vec<(String, Option<String>)>,
+    needs: Vec<String>,
 }
 
 impl<'a> Task<'a> {
@@ -1196,6 +1199,41 @@ impl<'a> Task<'a> {
     #[must_use]
     pub fn smart(self) -> Self {
         self.pipeline.tasks[self.index].ai_hooks.select = Some(SelectMode::Smart);
+        self
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // CAPABILITY-BASED DEPENDENCIES
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    /// Declares that this task produces a named capability.
+    /// Other tasks can declare they need this capability via `needs()`.
+    /// The optional value is injected as SYKLI_CAP_{NAME} env var in needing tasks.
+    ///
+    /// # Panics
+    /// Panics if `name` is empty.
+    #[must_use]
+    pub fn provides(self, name: &str, value: Option<&str>) -> Self {
+        assert!(!name.is_empty(), "capability name cannot be empty");
+        self.pipeline.tasks[self.index]
+            .provides
+            .push((name.to_string(), value.map(|v| v.to_string())));
+        self
+    }
+
+    /// Declares that this task needs named capabilities.
+    /// A dependency on the providing task is auto-resolved by the engine.
+    ///
+    /// # Panics
+    /// Panics if any name is empty.
+    #[must_use]
+    pub fn needs(self, names: &[&str]) -> Self {
+        for name in names {
+            assert!(!name.is_empty(), "capability name cannot be empty");
+        }
+        self.pipeline.tasks[self.index]
+            .needs
+            .extend(names.iter().map(|s| (*s).to_string()));
         self
     }
 
@@ -2108,6 +2146,24 @@ impl Pipeline {
                     } else {
                         Some(t.requires.clone())
                     },
+                    provides: if t.provides.is_empty() {
+                        None
+                    } else {
+                        Some(
+                            t.provides
+                                .iter()
+                                .map(|(name, value)| JsonProvide {
+                                    name: name.clone(),
+                                    value: value.clone(),
+                                })
+                                .collect(),
+                        )
+                    },
+                    needs: if t.needs.is_empty() {
+                        None
+                    } else {
+                        Some(t.needs.clone())
+                    },
                     semantic: {
                         let s = &t.semantic;
                         if s.covers.is_empty() && s.intent.is_none() && s.criticality.is_none() {
@@ -2332,6 +2388,13 @@ struct JsonSecretRef {
 }
 
 #[derive(Serialize)]
+struct JsonProvide {
+    name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    value: Option<String>,
+}
+
+#[derive(Serialize)]
 struct JsonSemantic {
     #[serde(skip_serializing_if = "Option::is_none")]
     covers: Option<Vec<String>>,
@@ -2389,6 +2452,10 @@ struct JsonTask {
     k8s: Option<JsonK8sOptions>,
     #[serde(skip_serializing_if = "Option::is_none")]
     requires: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    provides: Option<Vec<JsonProvide>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    needs: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     semantic: Option<JsonSemantic>,
     #[serde(skip_serializing_if = "Option::is_none")]

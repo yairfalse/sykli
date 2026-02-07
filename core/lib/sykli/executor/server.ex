@@ -153,21 +153,24 @@ defmodule Sykli.Executor.Server do
 
   # Execute tasks with event emission
   defp execute_with_events(run_id, tasks, graph, opts) do
+    # Store run_id in process dict so Executor can emit gate events
+    Process.put(:sykli_run_id, run_id)
     workdir = Keyword.get(opts, :workdir, ".")
-    execute_level_by_level(run_id, tasks, graph, workdir)
+    timeout = Keyword.get(opts, :timeout, task_timeout())
+    execute_level_by_level(run_id, tasks, graph, workdir, timeout)
   end
 
   # Execute tasks level by level, emitting events
-  defp execute_level_by_level(run_id, tasks, graph, workdir) do
+  defp execute_level_by_level(run_id, tasks, graph, workdir, timeout) do
     # Group by level (same logic as Sykli.Executor)
     levels = group_by_level(tasks, graph)
 
-    run_levels_with_events(run_id, levels, workdir, [])
+    run_levels_with_events(run_id, levels, workdir, timeout, [])
   end
 
-  defp run_levels_with_events(_run_id, [], _workdir, acc), do: {:ok, Enum.reverse(acc)}
+  defp run_levels_with_events(_run_id, [], _workdir, _timeout, acc), do: {:ok, Enum.reverse(acc)}
 
-  defp run_levels_with_events(run_id, [level | rest], workdir, acc) do
+  defp run_levels_with_events(run_id, [level | rest], workdir, timeout, acc) do
     level_size = length(level)
 
     IO.puts(
@@ -193,7 +196,7 @@ defmodule Sykli.Executor.Server do
         end)
       end)
 
-    results = Task.await_many(async_tasks, task_timeout())
+    results = Task.await_many(async_tasks, timeout)
 
     failed = Enum.find(results, fn {_name, status, _duration} -> status != :ok end)
 
@@ -202,7 +205,7 @@ defmodule Sykli.Executor.Server do
       IO.puts("#{IO.ANSI.red()}✗ #{name} failed, stopping#{IO.ANSI.reset()}")
       {:error, Enum.reverse(acc) ++ results}
     else
-      run_levels_with_events(run_id, rest, workdir, Enum.reverse(results) ++ acc)
+      run_levels_with_events(run_id, rest, workdir, timeout, Enum.reverse(results) ++ acc)
     end
   end
 

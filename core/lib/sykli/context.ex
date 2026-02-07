@@ -37,7 +37,8 @@ defmodule Sykli.Context do
   """
 
   alias Sykli.Graph.Task
-  alias Sykli.Graph.Task.{Semantic, AiHooks, HistoryHint}
+  alias Sykli.Graph.Task.{Semantic, AiHooks, HistoryHint, Capability}
+  alias Sykli.Services.MergeQueueDetector
 
   @context_version "1.0"
 
@@ -48,13 +49,15 @@ defmodule Sykli.Context do
   """
   @spec generate(map(), map() | nil, String.t()) :: :ok | {:error, term()}
   def generate(graph, run_result \\ nil, workdir) do
-    context = %{
-      "version" => @context_version,
-      "generated_at" => DateTime.utc_now() |> DateTime.to_iso8601(),
-      "pipeline" => build_pipeline_context(graph),
-      "coverage" => build_coverage_context(graph),
-      "last_run" => build_run_context(run_result)
-    }
+    context =
+      %{
+        "version" => @context_version,
+        "generated_at" => DateTime.utc_now() |> DateTime.to_iso8601(),
+        "pipeline" => build_pipeline_context(graph),
+        "coverage" => build_coverage_context(graph),
+        "last_run" => build_run_context(run_result)
+      }
+      |> maybe_add_merge_queue_context()
 
     write_context_file(context, workdir, "context.json")
   end
@@ -111,6 +114,7 @@ defmodule Sykli.Context do
     |> maybe_add_ai_hooks(task)
     |> maybe_add_history_hint(task)
     |> maybe_add_execution_context(task)
+    |> maybe_add_capability(task)
   end
 
   # Private implementation
@@ -223,6 +227,17 @@ defmodule Sykli.Context do
     |> maybe_put("outputs", non_empty_map(task.outputs))
   end
 
+  defp maybe_add_capability(map, task) do
+    cap = task.capability
+
+    if cap != nil do
+      cap_map = Capability.to_map(cap)
+      if cap_map, do: Map.put(map, "capability", cap_map), else: map
+    else
+      map
+    end
+  end
+
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, _key, ""), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
@@ -234,6 +249,16 @@ defmodule Sykli.Context do
   defp non_empty_map(nil), do: nil
   defp non_empty_map(map) when map_size(map) == 0, do: nil
   defp non_empty_map(map), do: map
+
+  defp maybe_add_merge_queue_context(context) do
+    case MergeQueueDetector.detect() do
+      {:ok, mq_context} ->
+        Map.put(context, "merge_queue", Sykli.MergeQueueContext.to_map(mq_context))
+
+      :not_in_merge_queue ->
+        context
+    end
+  end
 
   defp write_context_file(content, workdir, filename) do
     dir = Path.join(workdir, ".sykli")

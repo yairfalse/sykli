@@ -49,7 +49,7 @@ defmodule Sykli.Target.Local do
 
   @behaviour Sykli.Target.Behaviour
 
-  defstruct [:workdir, :runtime]
+  defstruct [:workdir, :runtime, :timeout_ms]
 
   @default_runtime Sykli.Runtime.Docker
 
@@ -129,7 +129,10 @@ defmodule Sykli.Target.Local do
           "#{IO.ANSI.faint()}Target: local (#{runtime.name()}: #{format_runtime_info(info)})#{IO.ANSI.reset()}"
         )
 
-        {:ok, %__MODULE__{workdir: Path.expand(workdir), runtime: runtime}}
+        timeout_ms = Keyword.get(opts, :timeout)
+
+        {:ok,
+         %__MODULE__{workdir: Path.expand(workdir), runtime: runtime, timeout_ms: timeout_ms}}
 
       {:error, reason} ->
         {:error, reason}
@@ -261,7 +264,13 @@ defmodule Sykli.Target.Local do
     base_workdir = Keyword.get(opts, :workdir, state.workdir)
     network = Keyword.get(opts, :network)
     progress = Keyword.get(opts, :progress)
-    timeout_ms = (task.timeout || 300) * 1000
+    # Per-task timeout: task.timeout (seconds) > global --timeout > 5 min default
+    timeout_ms =
+      cond do
+        task.timeout -> task.timeout * 1000
+        state.timeout_ms -> state.timeout_ms
+        true -> 300_000
+      end
 
     # For shell execution (no container), combine base workdir with task workdir.
     # For container execution, task.workdir is the container workdir (passed separately).
@@ -322,7 +331,6 @@ defmodule Sykli.Target.Local do
         {:error, error}
 
       {:error, :timeout} ->
-        timeout_ms = (task.timeout || 300) * 1000
         error = Sykli.Error.task_timeout(task.name, display_cmd, timeout_ms)
         IO.puts(Sykli.Error.Formatter.format_simple(error))
         {:error, error}

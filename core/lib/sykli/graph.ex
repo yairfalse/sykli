@@ -59,6 +59,8 @@ defmodule Sykli.Graph do
     alias Sykli.Graph.Task.Semantic
     alias Sykli.Graph.Task.AiHooks
     alias Sykli.Graph.Task.HistoryHint
+    alias Sykli.Graph.Task.Capability
+    alias Sykli.Graph.Task.Gate
 
     defstruct [
       :name,
@@ -104,7 +106,13 @@ defmodule Sykli.Graph do
       # AI behavioral hooks
       :ai_hooks,
       # Learned history hints (populated by Sykli, not SDKs)
-      :history_hint
+      :history_hint,
+      # Capability-based dependencies (provides/needs)
+      :capability,
+      # Gate (approval point)
+      :gate,
+      # OIDC credential binding
+      :oidc
     ]
 
     @type t :: %__MODULE__{}
@@ -193,6 +201,10 @@ defmodule Sykli.Graph do
     @spec history_hint(t()) :: HistoryHint.t()
     def history_hint(%__MODULE__{history_hint: h}), do: h || %HistoryHint{}
 
+    @doc "Returns the capability metadata."
+    @spec capability(t()) :: Capability.t() | nil
+    def capability(%__MODULE__{capability: c}), do: c
+
     # ─────────────────────────────────────────────────────────────────────────────
     # SUB-STRUCT ACCESSORS
     # ─────────────────────────────────────────────────────────────────────────────
@@ -271,6 +283,21 @@ defmodule Sykli.Graph do
     @spec flaky?(t()) :: boolean()
     def flaky?(%__MODULE__{history_hint: %HistoryHint{flaky: true}}), do: true
     def flaky?(_), do: false
+
+    @doc "Checks if the task has capability metadata (provides or needs)."
+    @spec has_capability?(t()) :: boolean()
+    def has_capability?(%__MODULE__{capability: nil}), do: false
+    def has_capability?(%__MODULE__{capability: %Capability{provides: [], needs: []}}), do: false
+    def has_capability?(_), do: true
+
+    @doc "Checks if this is a gate (approval point)."
+    @spec gate?(t()) :: boolean()
+    def gate?(%__MODULE__{gate: nil}), do: false
+    def gate?(%__MODULE__{gate: %Gate{}}), do: true
+    def gate?(_), do: false
+
+    @doc "Returns the gate metadata."
+    def gate(%__MODULE__{gate: g}), do: g
   end
 
   def parse(json) do
@@ -327,7 +354,11 @@ defmodule Sykli.Graph do
          # AI-native fields
          semantic: Task.Semantic.from_map(map["semantic"]),
          ai_hooks: Task.AiHooks.from_map(map["ai_hooks"]),
-         history_hint: Task.HistoryHint.from_map(map["history_hint"])
+         history_hint: Task.HistoryHint.from_map(map["history_hint"]),
+         capability:
+           Task.Capability.from_map(%{"provides" => map["provides"], "needs" => map["needs"]}),
+         gate: Task.Gate.from_map(map["gate"]),
+         oidc: Task.CredentialBinding.from_map(map["oidc"])
        }}
     end
   end
