@@ -602,36 +602,51 @@ func (p *Pipeline) Gate(name string) *Task {
 }
 
 // GateStrategy sets the approval strategy for this gate task.
+// Panics if called on a non-gate task.
 func (t *Task) GateStrategy(s string) *Task {
-	if t.gate == nil { t.gate = &gateConfig{strategy: "prompt", timeout: 3600} }
+	if t.gate == nil {
+		log.Panic().Str("task", t.name).Msg("gate configuration methods can only be used on gate tasks created via Pipeline.Gate()")
+	}
 	t.gate.strategy = s
 	return t
 }
 
 // GateMessage sets the approval prompt message for this gate task.
+// Panics if called on a non-gate task.
 func (t *Task) GateMessage(msg string) *Task {
-	if t.gate == nil { t.gate = &gateConfig{strategy: "prompt", timeout: 3600} }
+	if t.gate == nil {
+		log.Panic().Str("task", t.name).Msg("gate configuration methods can only be used on gate tasks created via Pipeline.Gate()")
+	}
 	t.gate.message = msg
 	return t
 }
 
 // GateTimeout sets the timeout in seconds for this gate task.
+// Panics if called on a non-gate task.
 func (t *Task) GateTimeout(seconds int) *Task {
-	if t.gate == nil { t.gate = &gateConfig{strategy: "prompt", timeout: 3600} }
+	if t.gate == nil {
+		log.Panic().Str("task", t.name).Msg("gate configuration methods can only be used on gate tasks created via Pipeline.Gate()")
+	}
 	t.gate.timeout = seconds
 	return t
 }
 
 // GateEnvVar sets the environment variable to poll for the env strategy.
+// Panics if called on a non-gate task.
 func (t *Task) GateEnvVar(v string) *Task {
-	if t.gate == nil { t.gate = &gateConfig{strategy: "prompt", timeout: 3600} }
+	if t.gate == nil {
+		log.Panic().Str("task", t.name).Msg("gate configuration methods can only be used on gate tasks created via Pipeline.Gate()")
+	}
 	t.gate.envVar = v
 	return t
 }
 
 // GateFilePath sets the file path to poll for the file strategy.
+// Panics if called on a non-gate task.
 func (t *Task) GateFilePath(fp string) *Task {
-	if t.gate == nil { t.gate = &gateConfig{strategy: "prompt", timeout: 3600} }
+	if t.gate == nil {
+		log.Panic().Str("task", t.name).Msg("gate configuration methods can only be used on gate tasks created via Pipeline.Gate()")
+	}
 	t.gate.filePath = fp
 	return t
 }

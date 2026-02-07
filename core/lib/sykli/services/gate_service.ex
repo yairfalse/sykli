@@ -54,7 +54,8 @@ defmodule Sykli.Services.GateService do
     end
   end
 
-  defp wait_env(%Gate{env_var: env_var, timeout: timeout}) when is_binary(env_var) do
+  defp wait_env(%Gate{env_var: env_var, timeout: timeout})
+       when is_binary(env_var) and env_var != "" do
     poll_interval = 1_000
     deadline = System.monotonic_time(:millisecond) + timeout * 1000
     do_wait_env(env_var, poll_interval, deadline)
@@ -86,7 +87,8 @@ defmodule Sykli.Services.GateService do
     end
   end
 
-  defp wait_file(%Gate{file_path: file_path, timeout: timeout}) when is_binary(file_path) do
+  defp wait_file(%Gate{file_path: file_path, timeout: timeout})
+       when is_binary(file_path) and file_path != "" do
     poll_interval = 1_000
     deadline = System.monotonic_time(:millisecond) + timeout * 1000
     do_wait_file(file_path, poll_interval, deadline)

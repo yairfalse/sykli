@@ -54,6 +54,8 @@ defmodule Sykli.Events do
   """
 
   alias Sykli.Events.Event
+  alias Sykli.Events.GateWaiting
+  alias Sykli.Events.GateResolved
   alias Sykli.Events.RunStarted
   alias Sykli.Events.RunCompleted
   alias Sykli.Events.TaskStarted
@@ -141,6 +143,28 @@ defmodule Sykli.Events do
 
     broadcast(event)
     broadcast_legacy({:run_completed, run_id, result}, run_id)
+    event
+  end
+
+  @doc """
+  Broadcast a gate_waiting event. Returns the Event struct.
+  """
+  def gate_waiting(run_id, gate_name, strategy, message, timeout) do
+    data = GateWaiting.new(gate_name, strategy, message, timeout)
+    event = Event.new(:gate_waiting, run_id, data)
+
+    broadcast(event)
+    event
+  end
+
+  @doc """
+  Broadcast a gate_resolved event. Returns the Event struct.
+  """
+  def gate_resolved(run_id, gate_name, outcome, approver, duration_ms) do
+    data = GateResolved.new(gate_name, outcome, approver, duration_ms)
+    event = Event.new(:gate_resolved, run_id, data)
+
+    broadcast(event)
     event
   end
 

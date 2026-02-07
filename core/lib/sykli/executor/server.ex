@@ -153,6 +153,8 @@ defmodule Sykli.Executor.Server do
 
   # Execute tasks with event emission
   defp execute_with_events(run_id, tasks, graph, opts) do
+    # Store run_id in process dict so Executor can emit gate events
+    Process.put(:sykli_run_id, run_id)
     workdir = Keyword.get(opts, :workdir, ".")
     timeout = Keyword.get(opts, :timeout, task_timeout())
     execute_level_by_level(run_id, tasks, graph, workdir, timeout)

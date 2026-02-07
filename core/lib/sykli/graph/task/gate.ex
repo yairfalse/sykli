@@ -32,9 +32,15 @@ defmodule Sykli.Graph.Task.Gate do
         _ -> :prompt
       end
 
+    timeout =
+      case map["timeout"] do
+        t when is_integer(t) and t > 0 -> t
+        _ -> @default_timeout
+      end
+
     %__MODULE__{
       strategy: strategy,
-      timeout: map["timeout"] || @default_timeout,
+      timeout: timeout,
       message: map["message"],
       env_var: map["env_var"],
       file_path: map["file_path"]

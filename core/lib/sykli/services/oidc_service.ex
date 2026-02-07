@@ -86,15 +86,37 @@ defmodule Sykli.Services.OIDCService do
 
   # Exchange identity token for cloud credentials
   defp exchange_for_credentials(%CredentialBinding{provider: :aws} = binding, id_token) do
-    exchange_aws(binding, id_token)
+    with :ok <- require_fields(binding, [:role_arn], "AWS") do
+      exchange_aws(binding, id_token)
+    end
   end
 
   defp exchange_for_credentials(%CredentialBinding{provider: :gcp} = binding, id_token) do
-    exchange_gcp(binding, id_token)
+    with :ok <- require_fields(binding, [:project_number, :pool_id, :provider_id], "GCP") do
+      exchange_gcp(binding, id_token)
+    end
   end
 
   defp exchange_for_credentials(%CredentialBinding{provider: :azure} = binding, id_token) do
-    exchange_azure(binding, id_token)
+    with :ok <- require_fields(binding, [:tenant_id, :client_id], "Azure") do
+      exchange_azure(binding, id_token)
+    end
+  end
+
+  defp require_fields(binding, fields, provider) do
+    missing =
+      fields
+      |> Enum.filter(fn f ->
+        val = Map.get(binding, f)
+        is_nil(val) or val == ""
+      end)
+
+    if missing == [] do
+      :ok
+    else
+      names = Enum.map_join(missing, ", ", &Atom.to_string/1)
+      {:error, "#{provider} OIDC requires: #{names}"}
+    end
   end
 
   defp exchange_aws(%CredentialBinding{role_arn: role_arn, duration: duration}, id_token) do
@@ -184,13 +206,9 @@ defmodule Sykli.Services.OIDCService do
         case Jason.decode(to_string(resp_body)) do
           {:ok, %{"access_token" => access_token}} ->
             # Write token to a secure temp file first
-            token_file = secure_temp_file("sykli-gcp-token", ".jwt")
-            File.write!(token_file, id_token)
-            File.chmod!(token_file, 0o600)
+            token_file = secure_write_temp("sykli-gcp-token", ".jwt", id_token)
 
             # Write credentials file referencing the token file
-            creds_file = secure_temp_file("sykli-gcp-creds", ".json")
-
             creds =
               Jason.encode!(%{
                 "type" => "external_account",
@@ -200,8 +218,7 @@ defmodule Sykli.Services.OIDCService do
                 "credential_source" => %{"file" => token_file}
               })
 
-            File.write!(creds_file, creds)
-            File.chmod!(creds_file, 0o600)
+            creds_file = secure_write_temp("sykli-gcp-creds", ".json", creds)
 
             {:ok,
              %{
@@ -223,9 +240,7 @@ defmodule Sykli.Services.OIDCService do
 
   defp exchange_azure(%CredentialBinding{tenant_id: tenant, client_id: client}, id_token) do
     # Azure uses federated token file approach
-    token_file = secure_temp_file("sykli-azure-token", "")
-    File.write!(token_file, id_token)
-    File.chmod!(token_file, 0o600)
+    token_file = secure_write_temp("sykli-azure-token", "", id_token)
 
     {:ok,
      %{
@@ -235,9 +250,55 @@ defmodule Sykli.Services.OIDCService do
      }}
   end
 
-  # Generate a secure temp file path with random suffix
-  defp secure_temp_file(prefix, extension) do
+  @doc """
+  Cleans up any temp files created during OIDC exchange.
+  Call this after task completion (even on failure).
+  """
+  def cleanup_temp_files do
+    case Process.get(:sykli_oidc_temp_files) do
+      nil ->
+        :ok
+
+      files ->
+        Enum.each(files, fn path ->
+          File.rm(path)
+        end)
+
+        Process.delete(:sykli_oidc_temp_files)
+        :ok
+    end
+  end
+
+  # Create a temp file securely with exclusive mode and restrictive permissions.
+  # Tracks the file path in process dictionary for cleanup.
+  defp secure_write_temp(prefix, extension, content) do
+    path = secure_temp_path(prefix, extension)
+
+    case File.open(path, [:write, :exclusive]) do
+      {:ok, fd} ->
+        try do
+          IO.binwrite(fd, content)
+        after
+          File.close(fd)
+        end
+
+        File.chmod!(path, 0o600)
+        track_temp_file(path)
+        path
+
+      {:error, :eexist} ->
+        # Extremely unlikely collision, retry with new random
+        secure_write_temp(prefix, extension, content)
+    end
+  end
+
+  defp secure_temp_path(prefix, extension) do
     random = :crypto.strong_rand_bytes(16) |> Base.url_encode64(padding: false)
     Path.join(System.tmp_dir!(), "#{prefix}-#{random}#{extension}")
+  end
+
+  defp track_temp_file(path) do
+    existing = Process.get(:sykli_oidc_temp_files, [])
+    Process.put(:sykli_oidc_temp_files, [path | existing])
   end
 end

@@ -44,14 +44,23 @@ defmodule Sykli.Graph.Task.Capability do
   def from_map(nil), do: nil
 
   def from_map(map) when is_map(map) do
+    provides_input = map["provides"]
+
     provides =
-      (map["provides"] || [])
+      if(is_list(provides_input), do: provides_input, else: [])
       |> Enum.map(fn
         p when is_map(p) -> %{name: p["name"], value: p["value"]}
         p when is_binary(p) -> %{name: p, value: nil}
+        _other -> %{name: nil, value: nil}
       end)
 
-    needs = map["needs"] || []
+    needs_input = map["needs"]
+
+    needs =
+      case needs_input do
+        list when is_list(list) -> Enum.filter(list, &is_binary/1)
+        _ -> []
+      end
 
     if provides == [] and needs == [] do
       nil
