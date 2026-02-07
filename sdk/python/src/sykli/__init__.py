@@ -626,7 +626,7 @@ class Task:
         if not name:
             raise ValueError(f"task {self._name!r}: capability name cannot be empty")
         entry: dict[str, str] = {"name": name}
-        if value:
+        if value is not None:
             entry["value"] = value
         self._provides.append(entry)
         return self
