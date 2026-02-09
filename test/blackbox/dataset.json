@@ -1,0 +1,648 @@
+{
+  "suite": "sykli-blackbox",
+  "version": "1.0.0",
+  "target": "sykli 0.5.0",
+  "categories": {
+    "POS": "Positive - system works as promised",
+    "NEG": "Negative - system rejects what it should",
+    "SYS": "System - cross-boundary behavior",
+    "INT": "Integration - SDK-to-engine interaction",
+    "PERF": "Performance - speed and resource usage",
+    "LOAD": "Load - volume handling",
+    "ABN": "Abnormal - unexpected inputs"
+  },
+  "cases": [
+    {
+      "id": "POS-001",
+      "name": "Single task runs and succeeds",
+      "fixture": "single_task",
+      "command": "sykli",
+      "expect_exit": 0,
+      "expect_stdout": "All tasks completed",
+      "expect_stdout_contains": ["hello"]
+    },
+    {
+      "id": "POS-002",
+      "name": "Two independent tasks run in parallel",
+      "fixture": "parallel_tasks",
+      "command": "sykli",
+      "expect_exit": 0,
+      "expect_stdout": "2 passed"
+    },
+    {
+      "id": "POS-003",
+      "name": "Dependency chain executes in order",
+      "fixture": "dependency_chain",
+      "command": "sykli",
+      "expect_exit": 0,
+      "expect_stdout": "3 passed"
+    },
+    {
+      "id": "POS-004",
+      "name": "Diamond dependency resolves correctly",
+      "fixture": "diamond_deps",
+      "command": "sykli",
+      "expect_exit": 0,
+      "expect_stdout": "4 passed"
+    },
+    {
+      "id": "POS-005",
+      "name": "Validate command accepts valid pipeline",
+      "fixture": "dependency_chain",
+      "command": "sykli validate --json",
+      "expect_exit": 0,
+      "expect_json": {"valid": true}
+    },
+    {
+      "id": "POS-006",
+      "name": "Version flag prints version",
+      "fixture": "single_task",
+      "command": "sykli --version",
+      "expect_exit": 0,
+      "expect_stdout": "sykli 0.5.0"
+    },
+    {
+      "id": "POS-007",
+      "name": "Help flag prints usage",
+      "fixture": "single_task",
+      "command": "sykli --help",
+      "expect_exit": 0,
+      "expect_stdout_contains": ["Usage:", "Options:", "Commands:"]
+    },
+    {
+      "id": "POS-008",
+      "name": "Filter runs only matching task",
+      "fixture": "parallel_tasks",
+      "command": "sykli --filter=task_a",
+      "expect_exit": 0,
+      "expect_stdout": "1 passed"
+    },
+    {
+      "id": "POS-009",
+      "name": "Task with retry succeeds on second attempt",
+      "fixture": "retry_succeeds",
+      "command": "sykli",
+      "expect_exit": 0,
+      "expect_stdout": "All tasks completed"
+    },
+    {
+      "id": "POS-010",
+      "name": "Graph command outputs mermaid",
+      "fixture": "dependency_chain",
+      "command": "sykli graph",
+      "expect_exit": 0,
+      "expect_stdout_contains": ["graph TD"]
+    },
+    {
+      "id": "POS-011",
+      "name": "Graph command outputs DOT format",
+      "fixture": "dependency_chain",
+      "command": "sykli graph --dot",
+      "expect_exit": 0,
+      "expect_stdout_contains": ["digraph"]
+    },
+    {
+      "id": "POS-012",
+      "name": "Matrix expands tasks correctly",
+      "fixture": "matrix_build",
+      "command": "sykli validate --json",
+      "expect_exit": 0,
+      "expect_json": {"valid": true}
+    },
+    {
+      "id": "POS-013",
+      "name": "Conditional task skipped when condition false",
+      "fixture": "condition_skip",
+      "command": "sykli",
+      "expect_exit": 0,
+      "expect_stdout_contains": ["skipped"]
+    },
+    {
+      "id": "POS-014",
+      "name": "Cache stats command works",
+      "fixture": "single_task",
+      "command": "sykli cache stats",
+      "expect_exit": 0
+    },
+    {
+      "id": "POS-015",
+      "name": "Validate subcommand help works",
+      "fixture": "single_task",
+      "command": "sykli validate --help",
+      "expect_exit": 0,
+      "expect_stdout_contains": ["Usage:"]
+    },
+    {
+      "id": "POS-016",
+      "name": "Provides/needs capability resolution",
+      "fixture": "capabilities",
+      "command": "sykli validate --json",
+      "expect_exit": 0,
+      "expect_json": {"valid": true}
+    },
+    {
+      "id": "POS-017",
+      "name": "Gate field accepted in task",
+      "fixture": "gate_task",
+      "command": "sykli validate --json",
+      "expect_exit": 0,
+      "expect_json": {"valid": true}
+    },
+    {
+      "id": "POS-018",
+      "name": "Semantic metadata accepted in task",
+      "fixture": "semantic_task",
+      "command": "sykli validate --json",
+      "expect_exit": 0,
+      "expect_json": {"valid": true}
+    },
+
+    {
+      "id": "NEG-001",
+      "name": "Cycle detection rejects circular deps",
+      "fixture": "cycle_ab",
+      "command": "sykli validate --json",
+      "expect_exit": 1,
+      "expect_json_contains": {"valid": false}
+    },
+    {
+      "id": "NEG-002",
+      "name": "Self-dependency rejected",
+      "fixture": "self_dep",
+      "command": "sykli validate --json",
+      "expect_exit": 1,
+      "expect_json_contains": {"valid": false}
+    },
+    {
+      "id": "NEG-003",
+      "name": "Missing dependency rejected",
+      "fixture": "missing_dep",
+      "command": "sykli validate --json",
+      "expect_exit": 1,
+      "expect_json_contains": {"valid": false}
+    },
+    {
+      "id": "NEG-004",
+      "name": "Duplicate task names rejected",
+      "fixture": "duplicate_names",
+      "command": "sykli validate --json",
+      "expect_exit": 1,
+      "expect_json_contains": {"valid": false}
+    },
+    {
+      "id": "NEG-005",
+      "name": "Empty task name rejected",
+      "fixture": "empty_name",
+      "command": "sykli validate --json",
+      "expect_exit": 1,
+      "expect_json_contains": {"valid": false}
+    },
+    {
+      "id": "NEG-006",
+      "name": "No SDK file found gives clear error",
+      "fixture": "empty_dir",
+      "command": "sykli validate --json",
+      "expect_exit": 1,
+      "expect_stdout_contains": ["not_found"]
+    },
+    {
+      "id": "NEG-007",
+      "name": "Task failure returns exit code 1",
+      "fixture": "failing_task",
+      "command": "sykli",
+      "expect_exit": 1,
+      "expect_stdout_contains": ["failed"]
+    },
+    {
+      "id": "NEG-008",
+      "name": "Invalid JSON from SDK rejected",
+      "fixture": "invalid_json",
+      "command": "sykli validate --json",
+      "expect_exit": 1
+    },
+    {
+      "id": "NEG-009",
+      "name": "Three-node cycle detected",
+      "fixture": "cycle_abc",
+      "command": "sykli validate --json",
+      "expect_exit": 1,
+      "expect_json_contains": {"valid": false}
+    },
+    {
+      "id": "NEG-010",
+      "name": "Downstream tasks blocked when upstream fails",
+      "fixture": "fail_blocks_downstream",
+      "command": "sykli",
+      "expect_exit": 1,
+      "expect_stdout_contains": ["failed"]
+    },
+    {
+      "id": "NEG-011",
+      "name": "Empty tasks array accepted with warnings",
+      "fixture": "empty_tasks",
+      "command": "sykli validate --json",
+      "expect_exit": 0,
+      "expect_json_contains": {"valid": true},
+      "note": "Empty tasks may be valid with warnings"
+    },
+    {
+      "id": "NEG-012",
+      "name": "Task with no command field accepted by validate",
+      "fixture": "no_command",
+      "command": "sykli validate --json",
+      "expect_exit": 0,
+      "expect_json": {"valid": true},
+      "note": "Missing command is caught at runtime, not validation"
+    },
+    {
+      "id": "NEG-013",
+      "name": "Retry exhaustion still fails",
+      "fixture": "retry_exhausted",
+      "command": "sykli",
+      "expect_exit": 1,
+      "expect_stdout_contains": ["failed"]
+    },
+    {
+      "id": "NEG-014",
+      "name": "Task with env var that does not exist",
+      "fixture": "missing_secret",
+      "command": "sykli",
+      "expect_exit": 1,
+      "expect_stdout_contains": ["missing"]
+    },
+
+    {
+      "id": "SYS-001",
+      "name": "Validate then run same pipeline",
+      "fixture": "dependency_chain",
+      "command": "sykli validate --json && sykli",
+      "expect_exit": 0,
+      "shell": true
+    },
+    {
+      "id": "SYS-002",
+      "name": "Run creates .sykli directory artifacts",
+      "fixture": "single_task",
+      "command": "sykli",
+      "expect_exit": 0,
+      "expect_dir": ".sykli"
+    },
+    {
+      "id": "SYS-003",
+      "name": "Cache hit on second identical run",
+      "fixture": "cacheable_task",
+      "command": "sykli && sykli",
+      "expect_exit": 0,
+      "expect_stdout_contains": ["CACHED"],
+      "shell": true
+    },
+    {
+      "id": "SYS-004",
+      "name": "Report command shows last run",
+      "fixture": "single_task",
+      "command": "sykli && sykli report",
+      "expect_exit": 0,
+      "shell": true
+    },
+    {
+      "id": "SYS-005",
+      "name": "History command lists runs",
+      "fixture": "single_task",
+      "command": "sykli && sykli history",
+      "expect_exit": 0,
+      "shell": true
+    },
+    {
+      "id": "SYS-006",
+      "name": "Cache clean removes cached data",
+      "fixture": "cacheable_task",
+      "command": "sykli && sykli cache clean",
+      "expect_exit": 0,
+      "shell": true
+    },
+    {
+      "id": "SYS-007",
+      "name": "Filter flag combined with validate",
+      "fixture": "parallel_tasks",
+      "command": "sykli validate --json",
+      "expect_exit": 0,
+      "expect_json": {"valid": true}
+    },
+    {
+      "id": "SYS-008",
+      "name": "Timeout flag stops slow task and exits non-zero",
+      "fixture": "slow_task",
+      "command": "sykli --timeout=2s",
+      "expect_exit": 1,
+      "expect_stdout_contains": ["timeout"],
+      "max_duration_ms": 10000
+    },
+    {
+      "id": "SYS-009",
+      "name": "Task-specific timeout in JSON respected",
+      "fixture": "task_timeout",
+      "command": "sykli",
+      "expect_exit": 1,
+      "expect_stdout_contains": ["timeout"],
+      "max_duration_ms": 10000
+    },
+    {
+      "id": "SYS-010",
+      "name": "Large task output captured correctly",
+      "fixture": "large_output",
+      "command": "sykli",
+      "expect_exit": 0,
+      "expect_stdout": "1 passed"
+    },
+
+    {
+      "id": "INT-001",
+      "name": "Go-like pipeline (Elixir proxy) validates",
+      "fixture": "sdk_go",
+      "command": "sykli validate --json",
+      "expect_exit": 0,
+      "expect_json": {"valid": true},
+      "requires": "go"
+    },
+    {
+      "id": "INT-002",
+      "name": "TypeScript-like pipeline (Elixir proxy) validates",
+      "fixture": "sdk_ts",
+      "command": "sykli validate --json",
+      "expect_exit": 0,
+      "expect_json": {"valid": true},
+      "requires": "node"
+    },
+    {
+      "id": "INT-003",
+      "name": "Rust-like pipeline (Elixir proxy) validates",
+      "fixture": "sdk_rust",
+      "command": "sykli validate --json",
+      "expect_exit": 0,
+      "expect_json": {"valid": true},
+      "requires": "cargo"
+    },
+    {
+      "id": "INT-004",
+      "name": "Elixir SDK emits valid JSON",
+      "fixture": "sdk_elixir",
+      "command": "sykli validate --json",
+      "expect_exit": 0,
+      "expect_json": {"valid": true}
+    },
+    {
+      "id": "INT-005",
+      "name": "Go-like pipeline (Elixir proxy) executes",
+      "fixture": "sdk_go",
+      "command": "sykli",
+      "expect_exit": 0,
+      "expect_stdout": "All tasks completed",
+      "requires": "go"
+    },
+    {
+      "id": "INT-006",
+      "name": "TypeScript-like pipeline (Elixir proxy) executes",
+      "fixture": "sdk_ts",
+      "command": "sykli",
+      "expect_exit": 0,
+      "expect_stdout": "All tasks completed",
+      "requires": "node"
+    },
+    {
+      "id": "INT-007",
+      "name": "Real Go SDK validates pipeline with deps",
+      "fixture": "sdk_go_real",
+      "command": "sykli validate --json",
+      "expect_exit": 0,
+      "expect_json": {"valid": true},
+      "requires": "go"
+    },
+    {
+      "id": "INT-008",
+      "name": "Real Go SDK executes pipeline",
+      "fixture": "sdk_go_real",
+      "command": "sykli",
+      "expect_exit": 0,
+      "expect_stdout": "3 passed",
+      "requires": "go"
+    },
+    {
+      "id": "INT-009",
+      "name": "Real Rust SDK validates pipeline with deps",
+      "fixture": "sdk_rust_real",
+      "command": "sykli validate --json",
+      "expect_exit": 0,
+      "expect_json": {"valid": true},
+      "requires": "cargo"
+    },
+    {
+      "id": "INT-010",
+      "name": "Real Rust SDK executes pipeline",
+      "fixture": "sdk_rust_real",
+      "command": "sykli",
+      "expect_exit": 0,
+      "expect_stdout": "3 passed",
+      "requires": "cargo"
+    },
+    {
+      "id": "INT-011",
+      "name": "Real TypeScript SDK validates pipeline with deps",
+      "fixture": "sdk_ts_real",
+      "command": "sykli validate --json",
+      "expect_exit": 0,
+      "expect_json": {"valid": true},
+      "requires": "node"
+    },
+    {
+      "id": "INT-012",
+      "name": "Real TypeScript SDK executes pipeline",
+      "fixture": "sdk_ts_real",
+      "command": "sykli",
+      "expect_exit": 0,
+      "expect_stdout": "3 passed",
+      "requires": "node"
+    },
+
+    {
+      "id": "PERF-001",
+      "name": "Single echo task completes under 3 seconds",
+      "fixture": "single_task",
+      "command": "sykli",
+      "expect_exit": 0,
+      "max_duration_ms": 3000
+    },
+    {
+      "id": "PERF-002",
+      "name": "Validation completes under 2 seconds",
+      "fixture": "dependency_chain",
+      "command": "sykli validate --json",
+      "expect_exit": 0,
+      "max_duration_ms": 2000
+    },
+    {
+      "id": "PERF-003",
+      "name": "Help output under 500ms",
+      "fixture": "single_task",
+      "command": "sykli --help",
+      "expect_exit": 0,
+      "max_duration_ms": 500
+    },
+    {
+      "id": "PERF-004",
+      "name": "Version output under 500ms",
+      "fixture": "single_task",
+      "command": "sykli --version",
+      "expect_exit": 0,
+      "max_duration_ms": 500
+    },
+    {
+      "id": "PERF-005",
+      "name": "Graph generation under 2 seconds",
+      "fixture": "wide_graph",
+      "command": "sykli graph",
+      "expect_exit": 0,
+      "max_duration_ms": 2000
+    },
+
+    {
+      "id": "LOAD-001",
+      "name": "20 independent tasks all pass",
+      "fixture": "twenty_tasks",
+      "command": "sykli",
+      "expect_exit": 0,
+      "expect_stdout": "20 passed"
+    },
+    {
+      "id": "LOAD-002",
+      "name": "50-task pipeline validates",
+      "fixture": "fifty_tasks",
+      "command": "sykli validate --json",
+      "expect_exit": 0,
+      "expect_json": {"valid": true}
+    },
+    {
+      "id": "LOAD-003",
+      "name": "Deep dependency chain (20 levels) validates",
+      "fixture": "deep_chain",
+      "command": "sykli validate --json",
+      "expect_exit": 0,
+      "expect_json": {"valid": true}
+    },
+    {
+      "id": "LOAD-004",
+      "name": "Wide graph (20 tasks) generates mermaid",
+      "fixture": "wide_graph",
+      "command": "sykli graph",
+      "expect_exit": 0
+    },
+
+    {
+      "id": "ABN-001",
+      "name": "SDK outputs garbage before JSON",
+      "fixture": "noisy_sdk",
+      "command": "sykli validate --json",
+      "expect_exit": 0,
+      "expect_json": {"valid": true}
+    },
+    {
+      "id": "ABN-002",
+      "name": "Task with unicode name",
+      "fixture": "unicode_task",
+      "command": "sykli validate --json",
+      "expect_exit": 0
+    },
+    {
+      "id": "ABN-003",
+      "name": "Task with very long name",
+      "fixture": "long_name",
+      "command": "sykli validate --json",
+      "expect_exit": 0
+    },
+    {
+      "id": "ABN-004",
+      "name": "Task with special characters in command",
+      "fixture": "special_chars_cmd",
+      "command": "sykli validate --json",
+      "expect_exit": 0,
+      "expect_json": {"valid": true}
+    },
+    {
+      "id": "ABN-005",
+      "name": "Empty JSON object from SDK",
+      "fixture": "empty_json_obj",
+      "command": "sykli validate --json",
+      "expect_exit": 1
+    },
+    {
+      "id": "ABN-006",
+      "name": "Task timeout kills long-running process",
+      "fixture": "slow_task",
+      "command": "sykli --timeout=2s",
+      "expect_exit": 1,
+      "expect_stdout_contains": ["timeout"],
+      "max_duration_ms": 10000
+    },
+    {
+      "id": "ABN-007",
+      "name": "Unknown flags warned but execution continues",
+      "fixture": "single_task",
+      "command": "sykli --nonexistent-flag",
+      "expect_exit": 0,
+      "expect_stdout_contains": ["Warning"]
+    },
+    {
+      "id": "ABN-008",
+      "name": "Null fields in JSON handled",
+      "fixture": "null_fields",
+      "command": "sykli validate --json",
+      "expect_exit": 0,
+      "expect_json": {"valid": true}
+    },
+    {
+      "id": "ABN-009",
+      "name": "Extra unknown fields in JSON ignored",
+      "fixture": "extra_fields",
+      "command": "sykli validate --json",
+      "expect_exit": 0,
+      "expect_json": {"valid": true}
+    },
+    {
+      "id": "ABN-010",
+      "name": "Task name with spaces",
+      "fixture": "spaces_in_name",
+      "command": "sykli validate --json",
+      "expect_exit": 0
+    },
+    {
+      "id": "ABN-011",
+      "name": "Deeply nested JSON fields don't crash",
+      "fixture": "nested_env",
+      "command": "sykli validate --json",
+      "expect_exit": 0,
+      "expect_json": {"valid": true}
+    },
+    {
+      "id": "ABN-012",
+      "name": "SDK that exits non-zero",
+      "fixture": "sdk_crash",
+      "command": "sykli validate --json",
+      "expect_exit": 1
+    },
+    {
+      "id": "ABN-013",
+      "name": "Timeout 0 means infinity",
+      "fixture": "single_task",
+      "command": "sykli --timeout=0",
+      "expect_exit": 0,
+      "expect_stdout": "All tasks completed"
+    },
+    {
+      "id": "ABN-014",
+      "name": "Very large timeout accepted",
+      "fixture": "single_task",
+      "command": "sykli --timeout=24h",
+      "expect_exit": 0,
+      "expect_stdout": "All tasks completed"
+    }
+  ]
+}

@@ -99,9 +99,36 @@ defmodule Sykli.Runtime.Shell do
         {:ok, status, line_count, output}
     after
       timeout_ms ->
+        kill_port_process(port)
         safe_port_close(port)
         {:error, :timeout}
     end
+  end
+
+  defp kill_port_process(port) do
+    case Port.info(port, :os_pid) do
+      {:os_pid, os_pid} ->
+        pid_str = Integer.to_string(os_pid)
+
+        # Kill children first (works on Linux where process group kill may not)
+        System.cmd("pkill", ["-TERM", "-P", pid_str], stderr_to_stdout: true)
+        # Kill the process group (works on macOS)
+        System.cmd("kill", ["-TERM", "-#{os_pid}"], stderr_to_stdout: true)
+        # Kill the process itself
+        System.cmd("kill", ["-TERM", pid_str], stderr_to_stdout: true)
+
+        Process.sleep(100)
+
+        # Force kill anything still alive
+        System.cmd("pkill", ["-9", "-P", pid_str], stderr_to_stdout: true)
+        System.cmd("kill", ["-9", "-#{os_pid}"], stderr_to_stdout: true)
+        System.cmd("kill", ["-9", pid_str], stderr_to_stdout: true)
+
+      nil ->
+        :ok
+    end
+  rescue
+    _ -> :ok
   end
 
   defp safe_port_close(port) do

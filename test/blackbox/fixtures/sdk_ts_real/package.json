@@ -1,0 +1,8 @@
+{
+  "name": "sykli-bb-test",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "sykli": "file:SYKLI_ROOT/sdk/typescript"
+  }
+}

@@ -50,6 +50,12 @@ pipeline do
     after_ ["sdk:elixir:deps"]
   end
 
+  # === BLACK-BOX TESTS (after binary is built) ===
+  task "blackbox" do
+    run "test/blackbox/run.sh"
+    after_ ["core:build"]
+  end
+
   # === INTEGRATION (after everything) ===
   task "integration" do
     run "./sykli ../examples/go-project"
