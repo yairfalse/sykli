@@ -1,0 +1,1 @@
+IO.puts(~s({"version":"1","tasks":[{"name":"test","command":"echo test","semantic":{"covers":["src/*"],"intent":"unit tests","criticality":"high"},"ai_hooks":{"on_fail":"analyze","select":"smart"}}]}))

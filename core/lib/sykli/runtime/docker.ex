@@ -66,8 +66,9 @@ defmodule Sykli.Runtime.Docker do
     container_workdir = Keyword.get(opts, :container_workdir)
 
     docker_path = docker_executable()
+    container_name = "sykli-#{:erlang.unique_integer([:positive])}"
 
-    args = ["run", "--rm"]
+    args = ["run", "--rm", "--name", container_name]
 
     # Network
     args = if network, do: args ++ ["--network", network], else: args
@@ -91,7 +92,7 @@ defmodule Sykli.Runtime.Docker do
       )
 
     try do
-      stream_output(port, timeout_ms)
+      stream_output(port, timeout_ms, container_name)
     after
       safe_port_close(port)
     end
@@ -188,14 +189,15 @@ defmodule Sykli.Runtime.Docker do
   # STREAMING
   # ─────────────────────────────────────────────────────────────────────────────
 
-  defp stream_output(port, timeout_ms), do: stream_output(port, timeout_ms, 0, [])
+  defp stream_output(port, timeout_ms, container_name),
+    do: stream_output(port, timeout_ms, container_name, 0, [])
 
-  defp stream_output(port, timeout_ms, line_count, output_acc) do
+  defp stream_output(port, timeout_ms, container_name, line_count, output_acc) do
     receive do
       {^port, {:data, data}} ->
         IO.write("  #{IO.ANSI.faint()}#{data}#{IO.ANSI.reset()}")
         new_lines = data |> :binary.matches("\n") |> length()
-        stream_output(port, timeout_ms, line_count + new_lines, [data | output_acc])
+        stream_output(port, timeout_ms, container_name, line_count + new_lines, [data | output_acc])
 
       {^port, {:exit_status, status}} ->
         full_output = output_acc |> Enum.reverse() |> Enum.join()
@@ -203,9 +205,44 @@ defmodule Sykli.Runtime.Docker do
         {:ok, status, line_count, output}
     after
       timeout_ms ->
+        kill_docker_container(container_name)
+        kill_port_process(port)
         safe_port_close(port)
         {:error, :timeout}
     end
+  end
+
+  defp kill_docker_container(container_name) do
+    docker_path = docker_executable()
+    System.cmd(docker_path, ["kill", container_name], stderr_to_stdout: true)
+  rescue
+    _ -> :ok
+  end
+
+  defp kill_port_process(port) do
+    case Port.info(port, :os_pid) do
+      {:os_pid, os_pid} ->
+        pid_str = Integer.to_string(os_pid)
+
+        # Kill children first (works on Linux where process group kill may not)
+        System.cmd("pkill", ["-TERM", "-P", pid_str], stderr_to_stdout: true)
+        # Kill the process group (works on macOS)
+        System.cmd("kill", ["-TERM", "-#{os_pid}"], stderr_to_stdout: true)
+        # Kill the process itself
+        System.cmd("kill", ["-TERM", pid_str], stderr_to_stdout: true)
+
+        Process.sleep(100)
+
+        # Force kill anything still alive
+        System.cmd("pkill", ["-9", "-P", pid_str], stderr_to_stdout: true)
+        System.cmd("kill", ["-9", "-#{os_pid}"], stderr_to_stdout: true)
+        System.cmd("kill", ["-9", pid_str], stderr_to_stdout: true)
+
+      nil ->
+        :ok
+    end
+  rescue
+    _ -> :ok
   end
 
   defp safe_port_close(port) do

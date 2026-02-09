@@ -1,0 +1,1 @@
+IO.puts(~s({"version":"1","tasks":[{"name":"first","command":"echo first"},{"name":"second","command":"echo second","depends_on":["first"]},{"name":"third","command":"echo third","depends_on":["second"]}]}))

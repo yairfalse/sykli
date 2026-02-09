@@ -1,0 +1,14 @@
+[package]
+name = "sykli-bb-test"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "sykli"
+path = "sykli.rs"
+
+[features]
+sykli = []
+
+[dependencies]
+sykli = { path = "SYKLI_ROOT/sdk/rust" }

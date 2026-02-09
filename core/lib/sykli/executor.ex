@@ -220,8 +220,11 @@ defmodule Sykli.Executor do
         end)
       end)
 
-    # Wait for all tasks in this level
-    results = Task.await_many(async_tasks, timeout)
+    # Wait for all tasks in this level.
+    # Per-task timeouts are enforced by the runtime (killing the OS process).
+    # We use :infinity here so Task.await_many doesn't race with the runtime timeout
+    # and orphan OS processes.
+    results = Task.await_many(async_tasks, :infinity)
     Agent.stop(counter)
 
     new_completed = completed + level_size

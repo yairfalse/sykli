@@ -123,18 +123,58 @@ defmodule Sykli.Detector do
     end
   end
 
-  # Extract JSON from cargo output (skips compilation messages)
+  # Extract JSON from SDK output (skips compilation messages, log lines, etc.)
+  # Handles both single-line and multi-line (pretty-printed) JSON.
   defp extract_json(output) do
-    # Find the JSON line (starts with { and contains "version")
-    output
-    |> String.split("\n")
-    |> Enum.find(fn line ->
-      trimmed = String.trim(line)
-      String.starts_with?(trimmed, "{") && String.contains?(trimmed, "\"version\"")
-    end)
-    |> case do
-      nil -> {:error, :no_json_in_output}
-      json -> {:ok, json}
+    # First try: single-line JSON (fast path)
+    single_line =
+      output
+      |> String.split("\n")
+      |> Enum.find(fn line ->
+        trimmed = String.trim(line)
+        String.starts_with?(trimmed, "{") && String.contains?(trimmed, "\"version\"")
+      end)
+
+    if single_line do
+      {:ok, single_line}
+    else
+      # Multi-line JSON: find the first '{' and extract the full JSON object
+      case extract_multiline_json(output) do
+        nil -> {:error, :no_json_in_output}
+        json -> {:ok, json}
+      end
+    end
+  end
+
+  defp extract_multiline_json(output) do
+    lines = String.split(output, "\n")
+    # Find the index of the first line starting with '{'
+    start_idx = Enum.find_index(lines, fn line -> String.trim(line) == "{" end)
+
+    if start_idx do
+      # Collect lines from '{' until braces balance
+      lines
+      |> Enum.drop(start_idx)
+      |> Enum.reduce_while({0, []}, fn line, {depth, acc} ->
+        new_depth =
+          depth +
+            (line |> String.graphemes() |> Enum.count(&(&1 == "{"))) -
+            (line |> String.graphemes() |> Enum.count(&(&1 == "}")))
+
+        acc = [line | acc]
+
+        if new_depth == 0 do
+          {:halt, {:done, Enum.reverse(acc)}}
+        else
+          {:cont, {new_depth, acc}}
+        end
+      end)
+      |> case do
+        {:done, json_lines} -> Enum.join(json_lines, "\n")
+        _ -> nil
+      end
+    else
+      nil
     end
   end
 

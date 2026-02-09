@@ -1,0 +1,1 @@
+IO.puts(~s({"version":"1","tasks":[{"name":"build","command":"echo build"},{"name":"deploy","command":"echo deploy","depends_on":["build"],"gate":{"type":"manual","approvers":["alice@example.com"]}}]}))

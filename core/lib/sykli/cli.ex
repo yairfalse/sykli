@@ -72,7 +72,7 @@ defmodule Sykli.CLI do
       -v, --version             Show version
       --mesh                    Distribute tasks across connected BEAM nodes
       --filter=NAME             Only run tasks matching NAME
-      --timeout=DURATION        Per-task and per-level timeout (default: 5m). Use 10m, 30s, 2h, 1d, or 0 for no timeout
+      --timeout=DURATION        Per-task timeout (default: 5m). Use 10m, 30s, 2h, 1d, or 0 for no timeout
       --target=TARGET           Execution target: local (default), k8s
       --allow-dirty             Allow running with uncommitted changes (K8s)
       --git-ssh-secret=NAME     K8s Secret for SSH git auth
@@ -168,6 +168,14 @@ defmodule Sykli.CLI do
       if opts[:filter] do
         filter_fn = fn task -> String.contains?(task.name, opts[:filter]) end
         [{:filter, filter_fn} | run_opts]
+      else
+        run_opts
+      end
+
+    # Add timeout if specified
+    run_opts =
+      if opts[:timeout] do
+        [{:timeout, opts[:timeout]} | run_opts]
       else
         run_opts
       end
