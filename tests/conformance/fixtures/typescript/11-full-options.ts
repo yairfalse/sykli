@@ -1,0 +1,15 @@
+import { Pipeline } from '../../../../sdk/typescript/src/index';
+
+const p = new Pipeline();
+
+p.task('test').run('npm test')
+  .container('node:20')
+  .workdir('/app')
+  .env('NODE_ENV', 'test')
+  .env('CI', 'true')
+  .retry(3)
+  .timeout(300)
+  .secrets('NPM_TOKEN', 'GH_TOKEN')
+  .when('branch:main');
+
+p.emit();

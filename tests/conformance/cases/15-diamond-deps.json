@@ -1,0 +1,1 @@
+{"version":"1","tasks":[{"name":"A","command":"echo A"},{"name":"B","command":"echo B","depends_on":["A"]},{"name":"C","command":"echo C","depends_on":["A"]},{"name":"D","command":"echo D","depends_on":["B","C"]}]}

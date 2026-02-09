@@ -270,7 +270,7 @@ class Directory:
     def _to_resource(self) -> dict[str, Any]:
         d: dict[str, Any] = {"type": "directory", "path": self._path}
         if self._globs:
-            d["glob"] = self._globs
+            d["globs"] = self._globs
         return d
 
 
@@ -486,12 +486,16 @@ class Task:
         return self
 
     def mount_cwd(self) -> Self:
-        src = self._pipeline.dir(".")
-        return self.mount(src, "/work").workdir("/work")
+        self._mounts.append({"resource": "src:.", "path": "/work", "type": "directory"})
+        self._workdir = "/work"
+        return self
 
     def mount_cwd_at(self, path: str) -> Self:
-        src = self._pipeline.dir(".")
-        return self.mount(src, path).workdir(path)
+        if not path or not path.startswith("/"):
+            raise ValueError(f"task {self._name!r}: mount path must be absolute, got: {path!r}")
+        self._mounts.append({"resource": "src:.", "path": path, "type": "directory"})
+        self._workdir = path
+        return self
 
     def env(self, key: str, val: str) -> Self:
         if not key:
@@ -715,7 +719,7 @@ class Task:
         elif self._outputs:
             d["outputs"] = dict(self._outputs)
         elif self._outputs_v1:
-            d["outputs"] = list(self._outputs_v1)
+            d["outputs"] = {f"output_{i}": v for i, v in enumerate(self._outputs_v1)}
         if self._depends_on:
             d["depends_on"] = list(self._depends_on)
         if self._when:

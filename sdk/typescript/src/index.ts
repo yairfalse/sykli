@@ -102,6 +102,18 @@ interface AiHooks {
   select?: SelectMode;
 }
 
+/** Gate approval strategy */
+export type GateStrategy = 'prompt' | 'env' | 'file' | 'webhook';
+
+/** Gate configuration for approval gates */
+interface GateConfig {
+  strategy: GateStrategy;
+  timeout: number;
+  message?: string;
+  envVar?: string;
+  filePath?: string;
+}
+
 // =============================================================================
 // CONDITIONS
 // =============================================================================
@@ -251,6 +263,15 @@ export class Directory {
   id(): string {
     return `src:${this.path}`;
   }
+
+  /** Convert to JSON resource object */
+  toResource(): Record<string, unknown> {
+    const r: Record<string, unknown> = { type: 'directory', path: this.path };
+    if (this.globs.length > 0) {
+      r.globs = [...this.globs];
+    }
+    return r;
+  }
 }
 
 /** Named cache volume that persists between runs */
@@ -296,6 +317,9 @@ export class Template {
 
   /** Set an environment variable */
   env(key: string, value: string): this {
+    if (!key) {
+      throw new Error(`gate '${this._name}': env key cannot be empty`);
+    }
     this._env[key] = value;
     return this;
   }
@@ -369,11 +393,17 @@ export class Task {
   private _needs: string[] = [];
   private _semantic: Semantic = { covers: [] };
   private _aiHooks: AiHooks = {};
+  private _gate?: GateConfig;
 
   constructor(
     private readonly pipeline: Pipeline,
-    public readonly name: string
-  ) {}
+    public readonly name: string,
+    gate?: GateConfig
+  ) {
+    if (gate) {
+      this._gate = gate;
+    }
+  }
 
   /** Set the command to run */
   run(command: string): this {
@@ -443,6 +473,9 @@ export class Task {
 
   /** Set an environment variable */
   env(key: string, value: string): this {
+    if (!key) {
+      throw new Error(`task '${this._name}': env key cannot be empty`);
+    }
     this._env[key] = value;
     return this;
   }
@@ -481,15 +514,23 @@ export class Task {
     return this;
   }
 
-  /** Set dependencies - runs after these tasks */
+  /** Set dependencies - runs after these tasks. Duplicates are ignored. */
   after(...tasks: string[]): this {
-    this._dependsOn.push(...tasks);
+    for (const task of tasks) {
+      if (task && !this._dependsOn.includes(task)) {
+        this._dependsOn.push(task);
+      }
+    }
     return this;
   }
 
-  /** Set dependencies on a task group */
+  /** Set dependencies on a task group. Duplicates are ignored. */
   afterGroup(group: TaskGroup): this {
-    this._dependsOn.push(...group.taskNames());
+    for (const name of group.taskNames()) {
+      if (name && !this._dependsOn.includes(name)) {
+        this._dependsOn.push(name);
+      }
+    }
     return this;
   }
 
@@ -655,6 +696,63 @@ export class Task {
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
+  // GATE METHODS
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /** Set the approval strategy for this gate task */
+  gateStrategy(strategy: GateStrategy): this {
+    if (!this._gate) {
+      throw new Error(`Task "${this.name}": gate methods can only be used on gate tasks created via Pipeline.gate()`);
+    }
+    this._gate.strategy = strategy;
+    return this;
+  }
+
+  /** Set the approval prompt message for this gate task */
+  gateMessage(message: string): this {
+    if (!this._gate) {
+      throw new Error(`Task "${this.name}": gate methods can only be used on gate tasks created via Pipeline.gate()`);
+    }
+    this._gate.message = message;
+    return this;
+  }
+
+  /** Set the timeout in seconds for this gate task */
+  gateTimeout(seconds: number): this {
+    if (!this._gate) {
+      throw new Error(`Task "${this.name}": gate methods can only be used on gate tasks created via Pipeline.gate()`);
+    }
+    if (!Number.isInteger(seconds) || seconds <= 0) {
+      throw new Error(`Task "${this.name}": gate timeout must be a positive integer, got ${seconds}`);
+    }
+    this._gate.timeout = seconds;
+    return this;
+  }
+
+  /** Set the environment variable to poll for the env strategy */
+  gateEnvVar(envVar: string): this {
+    if (!this._gate) {
+      throw new Error(`Task "${this.name}": gate methods can only be used on gate tasks created via Pipeline.gate()`);
+    }
+    this._gate.envVar = envVar;
+    return this;
+  }
+
+  /** Set the file path to poll for the file strategy */
+  gateFilePath(filePath: string): this {
+    if (!this._gate) {
+      throw new Error(`Task "${this.name}": gate methods can only be used on gate tasks created via Pipeline.gate()`);
+    }
+    this._gate.filePath = filePath;
+    return this;
+  }
+
+  /** @internal Check if this is a gate task */
+  _isGate(): boolean {
+    return this._gate !== undefined;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
   // Internal accessors (for Template and Pipeline use)
   // ─────────────────────────────────────────────────────────────────────────────
 
@@ -717,8 +815,8 @@ export class Task {
   _toJSON(): Record<string, unknown> {
     const json: Record<string, unknown> = {
       name: this.name,
-      command: this._command,
     };
+    if (this._command) json.command = this._command;
 
     if (this._container) json.container = this._container;
     if (this._workdir) json.workdir = this._workdir;
@@ -760,8 +858,8 @@ export class Task {
         name: s.name,
       }));
     }
-    if (this._retry !== undefined) json.retry = this._retry;
-    if (this._timeout !== undefined) json.timeout = this._timeout;
+    if (this._retry) json.retry = this._retry;
+    if (this._timeout) json.timeout = this._timeout;
     if (this._target) json.target = this._target;
     // Include k8s if we have either structured options or raw JSON
     const k8sJson = this._k8sToJSON(this._k8s, this._k8sRaw);
@@ -772,7 +870,7 @@ export class Task {
     if (this._provides.length > 0) {
       json.provides = this._provides.map(p => {
         const obj: Record<string, string> = { name: p.name };
-        if (p.value !== undefined) obj.value = p.value;
+        if (p.value) obj.value = p.value;
         return obj;
       });
     }
@@ -783,6 +881,16 @@ export class Task {
     if (semanticJson) json.semantic = semanticJson;
     const aiHooksJson = this._aiHooksToJSON();
     if (aiHooksJson) json.ai_hooks = aiHooksJson;
+
+    // Gate config
+    if (this._gate) {
+      const gate: Record<string, unknown> = { strategy: this._gate.strategy };
+      if (this._gate.timeout) gate.timeout = this._gate.timeout;
+      if (this._gate.message) gate.message = this._gate.message;
+      if (this._gate.envVar) gate.env_var = this._gate.envVar;
+      if (this._gate.filePath) gate.file_path = this._gate.filePath;
+      json.gate = gate;
+    }
 
     return json;
   }
@@ -899,6 +1007,19 @@ export class Pipeline {
     return task;
   }
 
+  /** Create an approval gate that pauses the pipeline until approved */
+  gate(name: string): Task {
+    if (!name || name.trim() === '') {
+      throw new ValidationError('Gate name cannot be empty', 'EMPTY_NAME');
+    }
+    if (this.tasks.some((t) => t.name === name)) {
+      throw new ValidationError(`Duplicate task/gate name: "${name}"`, 'DUPLICATE_TASK');
+    }
+    const task = new Task(this, name, { strategy: 'prompt', timeout: 3600 });
+    this.tasks.push(task);
+    return task;
+  }
+
   /** Create a reusable template (validates name immediately) */
   template(name: string): Template {
     if (!name || name.trim() === '') {
@@ -1011,8 +1132,8 @@ export class Pipeline {
       }
       taskNames.add(task.name);
 
-      // Missing command check
-      if (!task._getCommand()) {
+      // Missing command check (gates don't need a command)
+      if (!task._getCommand() && !task._isGate()) {
         throw new ValidationError(
           `Task "${task.name}" has no command`,
           'MISSING_COMMAND',
@@ -1221,10 +1342,7 @@ export class Pipeline {
     if (hasV2Features) {
       const resources: Record<string, unknown> = {};
       for (const dir of this.directories) {
-        resources[dir.id()] = {
-          type: 'directory',
-          path: dir.path,
-        };
+        resources[dir.id()] = dir.toResource();
       }
       for (const cache of this.caches) {
         resources[cache.id()] = {

@@ -1,0 +1,1 @@
+{"version":"1","tasks":[{"name":"build","command":"make build","outputs":{"output_0":"dist/app","output_1":"dist/lib"}}]}

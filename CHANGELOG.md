@@ -5,6 +5,51 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-02-07
+
+### Added
+
+- **Python SDK** - Full-featured SDK with fluent API, validation, explain mode, and 185 tests
+  - Fluent builder API matching Go/Rust/TS patterns
+  - Fail-fast and deferred validation with "did you mean?" suggestions
+  - 3-color DFS cycle detection
+  - Pipeline explain mode for human-readable descriptions
+  - Core detector support for `sykli.py` files
+- **Capability-based dependencies** - Tasks declare what they provide and need
+  - `provides("name", "value")` / `needs("name")` across all 5 SDKs
+  - Auto-resolved ordering (needer depends on provider)
+  - `SYKLI_CAP_*` env var injection for capability values
+  - Validation: name format, no self-provide-need, no duplicate providers, no matrix provides
+- **Gate tasks** - Approval points that pause the pipeline
+  - Strategies: prompt (interactive TTY), env (poll env var), file (poll file)
+  - Configurable timeout with default 1 hour
+  - Gate events (`gate_waiting`, `gate_resolved`) in pub/sub system
+- **OIDC credential exchange** - Keyless auth from CI to cloud providers
+  - GitHub Actions and GitLab CI identity token acquisition
+  - AWS STS `AssumeRoleWithWebIdentity`
+  - GCP Workload Identity Federation (STS + external_account credentials)
+  - Azure federated token file
+  - Secure temp files (crypto-random names, 0600 permissions, cleanup on completion)
+  - Per-provider field validation before HTTP calls
+- **Merge queue detection** - Detects GitHub `merge_group` and GitLab merge trains
+  - Parses PR numbers, SHAs, and target branch from CI env vars
+  - Merge queue context included in `.sykli/context.json`
+
+### Fixed
+
+- `--timeout` CLI flag now propagates to per-task execution timeout
+- Go SDK gate serialization (gates were silently dropped from JSON output)
+- TypeScript/Python `provides()` preserves empty string values (`!== undefined` / `is not None`)
+- `Capability.from_map/1` handles non-map/non-string provides entries without crashing
+- `Gate.from_map/1` validates timeout is a positive integer
+- `GateService` rejects empty-string `env_var`/`file_path`
+- `GateService` uses `:io.columns()` for TTY detection instead of `IO.ANSI.enabled?`
+- `CapabilityResolver` guards `Regex.match?` with `is_binary` checks
+- `MergeQueueDetector` uses `Integer.parse/1` for safe env var parsing
+- Go SDK gate config methods panic when called on non-gate tasks (prevents silent misconfiguration)
+- OIDC service validates both GitHub env vars before HTTP request
+- OIDC temp files use exclusive create mode to prevent TOCTOU races
+
 ## [0.4.0] - 2026-02-04
 
 ### Added

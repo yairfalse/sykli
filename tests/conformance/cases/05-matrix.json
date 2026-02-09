@@ -1,0 +1,1 @@
+{"version":"1","tasks":[{"name":"test","command":"go test ./...","matrix":{"os":["linux","darwin"],"arch":["amd64","arm64"]}}]}

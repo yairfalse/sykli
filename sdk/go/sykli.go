@@ -853,8 +853,23 @@ func (t *Task) InputFrom(fromTask, outputName, destPath string) *Task {
 }
 
 // After sets dependencies - this task runs after the named tasks.
+// Duplicate dependencies are ignored.
 func (t *Task) After(tasks ...string) *Task {
-	t.dependsOn = append(t.dependsOn, tasks...)
+	for _, task := range tasks {
+		if task == "" {
+			continue
+		}
+		found := false
+		for _, existing := range t.dependsOn {
+			if existing == task {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.dependsOn = append(t.dependsOn, task)
+		}
+	}
 	return t
 }
 
@@ -1262,23 +1277,41 @@ func addDependency(to, from interface{}) {
 	}
 }
 
+// appendUniqueDep adds a dependency name to a task if not already present.
+func appendUniqueDep(task *Task, dep string) {
+	if dep == "" {
+		return
+	}
+	for _, existing := range task.dependsOn {
+		if existing == dep {
+			return
+		}
+	}
+	task.dependsOn = append(task.dependsOn, dep)
+}
+
 // addDependencyToTask adds a dependency to a single task.
+// Duplicate dependencies are ignored.
 func addDependencyToTask(task *Task, from interface{}) {
 	switch f := from.(type) {
 	case *Task:
-		task.dependsOn = append(task.dependsOn, f.name)
+		appendUniqueDep(task, f.name)
 	case *TaskGroup:
-		task.dependsOn = append(task.dependsOn, f.TaskNames()...)
+		for _, name := range f.TaskNames() {
+			appendUniqueDep(task, name)
+		}
 	case string:
-		task.dependsOn = append(task.dependsOn, f)
+		appendUniqueDep(task, f)
 	}
 }
 
-// After for Task now accepts TaskGroup in addition to strings.
-// This extends the existing After method to work with Parallel groups.
+// AfterGroup sets dependencies on task groups.
+// Duplicate dependencies are ignored.
 func (t *Task) AfterGroup(groups ...*TaskGroup) *Task {
 	for _, g := range groups {
-		t.dependsOn = append(t.dependsOn, g.TaskNames()...)
+		for _, name := range g.TaskNames() {
+			appendUniqueDep(t, name)
+		}
 	}
 	return t
 }
