@@ -394,6 +394,7 @@ export class Task {
   private _semantic: Semantic = { covers: [] };
   private _aiHooks: AiHooks = {};
   private _gate?: GateConfig;
+  private _verify?: string;
 
   constructor(
     private readonly pipeline: Pipeline,
@@ -623,6 +624,25 @@ export class Task {
   /** Require node labels for task placement (mesh mode) */
   requires(...labels: string[]): this {
     this._requires.push(...labels);
+    return this;
+  }
+
+  /**
+   * Set the cross-platform verification mode for this task.
+   *
+   * Modes:
+   *   - `"cross_platform"` — verify on a node with different OS/arch
+   *   - `"always"` — always verify on any remote node
+   *   - `"never"` — never verify this task remotely
+   *
+   * @example
+   * ```typescript
+   * p.task('build').run('npm run build').verify('cross_platform');
+   * p.task('lint').run('eslint .').verify('never');
+   * ```
+   */
+  verify(mode: 'cross_platform' | 'always' | 'never'): this {
+    this._verify = mode;
     return this;
   }
 
@@ -891,6 +911,8 @@ export class Task {
       if (this._gate.filePath) gate.file_path = this._gate.filePath;
       json.gate = gate;
     }
+
+    if (this._verify) json.verify = this._verify;
 
     return json;
   }

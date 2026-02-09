@@ -28,6 +28,7 @@ defmodule Sykli.RunHistory do
       :error,
       :inputs,
       :likely_cause,
+      :verified_on,
       cached: false,
       streak: 0
     ]
@@ -40,6 +41,7 @@ defmodule Sykli.RunHistory do
             error: String.t() | nil,
             inputs: [String.t()] | nil,
             likely_cause: [String.t()] | nil,
+            verified_on: String.t() | nil,
             streak: non_neg_integer()
           }
   end
@@ -48,7 +50,17 @@ defmodule Sykli.RunHistory do
     @moduledoc "A complete run manifest"
 
     @enforce_keys [:id, :timestamp, :git_ref, :git_branch, :tasks, :overall]
-    defstruct [:id, :timestamp, :git_ref, :git_branch, :tasks, :overall]
+    defstruct [
+      :id,
+      :timestamp,
+      :git_ref,
+      :git_branch,
+      :tasks,
+      :overall,
+      :platform,
+      :verification,
+      verified: false
+    ]
 
     @type t :: %__MODULE__{
             id: String.t(),
@@ -56,7 +68,10 @@ defmodule Sykli.RunHistory do
             git_ref: String.t(),
             git_branch: String.t(),
             tasks: [Sykli.RunHistory.TaskResult.t()],
-            overall: :passed | :failed
+            overall: :passed | :failed,
+            platform: String.t() | nil,
+            verified: boolean(),
+            verification: map() | nil
           }
   end
 
@@ -214,6 +229,9 @@ defmodule Sykli.RunHistory do
       tasks: Enum.map(run.tasks, &encode_task_result/1),
       overall: Atom.to_string(run.overall)
     }
+    |> maybe_add(:platform, run.platform)
+    |> maybe_add(:verified, if(run.verified, do: true, else: nil))
+    |> maybe_add(:verification, run.verification)
     |> Jason.encode!(pretty: true)
   end
 
@@ -228,6 +246,7 @@ defmodule Sykli.RunHistory do
     |> maybe_add(:error, tr.error)
     |> maybe_add(:inputs, tr.inputs)
     |> maybe_add(:likely_cause, tr.likely_cause)
+    |> maybe_add(:verified_on, tr.verified_on)
   end
 
   defp maybe_add(map, _key, nil), do: map
@@ -242,7 +261,10 @@ defmodule Sykli.RunHistory do
       git_ref: data["git_ref"],
       git_branch: data["git_branch"],
       tasks: Enum.map(data["tasks"] || [], &decode_task_result/1),
-      overall: String.to_existing_atom(data["overall"])
+      overall: String.to_existing_atom(data["overall"]),
+      platform: data["platform"],
+      verified: data["verified"] || false,
+      verification: data["verification"]
     }
   end
 
@@ -255,7 +277,8 @@ defmodule Sykli.RunHistory do
       streak: data["streak"] || 0,
       error: data["error"],
       inputs: data["inputs"],
-      likely_cause: data["likely_cause"]
+      likely_cause: data["likely_cause"],
+      verified_on: data["verified_on"]
     }
   end
 

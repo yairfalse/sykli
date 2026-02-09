@@ -643,6 +643,50 @@
       "command": "sykli --timeout=24h",
       "expect_exit": 0,
       "expect_stdout": "All tasks completed"
+    },
+    {
+      "id": "POS-019",
+      "name": "Verify help exits 0 with usage info",
+      "fixture": "single_task",
+      "command": "sykli verify --help",
+      "expect_exit": 0,
+      "expect_stdout_contains": [
+        "Usage:",
+        "Options:",
+        "--dry-run",
+        "--json"
+      ]
+    },
+    {
+      "id": "POS-020",
+      "name": "Verify dry-run with no runs exits 1",
+      "fixture": "single_task",
+      "command": "sykli verify --dry-run",
+      "expect_exit": 1,
+      "expect_stdout_contains": [
+        "No runs found"
+      ]
+    },
+    {
+      "id": "POS-021",
+      "name": "Verify dry-run JSON with no runs returns error JSON",
+      "fixture": "single_task",
+      "command": "sykli verify --dry-run --json",
+      "expect_exit": 1,
+      "expect_json": {
+        "error": "No runs found"
+      }
+    },
+    {
+      "id": "NEG-015",
+      "name": "Verify with nonexistent run ID fails",
+      "fixture": "single_task",
+      "command": "sykli >/dev/null 2>&1 && sykli verify --from=nonexistent --json",
+      "shell": true,
+      "expect_exit": 1,
+      "expect_json_contains": {
+        "error": "Run not found: nonexistent"
+      }
     }
   ]
 }

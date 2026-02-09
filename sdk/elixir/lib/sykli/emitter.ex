@@ -202,6 +202,7 @@ defmodule Sykli.Emitter do
     |> maybe_put(:semantic, semantic_to_json(task.semantic))
     |> maybe_put(:ai_hooks, ai_hooks_to_json(task.ai_hooks))
     |> maybe_put(:gate, gate_to_json(task.gate))
+    |> maybe_put(:verify, task.verify)
   end
 
   defp gate_to_json(nil), do: nil

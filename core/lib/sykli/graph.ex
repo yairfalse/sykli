@@ -112,7 +112,9 @@ defmodule Sykli.Graph do
       # Gate (approval point)
       :gate,
       # OIDC credential binding
-      :oidc
+      :oidc,
+      # Cross-platform verification mode ("cross_platform", "always", "never", or nil)
+      :verify
     ]
 
     @type t :: %__MODULE__{}
@@ -358,7 +360,8 @@ defmodule Sykli.Graph do
          capability:
            Task.Capability.from_map(%{"provides" => map["provides"], "needs" => map["needs"]}),
          gate: Task.Gate.from_map(map["gate"]),
-         oidc: Task.CredentialBinding.from_map(map["oidc"])
+         oidc: Task.CredentialBinding.from_map(map["oidc"]),
+         verify: map["verify"]
        }}
     end
   end

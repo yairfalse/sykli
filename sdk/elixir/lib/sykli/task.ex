@@ -28,7 +28,8 @@ defmodule Sykli.Task do
             ai_hooks: nil,          # AI-native: behavioral hooks (on_fail, select)
             provides: [],           # Capability-based: what this task provides
             needs: [],              # Capability-based: what this task needs
-            gate: nil               # Gate config: %{strategy, timeout, message, env_var, file_path}
+            gate: nil,              # Gate config: %{strategy, timeout, message, env_var, file_path}
+            verify: nil             # Cross-platform verification mode: "cross_platform", "always", "never"
 
   @type secret_source :: :env | :file | :vault
 
@@ -79,7 +80,8 @@ defmodule Sykli.Task do
           requires: [String.t()],
           semantic: semantic() | nil,
           ai_hooks: ai_hooks() | nil,
-          gate: map() | nil
+          gate: map() | nil,
+          verify: String.t() | nil
         }
 
   @doc "Creates a new task with the given name."

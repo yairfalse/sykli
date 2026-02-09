@@ -46,6 +46,9 @@ defmodule Sykli.CLI do
       ["validate" | validate_args] ->
         handle_validate(validate_args)
 
+      ["verify" | verify_args] ->
+        handle_verify(verify_args)
+
       ["context" | context_args] ->
         handle_context(context_args)
 
@@ -84,6 +87,7 @@ defmodule Sykli.CLI do
       sykli init       Create a new sykli file (auto-detects language)
       sykli validate   Check sykli file for errors without running
       sykli context    Generate AI context file (.sykli/context.json)
+      sykli verify     Cross-platform verification via mesh nodes
       sykli delta      Run only tasks affected by git changes
       sykli watch      Watch files and re-run affected tasks
       sykli graph      Show task graph (see: sykli graph --help)
@@ -771,6 +775,246 @@ defmodule Sykli.CLI do
       end)
     end
   end
+
+  # ----- VERIFY SUBCOMMAND -----
+
+  defp handle_verify(["--help"]) do
+    IO.puts("""
+    Usage: sykli verify [options]
+
+    Cross-platform verification via mesh nodes.
+
+    Loads the last run manifest, discovers remote BEAM nodes, and re-runs
+    platform-sensitive tasks on nodes with different OS/architecture.
+
+    Options:
+      --from=<id>     Run to verify: "latest" (default) or a run ID
+      --dry-run       Show verification plan without executing
+      --json          Output as JSON (for tooling)
+      --help          Show this help
+
+    Task-level control (in SDK):
+      .Verify("cross_platform")   Verify on different OS/arch (default behavior)
+      .Verify("always")           Always verify on any remote node
+      .Verify("never")            Never verify this task
+
+    Examples:
+      sykli verify                  Verify latest run on mesh
+      sykli verify --dry-run        Show what would be verified
+      sykli verify --dry-run --json JSON verification plan
+      sykli verify --from=abc123    Verify a specific run
+    """)
+
+    halt(0)
+  end
+
+  defp handle_verify(args) do
+    {opts, _rest} = parse_verify_args(args)
+    from = Keyword.get(opts, :from, "latest")
+    dry_run = Keyword.get(opts, :dry_run, false)
+    json_output = Keyword.get(opts, :json, false)
+    path = Keyword.get(opts, :path, ".")
+
+    verify_opts = [from: from, path: path]
+
+    if dry_run do
+      case Sykli.Verify.plan(verify_opts) do
+        {:ok, plan} ->
+          if json_output do
+            output_verify_plan_json(plan)
+          else
+            output_verify_plan(plan)
+          end
+
+          halt(0)
+
+        {:error, :no_runs} ->
+          if json_output do
+            IO.puts(Jason.encode!(%{error: "No runs found"}))
+          else
+            IO.puts("#{IO.ANSI.red()}No runs found#{IO.ANSI.reset()}")
+            IO.puts("#{IO.ANSI.faint()}Run 'sykli' first to create a run record#{IO.ANSI.reset()}")
+          end
+
+          halt(1)
+
+        {:error, {:run_not_found, run_id}} ->
+          if json_output do
+            IO.puts(Jason.encode!(%{error: "Run not found: #{run_id}"}))
+          else
+            IO.puts("#{IO.ANSI.red()}Run not found: #{run_id}#{IO.ANSI.reset()}")
+          end
+
+          halt(1)
+
+        {:error, reason} ->
+          if json_output do
+            IO.puts(Jason.encode!(%{error: inspect(reason)}))
+          else
+            display_error(reason)
+          end
+
+          halt(1)
+      end
+    else
+      case Sykli.Verify.verify(verify_opts) do
+        {:ok, plan} ->
+          if json_output do
+            output_verify_plan_json(plan)
+          else
+            output_verify_result(plan)
+          end
+
+          halt(0)
+
+        {:error, :no_runs} ->
+          if json_output do
+            IO.puts(Jason.encode!(%{error: "No runs found"}))
+          else
+            IO.puts("#{IO.ANSI.red()}No runs found#{IO.ANSI.reset()}")
+            IO.puts("#{IO.ANSI.faint()}Run 'sykli' first to create a run record#{IO.ANSI.reset()}")
+          end
+
+          halt(1)
+
+        {:error, {:run_not_found, run_id}} ->
+          if json_output do
+            IO.puts(Jason.encode!(%{error: "Run not found: #{run_id}"}))
+          else
+            IO.puts("#{IO.ANSI.red()}Run not found: #{run_id}#{IO.ANSI.reset()}")
+          end
+
+          halt(1)
+
+        {:error, reason} ->
+          if json_output do
+            IO.puts(Jason.encode!(%{error: inspect(reason)}))
+          else
+            display_error(reason)
+          end
+
+          halt(1)
+      end
+    end
+  end
+
+  defp parse_verify_args(args) do
+    {opts, rest} =
+      Enum.reduce(args, {[], []}, fn arg, {opts, rest} ->
+        cond do
+          String.starts_with?(arg, "--from=") ->
+            from = String.replace_prefix(arg, "--from=", "")
+            {[{:from, from} | opts], rest}
+
+          arg == "--dry-run" ->
+            {[{:dry_run, true} | opts], rest}
+
+          arg == "--json" ->
+            {[{:json, true} | opts], rest}
+
+          String.starts_with?(arg, "--") ->
+            {opts, rest}
+
+          true ->
+            {opts, rest ++ [arg]}
+        end
+      end)
+
+    {opts, List.first(rest)}
+  end
+
+  defp output_verify_plan(plan) do
+    if plan.entries == [] do
+      IO.puts("#{IO.ANSI.green()}No tasks need verification#{IO.ANSI.reset()}")
+
+      if plan.skipped != [] do
+        IO.puts("")
+        IO.puts("#{IO.ANSI.faint()}Skipped #{length(plan.skipped)} task(s):#{IO.ANSI.reset()}")
+
+        Enum.each(plan.skipped, fn {name, reason} ->
+          IO.puts("  #{IO.ANSI.faint()}○#{IO.ANSI.reset()} #{name} #{IO.ANSI.faint()}(#{format_skip_reason(reason)})#{IO.ANSI.reset()}")
+        end)
+      end
+    else
+      IO.puts("#{IO.ANSI.cyan()}Verification plan:#{IO.ANSI.reset()}")
+      IO.puts("")
+
+      Enum.each(plan.entries, fn entry ->
+        reason_str = format_verify_reason(entry.reason)
+        labels_str = if entry.target_labels, do: " [#{Enum.join(entry.target_labels, ", ")}]", else: ""
+
+        IO.puts(
+          "  #{IO.ANSI.green()}•#{IO.ANSI.reset()} #{entry.task_name} → #{entry.target_node}#{labels_str}"
+        )
+
+        IO.puts("    #{IO.ANSI.faint()}#{reason_str}#{IO.ANSI.reset()}")
+      end)
+
+      if plan.skipped != [] do
+        IO.puts("")
+        IO.puts("#{IO.ANSI.faint()}Skipped #{length(plan.skipped)} task(s)#{IO.ANSI.reset()}")
+      end
+
+      IO.puts("")
+
+      IO.puts(
+        "#{IO.ANSI.faint()}#{length(plan.entries)} to verify, #{length(plan.skipped)} skipped#{IO.ANSI.reset()}"
+      )
+    end
+  end
+
+  defp output_verify_result(plan) do
+    IO.puts("#{IO.ANSI.green()}✓ Verification complete#{IO.ANSI.reset()}")
+    IO.puts("")
+
+    Enum.each(plan.entries, fn entry ->
+      IO.puts("  #{IO.ANSI.green()}✓#{IO.ANSI.reset()} #{entry.task_name} → #{entry.target_node}")
+    end)
+
+    IO.puts("")
+
+    IO.puts(
+      "#{IO.ANSI.faint()}#{length(plan.entries)} verified, #{length(plan.skipped)} skipped#{IO.ANSI.reset()}"
+    )
+  end
+
+  defp output_verify_plan_json(plan) do
+    output = %{
+      entries:
+        Enum.map(plan.entries, fn entry ->
+          %{
+            task_name: entry.task_name,
+            target_node: to_string(entry.target_node),
+            target_labels: entry.target_labels,
+            reason: Atom.to_string(entry.reason)
+          }
+        end),
+      skipped:
+        Enum.map(plan.skipped, fn {name, reason} ->
+          %{task_name: name, reason: Atom.to_string(reason)}
+        end),
+      local_labels: plan.local_labels,
+      remote_nodes:
+        Enum.map(plan.remote_nodes, fn n ->
+          %{node: to_string(n.node), labels: n.labels}
+        end)
+    }
+
+    IO.puts(Jason.encode!(output, pretty: true))
+  end
+
+  defp format_skip_reason(:cached), do: "cached"
+  defp format_skip_reason(:skipped), do: "skipped in run"
+  defp format_skip_reason(:verify_never), do: "verify: never"
+  defp format_skip_reason(:no_remote_nodes), do: "no remote nodes"
+  defp format_skip_reason(:same_platform), do: "same platform"
+  defp format_skip_reason(:task_not_found), do: "task not in graph"
+  defp format_skip_reason(reason), do: to_string(reason)
+
+  defp format_verify_reason(:cross_platform), do: "cross-platform verification"
+  defp format_verify_reason(:retry_on_different_platform), do: "retry on different platform"
+  defp format_verify_reason(:explicit_verify), do: "explicit verify: always"
+  defp format_verify_reason(reason), do: to_string(reason)
 
   # ----- CONTEXT SUBCOMMAND -----
 
