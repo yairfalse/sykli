@@ -1015,22 +1015,30 @@ impl<'a> Task<'a> {
     /// This is a convenience method matching the Go SDK's `After(task)` signature.
     #[must_use]
     pub fn after_one(self, task: &str) -> Self {
-        self.pipeline.tasks[self.index]
-            .depends_on
-            .push(task.to_string());
+        if !task.is_empty() {
+            let deps = &mut self.pipeline.tasks[self.index].depends_on;
+            if !deps.contains(&task.to_string()) {
+                deps.push(task.to_string());
+            }
+        }
         self
     }
 
     /// Sets dependencies - this task runs after the named tasks.
+    /// Duplicate dependencies are ignored.
     #[must_use]
     pub fn after(self, tasks: &[&str]) -> Self {
-        self.pipeline.tasks[self.index]
-            .depends_on
-            .extend(tasks.iter().map(|s| (*s).to_string()));
+        let deps = &mut self.pipeline.tasks[self.index].depends_on;
+        for task in tasks {
+            if !task.is_empty() && !deps.contains(&task.to_string()) {
+                deps.push(task.to_string());
+            }
+        }
         self
     }
 
     /// Sets dependencies on all tasks in a TaskGroup.
+    /// Duplicate dependencies are ignored.
     ///
     /// # Example
     /// ```rust,ignore
@@ -1041,9 +1049,12 @@ impl<'a> Task<'a> {
     /// ```
     #[must_use]
     pub fn after_group(self, group: &TaskGroup) -> Self {
-        self.pipeline.tasks[self.index]
-            .depends_on
-            .extend(group.task_names.clone());
+        let deps = &mut self.pipeline.tasks[self.index].depends_on;
+        for name in &group.task_names {
+            if !name.is_empty() && !deps.contains(name) {
+                deps.push(name.clone());
+            }
+        }
         self
     }
 

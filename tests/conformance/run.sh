@@ -143,15 +143,64 @@ run_case() {
   done
 }
 
+run_negative_case() {
+  local case_name="$1"
+
+  local sdks=("go" "python" "typescript")
+
+  for sdk in "${sdks[@]}"; do
+    if [[ -n "$FILTER_SDK" && "$sdk" != "$FILTER_SDK" ]]; then
+      continue
+    fi
+
+    local ext
+    case "$sdk" in
+      go)         ext="go" ;;
+      python)     ext="py" ;;
+      typescript) ext="ts" ;;
+    esac
+
+    local fixture="$FIXTURES_DIR/$sdk/${case_name}.${ext}"
+
+    if [[ ! -f "$fixture" ]]; then
+      echo -e "  ${YELLOW}○${NC} $case_name/$sdk — no fixture"
+      SKIP=$((SKIP + 1))
+      continue
+    fi
+
+    local err_file="$TMP_DIR/err_${sdk}_${case_name}"
+
+    if "run_${sdk}" "$fixture" >"$TMP_DIR/out_${sdk}_${case_name}" 2>"$err_file"; then
+      echo -e "  ${RED}✗${NC} $case_name/$sdk — expected failure but got exit 0"
+      FAIL=$((FAIL + 1))
+    else
+      echo -e "  ${GREEN}✓${NC} $case_name/$sdk (expected failure)"
+      PASS=$((PASS + 1))
+    fi
+  done
+}
+
 echo "SDK Conformance Tests"
 echo ""
 
 if [[ -n "$FILTER_CASE" ]]; then
-  run_case "$FILTER_CASE"
+  if [[ "$FILTER_CASE" == err-* ]]; then
+    run_negative_case "$FILTER_CASE"
+  else
+    run_case "$FILTER_CASE"
+  fi
 else
+  # Happy path tests
   for case_file in "$CASES_DIR"/*.json; do
     case_name=$(basename "$case_file" .json)
     run_case "$case_name"
+  done
+
+  # Negative tests
+  for case_file in "$CASES_DIR"/err-*.txt; do
+    [[ -f "$case_file" ]] || continue
+    case_name=$(basename "$case_file" .txt)
+    run_negative_case "$case_name"
   done
 fi
 

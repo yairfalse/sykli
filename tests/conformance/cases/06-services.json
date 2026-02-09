@@ -1,0 +1,1 @@
+{"version":"1","tasks":[{"name":"test","command":"pytest","services":[{"image":"postgres:15","name":"db"},{"image":"redis:7","name":"cache"}]}]}

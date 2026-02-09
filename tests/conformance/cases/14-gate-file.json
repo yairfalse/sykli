@@ -1,0 +1,1 @@
+{"version":"1","tasks":[{"name":"wait-approval","gate":{"strategy":"file","timeout":1800,"file_path":"/tmp/approved"}}]}

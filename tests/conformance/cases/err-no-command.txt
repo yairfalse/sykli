@@ -1,0 +1,1 @@
+Task without command (not a gate) should cause non-zero exit.

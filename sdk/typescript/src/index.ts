@@ -263,6 +263,15 @@ export class Directory {
   id(): string {
     return `src:${this.path}`;
   }
+
+  /** Convert to JSON resource object */
+  toResource(): Record<string, unknown> {
+    const r: Record<string, unknown> = { type: 'directory', path: this.path };
+    if (this.globs.length > 0) {
+      r.globs = [...this.globs];
+    }
+    return r;
+  }
 }
 
 /** Named cache volume that persists between runs */
@@ -308,6 +317,9 @@ export class Template {
 
   /** Set an environment variable */
   env(key: string, value: string): this {
+    if (!key) {
+      throw new Error(`gate '${this._name}': env key cannot be empty`);
+    }
     this._env[key] = value;
     return this;
   }
@@ -461,6 +473,9 @@ export class Task {
 
   /** Set an environment variable */
   env(key: string, value: string): this {
+    if (!key) {
+      throw new Error(`task '${this._name}': env key cannot be empty`);
+    }
     this._env[key] = value;
     return this;
   }
@@ -499,15 +514,23 @@ export class Task {
     return this;
   }
 
-  /** Set dependencies - runs after these tasks */
+  /** Set dependencies - runs after these tasks. Duplicates are ignored. */
   after(...tasks: string[]): this {
-    this._dependsOn.push(...tasks);
+    for (const task of tasks) {
+      if (task && !this._dependsOn.includes(task)) {
+        this._dependsOn.push(task);
+      }
+    }
     return this;
   }
 
-  /** Set dependencies on a task group */
+  /** Set dependencies on a task group. Duplicates are ignored. */
   afterGroup(group: TaskGroup): this {
-    this._dependsOn.push(...group.taskNames());
+    for (const name of group.taskNames()) {
+      if (name && !this._dependsOn.includes(name)) {
+        this._dependsOn.push(name);
+      }
+    }
     return this;
   }
 
@@ -835,8 +858,8 @@ export class Task {
         name: s.name,
       }));
     }
-    if (this._retry !== undefined) json.retry = this._retry;
-    if (this._timeout !== undefined) json.timeout = this._timeout;
+    if (this._retry) json.retry = this._retry;
+    if (this._timeout) json.timeout = this._timeout;
     if (this._target) json.target = this._target;
     // Include k8s if we have either structured options or raw JSON
     const k8sJson = this._k8sToJSON(this._k8s, this._k8sRaw);
@@ -847,7 +870,7 @@ export class Task {
     if (this._provides.length > 0) {
       json.provides = this._provides.map(p => {
         const obj: Record<string, string> = { name: p.name };
-        if (p.value !== undefined) obj.value = p.value;
+        if (p.value) obj.value = p.value;
         return obj;
       });
     }
@@ -1319,10 +1342,7 @@ export class Pipeline {
     if (hasV2Features) {
       const resources: Record<string, unknown> = {};
       for (const dir of this.directories) {
-        resources[dir.id()] = {
-          type: 'directory',
-          path: dir.path,
-        };
+        resources[dir.id()] = dir.toResource();
       }
       for (const cache of this.caches) {
         resources[cache.id()] = {

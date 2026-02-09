@@ -1,0 +1,1 @@
+{"version":"1","tasks":[{"name":"build","command":"make build"},{"name":"test","command":"go test","depends_on":["build"]},{"name":"deploy","command":"./deploy.sh","depends_on":["build","test"]}]}

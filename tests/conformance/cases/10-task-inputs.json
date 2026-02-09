@@ -1,0 +1,1 @@
+{"version":"1","tasks":[{"name":"build","command":"go build -o /out/app","outputs":{"binary":"/out/app"}},{"name":"test","command":"./app test","task_inputs":[{"from_task":"build","output":"binary","dest":"/app"}],"depends_on":["build"]}]}

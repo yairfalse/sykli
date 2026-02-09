@@ -1,0 +1,1 @@
+{"version":"1","tasks":[{"name":"train","command":"python train.py","k8s":{"memory":"32Gi","cpu":"4","gpu":2}}]}

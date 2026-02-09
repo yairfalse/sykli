@@ -1,0 +1,1 @@
+{"version":"1","tasks":[{"name":"build","command":"make build","provides":[{"name":"artifact"}]},{"name":"migrate","command":"dbmate up","provides":[{"name":"db-ready"}]},{"name":"package","command":"docker build","depends_on":["build"],"provides":[{"name":"image","value":"myapp:latest"}]}]}

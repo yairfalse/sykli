@@ -1,0 +1,1 @@
+{"version":"1","tasks":[{"name":"build","command":"make build","outputs":{"binary":"/out/app","checksum":"/out/sha256"}}]}
