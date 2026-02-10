@@ -212,54 +212,60 @@ defmodule Sykli.CLI do
 
   @doc false
   def parse_run_args(args) do
-    {opts, rest} =
-      Enum.reduce(args, {[], []}, fn arg, {opts, rest} ->
-        cond do
-          arg == "--mesh" ->
-            {[{:mesh, true} | opts], rest}
-
-          String.starts_with?(arg, "--filter=") ->
-            filter = String.replace_prefix(arg, "--filter=", "")
-            {[{:filter, filter} | opts], rest}
-
-          # K8s target flags
-          String.starts_with?(arg, "--target=") ->
-            target_str = String.replace_prefix(arg, "--target=", "")
-            target = parse_target(target_str)
-            {[{:target, target} | opts], rest}
-
-          arg == "--allow-dirty" ->
-            {[{:allow_dirty, true} | opts], rest}
-
-          String.starts_with?(arg, "--git-ssh-secret=") ->
-            secret = String.replace_prefix(arg, "--git-ssh-secret=", "")
-            {[{:git_ssh_secret, secret} | opts], rest}
-
-          String.starts_with?(arg, "--git-token-secret=") ->
-            secret = String.replace_prefix(arg, "--git-token-secret=", "")
-            {[{:git_token_secret, secret} | opts], rest}
-
-          String.starts_with?(arg, "--timeout=") ->
-            timeout_str = String.replace_prefix(arg, "--timeout=", "")
-            timeout_ms = parse_timeout(timeout_str)
-            {[{:timeout, timeout_ms} | opts], rest}
-
-          String.starts_with?(arg, "--") ->
-            IO.puts(
-              :stderr,
-              "#{IO.ANSI.yellow()}Warning: ignoring unknown option #{arg}#{IO.ANSI.reset()}"
-            )
-
-            {opts, rest}
-
-          true ->
-            {opts, rest ++ [arg]}
-        end
-      end)
-
+    {opts, rest} = do_parse_run_args(args, [], [])
     path = List.first(rest) || "."
     {path, opts}
   end
+
+  defp do_parse_run_args([], opts, rest), do: {opts, rest}
+
+  defp do_parse_run_args(["--mesh" | tail], opts, rest),
+    do: do_parse_run_args(tail, [{:mesh, true} | opts], rest)
+
+  defp do_parse_run_args(["--allow-dirty" | tail], opts, rest),
+    do: do_parse_run_args(tail, [{:allow_dirty, true} | opts], rest)
+
+  defp do_parse_run_args(["--filter=" <> filter | tail], opts, rest),
+    do: do_parse_run_args(tail, [{:filter, filter} | opts], rest)
+
+  defp do_parse_run_args(["--target=" <> target_str | tail], opts, rest),
+    do: do_parse_run_args(tail, [{:target, parse_target(target_str)} | opts], rest)
+
+  defp do_parse_run_args(["--git-ssh-secret=" <> secret | tail], opts, rest),
+    do: do_parse_run_args(tail, [{:git_ssh_secret, secret} | opts], rest)
+
+  defp do_parse_run_args(["--git-token-secret=" <> secret | tail], opts, rest),
+    do: do_parse_run_args(tail, [{:git_token_secret, secret} | opts], rest)
+
+  defp do_parse_run_args(["--timeout=" <> timeout_str | tail], opts, rest),
+    do: do_parse_run_args(tail, [{:timeout, parse_timeout(timeout_str)} | opts], rest)
+
+  # --timeout VALUE (space-separated)
+  defp do_parse_run_args(["--timeout", value | tail], opts, rest)
+       when is_binary(value) and binary_part(value, 0, 1) != "-",
+       do: do_parse_run_args(tail, [{:timeout, parse_timeout(value)} | opts], rest)
+
+  # --filter VALUE (space-separated)
+  defp do_parse_run_args(["--filter", value | tail], opts, rest)
+       when is_binary(value) and binary_part(value, 0, 1) != "-",
+       do: do_parse_run_args(tail, [{:filter, value} | opts], rest)
+
+  # --target VALUE (space-separated)
+  defp do_parse_run_args(["--target", value | tail], opts, rest)
+       when is_binary(value) and binary_part(value, 0, 1) != "-",
+       do: do_parse_run_args(tail, [{:target, parse_target(value)} | opts], rest)
+
+  defp do_parse_run_args(["--" <> _ = arg | tail], opts, rest) do
+    IO.puts(
+      :stderr,
+      "#{IO.ANSI.yellow()}Warning: ignoring unknown option #{arg}#{IO.ANSI.reset()}"
+    )
+
+    do_parse_run_args(tail, opts, rest)
+  end
+
+  defp do_parse_run_args([arg | tail], opts, rest),
+    do: do_parse_run_args(tail, opts, rest ++ [arg])
 
   defp parse_target("k8s"), do: :k8s
   defp parse_target("local"), do: :local
