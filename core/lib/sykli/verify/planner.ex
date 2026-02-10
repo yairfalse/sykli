@@ -166,7 +166,7 @@ defmodule Sykli.Verify.Planner do
 
   # ── Helpers ──────────────────────────────────────────────────────────────────
 
-  @platform_labels ~w(darwin linux windows arm64 amd64)
+  @platform_labels ~w(darwin linux unix windows arm64 amd64)
 
   defp get_verify_mode(%{verify: mode}) when is_binary(mode), do: mode
   defp get_verify_mode(_), do: nil

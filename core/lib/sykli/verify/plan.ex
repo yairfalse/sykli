@@ -26,7 +26,7 @@ defmodule Sykli.Verify.Plan do
   defstruct entries: [], skipped: [], local_labels: [], remote_nodes: []
 
   @type skip_reason ::
-          :cached | :skipped | :verify_never | :no_remote_nodes | :same_platform
+          :cached | :skipped | :verify_never | :no_remote_nodes | :same_platform | :task_not_found
   @type skipped_entry :: {String.t(), skip_reason()}
   @type t :: %__MODULE__{
           entries: [Entry.t()],

@@ -101,11 +101,15 @@ defmodule Sykli.Verify do
   end
 
   defp load_run_by_id(run_id, path) do
-    {:ok, runs} = RunHistory.list(path: path, limit: 100)
+    case RunHistory.list(path: path, limit: 100) do
+      {:ok, runs} ->
+        case Enum.find(runs, fn run -> run.id == run_id end) do
+          nil -> {:error, {:run_not_found, run_id}}
+          run -> {:ok, run}
+        end
 
-    case Enum.find(runs, fn run -> run.id == run_id end) do
-      nil -> {:error, {:run_not_found, run_id}}
-      run -> {:ok, run}
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -156,7 +160,13 @@ defmodule Sykli.Verify do
        end)}
     end)
     |> Enum.map(fn {name, async_task} ->
-      result = Task.await(async_task, 300_000)
+      result =
+        case Task.yield(async_task, 300_000) || Task.shutdown(async_task, :brutal_kill) do
+          {:ok, res} -> res
+          nil -> {:error, :timeout}
+          {:exit, reason} -> {:error, reason}
+        end
+
       {name, result}
     end)
     |> Map.new()

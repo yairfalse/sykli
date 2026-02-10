@@ -813,9 +813,8 @@ defmodule Sykli.CLI do
     from = Keyword.get(opts, :from, "latest")
     dry_run = Keyword.get(opts, :dry_run, false)
     json_output = Keyword.get(opts, :json, false)
-    path = Keyword.get(opts, :path, ".")
 
-    verify_opts = [from: from, path: path]
+    verify_opts = [from: from]
 
     if dry_run do
       case Sykli.Verify.plan(verify_opts) do
