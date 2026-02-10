@@ -95,31 +95,40 @@ defmodule Sykli.Detector do
           {error, _} -> {:error, {:rust_failed, error}}
         end
 
-      # Cargo project with sykli feature - compile and run
+      # Cargo project - compile and run
       File.exists?(cargo_toml) ->
         if not command_exists?("cargo") do
           {:error, {:missing_tool, "cargo", "Install Rust from https://rustup.rs/"}}
         else
-          case run_cmd(
-                 "cargo",
-                 ["run", "--bin", "sykli", "--features", "sykli", "--", "--emit"],
-                 cd: dir,
-                 stderr_to_stdout: true
-               ) do
-            {output, 0} ->
-              # cargo run outputs build info then JSON - extract just the JSON
-              extract_json(output)
+          # Try without --features first, fall back to --features sykli
+          case run_cargo_emit(dir) do
+            {:ok, _} = ok ->
+              ok
 
             {:error, :timeout} ->
               {:error, {:rust_timeout, "Cargo build timed out after 2 minutes"}}
 
-            {error, _} ->
-              {:error, {:rust_cargo_failed, error}}
+            {:error, _} ->
+              case run_cargo_emit(dir, ["--features", "sykli"]) do
+                {:ok, _} = ok -> ok
+                {:error, :timeout} -> {:error, {:rust_timeout, "Cargo build timed out after 2 minutes"}}
+                {:error, error} -> {:error, {:rust_cargo_failed, error}}
+              end
           end
         end
 
       true ->
         {:error, :rust_binary_not_found}
+    end
+  end
+
+  defp run_cargo_emit(dir, extra_args \\ []) do
+    args = ["run", "--bin", "sykli"] ++ extra_args ++ ["--", "--emit"]
+
+    case run_cmd("cargo", args, cd: dir, stderr_to_stdout: true) do
+      {output, 0} -> extract_json(output)
+      {:error, :timeout} -> {:error, :timeout}
+      {error, _} -> {:error, error}
     end
   end
 

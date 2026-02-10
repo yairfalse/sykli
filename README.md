@@ -6,12 +6,12 @@
 
 [![GitHub Release](https://img.shields.io/github/v/release/yairfalse/sykli?style=flat-square&color=blue)](https://github.com/yairfalse/sykli/releases)
 [![crates.io](https://img.shields.io/crates/v/sykli?style=flat-square&color=orange)](https://crates.io/crates/sykli)
-[![Hex.pm](https://img.shields.io/hexpm/v/sykli_sdk?style=flat-square&color=purple)](https://hex.pm/packages/sykli_sdk)
+[![Hex.pm](https://img.shields.io/hexpm/v/sykli?style=flat-square&color=purple)](https://hex.pm/packages/sykli)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](LICENSE)
 
-**Go** · **Rust** · **TypeScript** · **Elixir**
+**Go** · **Rust** · **TypeScript** · **Elixir** · **Python**
 
-[Getting Started](#-quick-start) · [Installation](#-installation) · [SDK Examples](#-sdk-examples) · [Documentation](#-documentation)
+[Getting Started](#-quick-start) · [Installation](#-installation) · [SDK Examples](#-sdk-examples) · [CLI Reference](#-cli-reference) · [Documentation](#-documentation)
 
 </div>
 
@@ -24,10 +24,10 @@
 
 ## What is Sykli?
 
-Sykli is a CI orchestrator where your pipeline configuration is **real code** in your language of choice. No YAML, no proprietary DSL—just a program that defines tasks and their dependencies.
+Sykli is a CI orchestrator where your pipeline configuration is **real code** in your language of choice. No YAML, no proprietary DSL — just a program that defines tasks and their dependencies.
 
 ```go
-// sykli.go - This IS your CI config
+// sykli.go — this IS your CI config
 package main
 
 import sykli "github.com/yairfalse/sykli/sdk/go"
@@ -60,15 +60,18 @@ Run `sykli` and it executes your tasks in parallel, with caching, retries, and c
 
 | Feature | Description |
 |---------|-------------|
-| **Multi-language SDKs** | Go, Rust, TypeScript, Elixir |
+| **Multi-language SDKs** | Go, Rust, TypeScript, Elixir, Python |
 | **Parallel Execution** | Tasks run concurrently by dependency level |
 | **Content-addressed Caching** | Skip unchanged tasks automatically |
 | **Container Support** | Docker containers with volume mounts |
 | **Node Placement** | Route tasks to nodes with specific labels (GPU, etc.) |
 | **Mesh Distribution** | Spread work across machines on your network |
+| **Cross-platform Verify** | Re-run tasks on different OS/arch via mesh |
 | **Delta Builds** | Run only tasks affected by git changes |
 | **Watch Mode** | Re-run on file changes |
 | **Matrix Builds** | Test across multiple configurations |
+| **Gate Tasks** | Approval points that pause the pipeline |
+| **Capability Dependencies** | Tasks declare what they provide and need |
 
 ---
 
@@ -112,54 +115,6 @@ Requires Elixir 1.14+.
 
 </details>
 
-### SDK Installation
-
-<table>
-<tr>
-<th>Go</th>
-<th>Rust</th>
-</tr>
-<tr>
-<td>
-
-```bash
-go get github.com/yairfalse/sykli/sdk/go@v0.3.0
-```
-
-</td>
-<td>
-
-```bash
-cargo add sykli@0.3.0
-```
-
-</td>
-</tr>
-<tr>
-<th>TypeScript</th>
-<th>Elixir</th>
-</tr>
-<tr>
-<td>
-
-```bash
-npm install sykli
-# or
-bun add sykli
-```
-
-</td>
-<td>
-
-```elixir
-# mix.exs
-{:sykli_sdk, "~> 0.3.0"}
-```
-
-</td>
-</tr>
-</table>
-
 ---
 
 ## Quick Start
@@ -167,23 +122,54 @@ bun add sykli
 ### 1. Initialize
 
 ```bash
-sykli init    # Auto-detects your project type
+sykli init    # Auto-detects Go, Rust, or Elixir projects
 ```
 
-Or create manually:
+Or create the SDK file manually — see [SDK Setup](#sdk-setup) below.
 
-<details>
+### 2. Run
+
+```bash
+sykli
+```
+
+```
+── Level with 1 task(s) ──
+▶ test   cargo test
+✓ test   124ms
+
+── Level with 1 task(s) ──
+▶ build  cargo build --release
+✓ build  1.2s
+
+test ✓ → build ✓
+
+✓ 2 passed in 1.4s
+```
+
+---
+
+## SDK Setup
+
+Sykli detects your pipeline by looking for a `sykli.*` file **in the project root**. Pick your language:
+
+<details open>
 <summary><strong>Go</strong></summary>
 
+```bash
+go get github.com/yairfalse/sykli/sdk/go@latest
+```
+
+Create `sykli.go` in your project root:
+
 ```go
-// sykli.go
 package main
 
 import sykli "github.com/yairfalse/sykli/sdk/go"
 
 func main() {
     s := sykli.New()
-    s.Task("test").Run("go test ./...")
+    s.Task("test").Run("go test ./...").Inputs("**/*.go", "go.mod")
     s.Task("build").Run("go build -o app").After("test")
     s.Emit()
 }
@@ -194,13 +180,28 @@ func main() {
 <details>
 <summary><strong>Rust</strong></summary>
 
+Create `sykli.rs` in your project root, and add the dependency and binary target to your `Cargo.toml`:
+
+```toml
+# Add to your existing Cargo.toml (or create one)
+[dependencies]
+sykli = "0.5"
+
+[[bin]]
+name = "sykli"
+path = "sykli.rs"
+```
+
+If you use a Cargo workspace, add the `[dependencies]` and `[[bin]]` sections to the **root** `Cargo.toml` (not a subdirectory).
+
+Then create `sykli.rs`:
+
 ```rust
-// sykli.rs
 use sykli::Pipeline;
 
 fn main() {
     let mut p = Pipeline::new();
-    p.task("test").run("cargo test");
+    p.task("test").run("cargo test").inputs(&["src/**/*.rs", "Cargo.toml"]);
     p.task("build").run("cargo build --release").after(&["test"]);
     p.emit();
 }
@@ -211,8 +212,13 @@ fn main() {
 <details>
 <summary><strong>TypeScript</strong></summary>
 
+```bash
+npm install sykli
+```
+
+Create `sykli.ts` in your project root:
+
 ```typescript
-// sykli.ts
 import { Pipeline } from 'sykli';
 
 const p = new Pipeline();
@@ -227,113 +233,53 @@ p.emit();
 <summary><strong>Elixir</strong></summary>
 
 ```elixir
-# sykli.exs
-Mix.install([{:sykli_sdk, "~> 0.3.0"}])
+# Add to mix.exs deps
+{:sykli_sdk, "~> 0.5.1"}
+```
 
-import Sykli
+Create `sykli.exs` in your project root:
 
-pipeline do
-  task "test", run: "mix test"
-  task "build", run: "mix compile", after: ["test"]
+```elixir
+Sykli.pipeline do
+  task "test" do
+    run "mix test"
+    inputs ["lib/**/*.ex", "test/**/*.exs", "mix.exs"]
+  end
+
+  task "build" do
+    run "mix compile --warnings-as-errors"
+    after_ ["test"]
+  end
 end
-|> Sykli.emit()
 ```
 
 </details>
 
-### 2. Run
+<details>
+<summary><strong>Python</strong></summary>
 
 ```bash
-sykli
+pip install sykli
 ```
 
+Create `sykli.py` in your project root:
+
+```python
+from sykli import Pipeline
+
+p = Pipeline()
+p.task("test").run("pytest")
+p.task("build").run("python -m build").after("test")
+p.emit()
 ```
-▶ test   go test ./...
-✓ test   124ms
 
-▶ build  go build -o app
-✓ build  1.2s
+</details>
 
-test ✓ → build ✓
-
-✓ All tasks completed in 1.4s
-```
+> **Important:** The `sykli.*` file must be in the **project root directory** — not in a subdirectory. Sykli searches the current directory (or the path you pass) for the SDK file.
 
 ---
 
 ## SDK Examples
-
-### Basic Pipeline
-
-<table>
-<tr><th>Go</th><th>Rust</th></tr>
-<tr>
-<td>
-
-```go
-s := sykli.New()
-
-s.Task("lint").Run("go vet ./...")
-s.Task("test").Run("go test ./...")
-s.Task("build").
-    Run("go build -o app").
-    After("lint", "test")
-
-s.Emit()
-```
-
-</td>
-<td>
-
-```rust
-let mut p = Pipeline::new();
-
-p.task("lint").run("cargo clippy");
-p.task("test").run("cargo test");
-p.task("build")
-    .run("cargo build --release")
-    .after(&["lint", "test"]);
-
-p.emit();
-```
-
-</td>
-</tr>
-<tr><th>TypeScript</th><th>Elixir</th></tr>
-<tr>
-<td>
-
-```typescript
-const p = new Pipeline();
-
-p.task('lint').run('eslint .');
-p.task('test').run('npm test');
-p.task('build')
-    .run('npm run build')
-    .after('lint', 'test');
-
-p.emit();
-```
-
-</td>
-<td>
-
-```elixir
-import Sykli
-
-pipeline do
-  task "lint", run: "mix credo"
-  task "test", run: "mix test"
-  task "build",
-    run: "mix compile",
-    after: ["lint", "test"]
-end
-|> Sykli.emit()
-```
-
-</td>
-</tr>
-</table>
 
 ### Caching with Inputs
 
@@ -374,29 +320,25 @@ Define configuration once, reuse everywhere:
 s := sykli.New()
 src := s.Dir(".")
 
-// Define template
 golang := s.Template("golang").
     Container("golang:1.22").
     Mount(src, "/src").
     Workdir("/src")
 
-// Reuse
 s.Task("test").From(golang).Run("go test ./...")
 s.Task("lint").From(golang).Run("go vet ./...")
 s.Task("build").From(golang).Run("go build -o app")
 ```
 
-### Node Placement (v0.3.0)
+### Node Placement
 
 Route tasks to nodes with specific capabilities:
 
 ```go
-// Run on nodes with GPU label
 s.Task("train").
     Requires("gpu").
     Run("python train.py")
 
-// Run on nodes with both labels
 s.Task("build-arm").
     Requires("arm64", "docker").
     Run("docker buildx build --platform=linux/arm64")
@@ -405,8 +347,36 @@ s.Task("build-arm").
 Nodes expose automatic labels (`darwin`, `linux`, `arm64`, `amd64`, `docker`) plus user-defined labels:
 
 ```bash
-# Set labels on a node
 SYKLI_LABELS=gpu,team:ml sykli daemon start
+```
+
+### Capability Dependencies
+
+Tasks declare what they provide and what they need:
+
+```go
+s.Task("build").
+    Run("go build -o app").
+    Provides("binary", "./app")
+
+s.Task("deploy").
+    Run("./deploy.sh").
+    Needs("binary")  // auto-ordered after build
+```
+
+### Gate Tasks
+
+Approval points that pause the pipeline:
+
+```go
+s.Gate("approve-deploy").
+    Message("Deploy to production?").
+    Strategy("prompt").    // interactive TTY
+    Timeout("1h")
+
+s.Task("deploy").
+    Run("./deploy.sh").
+    After("approve-deploy")
 ```
 
 ### Conditional Execution
@@ -416,14 +386,6 @@ s.Task("deploy").
     Run("./deploy.sh").
     When("branch == 'main'").
     Secret("DEPLOY_TOKEN")
-```
-
-Or with type-safe conditions:
-
-```go
-s.Task("deploy").
-    Run("./deploy.sh").
-    WhenCond(sykli.Branch("main").Or(sykli.HasTag()))
 ```
 
 ### Matrix Builds
@@ -437,6 +399,21 @@ s.Task("test").
 ```
 
 Expands to: `test[go=1.21]`, `test[go=1.22]`, `test[go=1.23]`
+
+### Cross-platform Verification
+
+Verify tasks pass on different OS/architecture:
+
+```go
+s.Task("build").
+    Run("go build -o app").
+    Verify("cross_platform")  // re-run on different OS/arch
+```
+
+```bash
+sykli verify              # verify latest run on mesh
+sykli verify --dry-run    # show what would be verified
+```
 
 ### Parallel Groups
 
@@ -466,26 +443,59 @@ s.Task("deploy").
 
 ## CLI Reference
 
+### Running Pipelines
+
 ```bash
-sykli                      # Run all tasks
-sykli --filter=test        # Run tasks matching pattern
-sykli --mesh               # Distribute across network
+sykli                          # Run all tasks
+sykli --filter=test            # Run tasks matching pattern
+sykli --timeout=5m             # Per-task timeout (default: 5m)
+sykli --timeout 30s            # Also accepts space-separated
+sykli --mesh                   # Distribute across mesh nodes
+sykli --target=k8s             # Run on Kubernetes
+```
 
-sykli init                 # Create sykli file for your project
-sykli validate             # Check pipeline without running
-sykli graph                # Visualize as Mermaid diagram
-sykli delta                # Run only git-affected tasks
-sykli delta --from=main    # Compare against branch
-sykli watch                # Re-run on file changes
+### Commands
 
-sykli cache stats          # Show cache statistics
-sykli cache clean          # Clear cache
+```bash
+sykli init                     # Create sykli file (auto-detects language)
+sykli init --rust              # Force specific language
+sykli validate                 # Check pipeline without running
+sykli validate --json          # Machine-readable validation output
 
-sykli report               # Show last run details
-sykli history              # List recent runs
+sykli delta                    # Run only git-affected tasks
+sykli delta --from=main        # Compare against branch
+sykli delta --dry-run          # Show what would run
 
-sykli daemon start         # Start mesh node
+sykli watch                    # Re-run on file changes
+sykli graph                    # Mermaid diagram of task graph
+sykli graph --dot              # Graphviz format
+
+sykli verify                   # Cross-platform verification via mesh
+sykli verify --dry-run --json  # Preview verification plan
+
+sykli report                   # Show last run summary
+sykli report --json            # Machine-readable report
+sykli history                  # List recent runs
+sykli context                  # Generate .sykli/context.json
+
+sykli cache stats              # Show cache statistics
+sykli cache clean              # Clear cache
+
+sykli daemon start             # Start mesh node
 sykli daemon start --labels=gpu,docker
+sykli daemon stop              # Stop mesh node
+sykli daemon status            # Show mesh status
+```
+
+### Timeout Formats
+
+```bash
+sykli --timeout=0              # No timeout (infinity)
+sykli --timeout=300            # Milliseconds
+sykli --timeout=10s            # Seconds
+sykli --timeout=5m             # Minutes (default)
+sykli --timeout=2h             # Hours
+sykli --timeout=1d             # Days
 ```
 
 ---
@@ -494,7 +504,7 @@ sykli daemon start --labels=gpu,docker
 
 ```
 ┌─────────────┐     ┌──────────────┐     ┌────────────┐
-│  sykli.go   │────▶│  JSON Graph  │────▶│   Engine   │
+│  sykli.*    │────▶│  JSON Graph  │────▶│   Engine   │
 │    (SDK)    │     │   (stdout)   │     │  (Elixir)  │
 └─────────────┘     └──────────────┘     └────────────┘
                                                │
@@ -506,61 +516,44 @@ sykli daemon start --labels=gpu,docker
               └──────────┘              └──────────┘              └──────────┘
 ```
 
-1. **Detect**: Sykli finds `sykli.go`, `sykli.rs`, `sykli.ts`, or `sykli.exs`
-2. **Emit**: Runs your SDK file with `--emit` to get a JSON task graph
-3. **Execute**: Runs tasks in parallel by dependency level
-4. **Cache**: Skips unchanged tasks based on input file hashes
+1. **Detect**: Sykli finds `sykli.go`, `sykli.rs`, `sykli.ts`, `sykli.exs`, or `sykli.py` in the current directory
+2. **Emit**: Runs your SDK file with `--emit` to get a JSON task graph on stdout
+3. **Execute**: Runs tasks in parallel by dependency level, with caching and retries
+4. **Save**: Writes run history to `.sykli/runs/` for reporting and verification
 
-**Why Elixir?** The BEAM VM's distribution primitives let the same code run locally or across a cluster. Your laptop and your CI farm run identical code.
+**Why Elixir?** The BEAM VM's distribution primitives let the same engine run locally or across a cluster. Your laptop and your CI farm run identical code.
 
 ---
 
 ## Documentation
 
-- **[ADR Index](docs/adr/)** - Architectural Decision Records
-- **[SDK API Design](docs/adr/005-sdk-api.md)** - SDK philosophy
-- **[Mesh Networking](docs/adr/013-mesh-swarm-design.md)** - Distributed execution
-- **[Node Placement](docs/adr/017-task-placement.md)** - Label-based routing
+- **[ADR Index](docs/adr/)** — Architectural Decision Records
+- **[SDK API Design](docs/adr/005-sdk-api.md)** — SDK philosophy
+- **[Mesh Networking](docs/adr/013-mesh-swarm-design.md)** — Distributed execution
+- **[Node Placement](docs/adr/017-task-placement.md)** — Label-based routing
 
 ---
 
 ## Project Status
 
-Sykli is **experimental**. We're using it internally but APIs may change.
+**Current version: v0.5.1**
 
 | Component | Status |
 |-----------|--------|
 | Core Engine | Stable |
 | Go SDK | Stable |
 | Rust SDK | Stable |
-| TypeScript SDK | Beta |
+| TypeScript SDK | Stable |
 | Elixir SDK | Stable |
+| Python SDK | Beta |
 | Local Execution | Stable |
 | Container Tasks | Stable |
 | Mesh Distribution | Beta |
+| Cross-platform Verify | Beta |
 | K8s Target | Beta |
+| Gate Tasks | Beta |
+| Capability Dependencies | Beta |
 | Remote Cache | Planned |
-
-**Current version: v0.3.0**
-
----
-
-## Roadmap
-
-**v0.3.0** (Current)
-- Node profiles & labels
-- Task requirements for placement
-- PlacementError diagnostics
-
-**v0.4.0**
-- Remote cache (S3/GCS)
-- Cache garbage collection
-- Schema-driven SDK codegen
-
-**v0.5.0**
-- Hosted dashboard
-- Webhook triggers
-- GitHub App integration
 
 ---
 
@@ -569,24 +562,23 @@ Sykli is **experimental**. We're using it internally but APIs may change.
 Sykli is open source under the MIT license. Contributions welcome!
 
 ```bash
-# Run tests
-cd core && mix test
+cd core && mix test          # Run tests (714 tests)
+mix escript.build            # Build binary
 
-# Build binary
-mix escript.build
+test/blackbox/run.sh         # Run black-box test suite
 ```
 
 ---
 
 ## Naming
 
-**Sykli** (Finnish: "cycle") - Part of a Finnish tool naming theme for DevOps tools.
+**Sykli** (Finnish: "cycle") — Part of a Finnish tool naming theme for infrastructure tools.
 
 ---
 
 <div align="center">
 
-**[Get Started](#quick-start)** · **[GitHub](https://github.com/yairfalse/sykli)** · **[Issues](https://github.com/yairfalse/sykli/issues)**
+**[Get Started](#-quick-start)** · **[GitHub](https://github.com/yairfalse/sykli)** · **[Issues](https://github.com/yairfalse/sykli/issues)**
 
 Built in Berlin. Powered by BEAM. No YAML was harmed.
 
