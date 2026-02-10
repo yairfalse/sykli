@@ -71,6 +71,22 @@ defmodule Sykli do
     else
       {:error, :no_sdk_file} ->
         IO.puts(:stderr, "\e[31m✗ No sykli file found\e[0m")
+
+        # Check for SDK files in subdirectories
+        case Detector.find_nearby(path) do
+          [_ | _] = nearby ->
+            IO.puts(:stderr, "")
+            IO.puts(:stderr, "\e[33mFound SDK files in subdirectories:\e[0m")
+
+            for file <- nearby do
+              dir = Path.dirname(file)
+              IO.puts(:stderr, "  #{file}  →  \e[32msykli #{dir}/\e[0m")
+            end
+
+          [] ->
+            :ok
+        end
+
         IO.puts(:stderr, "")
         IO.puts(:stderr, "\e[36mQuick start:\e[0m")
         IO.puts(:stderr, "")

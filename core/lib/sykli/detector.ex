@@ -56,6 +56,41 @@ defmodule Sykli.Detector do
     end
   end
 
+  @doc """
+  Search one level of subdirectories for SDK files.
+  Returns a list of relative paths like ["ci/sykli.rs", ".ci/sykli.go"].
+  Used for "did you mean?" hints when no SDK file is found in the root.
+  """
+  def find_nearby(path) do
+    abs_path =
+      if path == "." do
+        System.get_env("PWD") || File.cwd!()
+      else
+        Path.expand(path)
+      end
+
+    sdk_names = Enum.map(@sdk_files, fn {file, _runner} -> file end)
+
+    case File.ls(abs_path) do
+      {:ok, entries} ->
+        entries
+        |> Enum.filter(fn entry ->
+          full = Path.join(abs_path, entry)
+          File.dir?(full) and not String.starts_with?(entry, ".")
+        end)
+        |> Enum.flat_map(fn dir ->
+          sdk_names
+          |> Enum.filter(fn file ->
+            File.exists?(Path.join([abs_path, dir, file]))
+          end)
+          |> Enum.map(fn file -> Path.join(dir, file) end)
+        end)
+
+      {:error, _} ->
+        []
+    end
+  end
+
   def emit({path, runner}) do
     runner.(path)
   end
