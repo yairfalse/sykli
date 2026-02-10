@@ -262,6 +262,25 @@ defmodule Sykli.DSL do
     update_current_task(fn t -> %{t | requires: labels} end)
   end
 
+  @doc """
+  Sets the cross-platform verification mode.
+
+  Modes:
+  - `"cross_platform"` — verify on a node with different OS/arch
+  - `"always"` — always verify on a remote node
+  - `"never"` — skip verification
+
+  ## Example
+
+      task "build" do
+        run "make"
+        verify "cross_platform"
+      end
+  """
+  def verify(mode) when mode in ~w(cross_platform always never) do
+    update_current_task(fn t -> %{t | verify: mode} end)
+  end
+
   @doc "Adds a service container."
   def service(image, name) do
     svc = %{image: image, name: name}

@@ -225,7 +225,7 @@ $stderr_clean"
     patterns=$(echo "$expect_stdout_contains" | jq -r '.[]' 2>/dev/null || true)
     if [ -n "$patterns" ]; then
       while IFS= read -r pattern; do
-        if ! echo "$all_output" | grep -qF "$pattern"; then
+        if ! echo "$all_output" | grep -qF -- "$pattern"; then
           failed=1
           fail_reason="stdout missing pattern: '$pattern'"
           break

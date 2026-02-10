@@ -757,6 +757,8 @@ struct TaskData {
     needs: Vec<String>,
     // Gate fields (if set, this is a gate not a regular task)
     gate: Option<GateConfig>,
+    // Cross-platform verification mode
+    verify: Option<String>,
 }
 
 /// Gate configuration for approval gates.
@@ -1166,6 +1168,22 @@ impl<'a> Task<'a> {
         self.pipeline.tasks[self.index]
             .requires
             .extend(labels.iter().map(|s| (*s).to_string()));
+        self
+    }
+
+    /// Sets the cross-platform verification mode for this task.
+    ///
+    /// Modes:
+    ///   - `"cross_platform"` — verify on a node with different OS/arch
+    ///   - `"always"` — always verify on any remote node
+    ///   - `"never"` — never verify this task remotely
+    ///
+    /// # Panics
+    /// Panics if `mode` is empty.
+    #[must_use]
+    pub fn verify(self, mode: &str) -> Self {
+        assert!(!mode.is_empty(), "verify mode cannot be empty");
+        self.pipeline.tasks[self.index].verify = Some(mode.to_string());
         self
     }
 
@@ -2327,6 +2345,7 @@ impl Pipeline {
                         env_var: g.env_var.clone(),
                         file_path: g.file_path.clone(),
                     }),
+                    verify: t.verify.clone(),
                 })
                 .collect(),
         };
@@ -2591,6 +2610,8 @@ struct JsonTask {
     ai_hooks: Option<JsonAiHooks>,
     #[serde(skip_serializing_if = "Option::is_none")]
     gate: Option<JsonGate>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    verify: Option<String>,
 }
 
 #[derive(Serialize)]

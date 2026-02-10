@@ -550,6 +550,8 @@ type Task struct {
 	needs        []string
 	// Gate fields (if set, this is a gate not a regular task)
 	gate         *gateConfig
+	// Cross-platform verification mode
+	verify       string
 }
 
 // Task creates a new task with the given name.
@@ -928,6 +930,24 @@ func (t *Task) Requires(labels ...string) *Task {
 		}
 	}
 	t.requires = append(t.requires, labels...)
+	return t
+}
+
+// Verify sets the cross-platform verification mode for this task.
+// Modes:
+//   - "cross_platform" — verify on a node with different OS/arch (default behavior)
+//   - "always" — always verify on any remote node
+//   - "never" — never verify this task remotely
+//
+// Example:
+//
+//	s.Task("build").Run("go build -o app").Verify("cross_platform")
+//	s.Task("lint").Run("golangci-lint run").Verify("never")
+func (t *Task) Verify(mode string) *Task {
+	if mode == "" {
+		log.Panic().Str("task", t.name).Msg("verify mode cannot be empty")
+	}
+	t.verify = mode
 	return t
 }
 
@@ -1842,6 +1862,7 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 		AiHooks    *jsonAiHooks        `json:"ai_hooks,omitempty"`
 		// Gate (approval point)
 		Gate       *jsonGate           `json:"gate,omitempty"`
+		Verify     string              `json:"verify,omitempty"`
 	}
 
 	type jsonResource struct {
@@ -2047,6 +2068,7 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 					FilePath: t.gate.filePath,
 				}
 			}(),
+			Verify: t.verify,
 		}
 	}
 
