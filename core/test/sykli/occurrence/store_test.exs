@@ -24,8 +24,8 @@ defmodule Sykli.Occurrence.StoreTest do
     if Process.whereis(Store) do
       GenServer.stop(Store)
     end
-  rescue
-    _ -> :ok
+  catch
+    :exit, _ -> :ok
   end
 
   defp start_store(opts \\ []) do
