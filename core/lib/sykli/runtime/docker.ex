@@ -197,7 +197,10 @@ defmodule Sykli.Runtime.Docker do
       {^port, {:data, data}} ->
         IO.write("  #{IO.ANSI.faint()}#{data}#{IO.ANSI.reset()}")
         new_lines = data |> :binary.matches("\n") |> length()
-        stream_output(port, timeout_ms, container_name, line_count + new_lines, [data | output_acc])
+
+        stream_output(port, timeout_ms, container_name, line_count + new_lines, [
+          data | output_acc
+        ])
 
       {^port, {:exit_status, status}} ->
         full_output = output_acc |> Enum.reverse() |> Enum.join()

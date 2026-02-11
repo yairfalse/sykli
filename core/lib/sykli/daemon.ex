@@ -515,6 +515,9 @@ defmodule Sykli.Daemon do
   end
 
   defp start_daemon_services(role) do
+    # Occurrence store is always needed (context for AI)
+    start_service(Sykli.Occurrence.Store, "Occurrence Store")
+
     # Cluster discovery is always needed for mesh networking
     start_service(Sykli.Cluster, "Cluster")
 
