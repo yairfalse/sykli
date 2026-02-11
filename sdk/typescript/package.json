@@ -1,6 +1,6 @@
 {
   "name": "sykli",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "CI pipelines defined in TypeScript instead of YAML",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
