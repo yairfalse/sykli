@@ -1,7 +1,7 @@
 {
   "suite": "sykli-blackbox",
   "version": "1.0.0",
-  "target": "sykli 0.5.0",
+  "target": "sykli 0.5.2",
   "categories": {
     "POS": "Positive - system works as promised",
     "NEG": "Negative - system rejects what it should",
@@ -59,7 +59,7 @@
       "fixture": "single_task",
       "command": "sykli --version",
       "expect_exit": 0,
-      "expect_stdout": "sykli 0.5.0"
+      "expect_stdout": "sykli 0.5.2"
     },
     {
       "id": "POS-007",
