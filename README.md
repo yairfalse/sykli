@@ -534,7 +534,7 @@ Every `sykli` run generates structured context that AI assistants can read direc
 
 ### Occurrence Reports
 
-After each run, `.sykli/occurrence.json` contains a complete [FALSE Protocol](https://github.com/yairfalse/sykli) occurrence with:
+After each run, `.sykli/occurrence.json` contains a structured occurrence with:
 
 - **Error block** — `what_failed`, `why_it_matters`, `possible_causes`, `suggested_fix`
 - **Reasoning block** — root cause analysis with file-level correlation

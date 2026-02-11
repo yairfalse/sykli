@@ -328,8 +328,8 @@ defmodule Sykli.Occurrence do
 
           case Enum.find(tasks, &(&1["name"] == r.name)) do
             %{"status" => status} -> status in ["passed", "cached"]
-            # Task didn't exist before — treat as new
-            nil -> true
+            # Task didn't exist before — not a regression
+            nil -> false
           end
         end)
       end)
@@ -607,7 +607,14 @@ defmodule Sykli.Occurrence do
         etf_files =
           files
           |> Enum.filter(&String.ends_with?(&1, ".etf"))
-          |> Enum.sort()
+          |> Enum.sort_by(fn file ->
+            path = Path.join(etf_dir, file)
+
+            case File.stat(path) do
+              {:ok, %File.Stat{mtime: mtime}} -> mtime
+              _ -> {{1970, 1, 1}, {0, 0, 0}}
+            end
+          end)
 
         if length(etf_files) > max do
           etf_files

@@ -160,16 +160,30 @@ defmodule Sykli.Occurrence.Store do
       {:ok, files} ->
         files
         |> Enum.filter(&String.ends_with?(&1, ".etf"))
-        |> Enum.sort()
+        |> Enum.sort_by(fn filename ->
+          path = Path.join(etf_dir, filename)
+
+          case File.stat(path) do
+            {:ok, %File.Stat{mtime: mtime}} -> mtime
+            _ -> {{1970, 1, 1}, {0, 0, 0}}
+          end
+        end)
         |> Enum.take(-@max_entries)
         |> Enum.each(fn filename ->
           path = Path.join(etf_dir, filename)
 
           case File.read(path) do
             {:ok, binary} ->
-              occurrence = :erlang.binary_to_term(binary)
-              key = make_key(occurrence)
-              :ets.insert(@table, {key, occurrence})
+              try do
+                occurrence = :erlang.binary_to_term(binary, [:safe])
+                key = make_key(occurrence)
+                :ets.insert(@table, {key, occurrence})
+              rescue
+                ArgumentError ->
+                  Logger.warning(
+                    "[Occurrence.Store] Failed to decode ETF for #{filename}: unsafe or invalid term"
+                  )
+              end
 
             {:error, reason} ->
               Logger.warning("[Occurrence.Store] Failed to load #{filename}: #{inspect(reason)}")

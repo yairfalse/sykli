@@ -516,7 +516,19 @@ defmodule Sykli.Daemon do
 
   defp start_daemon_services(role) do
     # Occurrence store is always needed (context for AI)
-    start_service(Sykli.Occurrence.Store, "Occurrence Store")
+    # Pass workdir so the store hydrates ETF files on startup
+    workdir = File.cwd!()
+
+    case Sykli.Occurrence.Store.start_link(workdir: workdir) do
+      {:ok, _} ->
+        Logger.debug("[Sykli.Daemon] Started Occurrence Store")
+
+      {:error, {:already_started, _}} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("[Sykli.Daemon] Failed to start Occurrence Store: #{inspect(reason)}")
+    end
 
     # Cluster discovery is always needed for mesh networking
     start_service(Sykli.Cluster, "Cluster")
