@@ -66,6 +66,7 @@ Run `sykli` and it executes your tasks in parallel, with caching, retries, and c
 | **Container Support** | Docker containers with volume mounts |
 | **Node Placement** | Route tasks to nodes with specific labels (GPU, etc.) |
 | **Mesh Distribution** | Spread work across machines on your network |
+| **AI-Native Context** | Structured occurrence reports for AI assistants |
 | **Cross-platform Verify** | Re-run tasks on different OS/arch via mesh |
 | **Delta Builds** | Run only tasks affected by git changes |
 | **Watch Mode** | Re-run on file changes |
@@ -473,6 +474,8 @@ sykli graph --dot              # Graphviz format
 sykli verify                   # Cross-platform verification via mesh
 sykli verify --dry-run --json  # Preview verification plan
 
+sykli explain                  # Show last run occurrence (AI-readable)
+sykli explain --json           # Raw occurrence JSON
 sykli report                   # Show last run summary
 sykli report --json            # Machine-readable report
 sykli history                  # List recent runs
@@ -519,9 +522,59 @@ sykli --timeout=1d             # Days
 1. **Detect**: Sykli finds `sykli.go`, `sykli.rs`, `sykli.ts`, `sykli.exs`, or `sykli.py` in the current directory
 2. **Emit**: Runs your SDK file with `--emit` to get a JSON task graph on stdout
 3. **Execute**: Runs tasks in parallel by dependency level, with caching and retries
-4. **Save**: Writes run history to `.sykli/runs/` for reporting and verification
+4. **Save**: Writes run history to `.sykli/runs/` and occurrence context to `.sykli/`
 
 **Why Elixir?** The BEAM VM's distribution primitives let the same engine run locally or across a cluster. Your laptop and your CI farm run identical code.
+
+---
+
+## AI Context
+
+Every `sykli` run generates structured context that AI assistants can read directly — no log parsing needed.
+
+### Occurrence Reports
+
+After each run, `.sykli/occurrence.json` contains a complete [FALSE Protocol](https://github.com/yairfalse/sykli) occurrence with:
+
+- **Error block** — `what_failed`, `why_it_matters`, `possible_causes`, `suggested_fix`
+- **Reasoning block** — root cause analysis with file-level correlation
+- **History block** — per-task steps, durations, and cross-run outcomes
+- **CI data** — git context, task details, dependency graph
+
+```bash
+sykli explain              # Human-readable summary
+sykli explain --json       # Raw occurrence JSON for tooling
+```
+
+### Three-Tier Persistence
+
+Occurrences are stored at three levels for different access patterns:
+
+| Tier | Path | Speed | Consumer |
+|------|------|-------|----------|
+| **Cold** | `.sykli/occurrence.json` | Always available | Any tool, `cat`, AI |
+| **Warm** | `.sykli/occurrences/*.etf` | Fast BEAM reload | `sykli explain`, daemon |
+| **Hot** | ETS (in-memory) | Instant | `sykli explain` when daemon runs |
+
+When the daemon is running, the occurrence store accumulates history in ETS. This enables cross-run queries like regression detection and recent outcome patterns — without reading files.
+
+### Context for AI Assistants
+
+```bash
+sykli context              # Generate .sykli/context.json
+```
+
+The `.sykli/` directory is designed as the AI's memory of your project:
+
+```
+.sykli/
+├── occurrence.json          # Latest run (FALSE Protocol format)
+├── occurrences/             # ETF archive (last 50 runs)
+│   ├── run_abc123.etf
+│   └── run_def456.etf
+├── context.json             # Pipeline structure + health
+└── runs/                    # Run history (lean format)
+```
 
 ---
 
@@ -549,6 +602,7 @@ sykli --timeout=1d             # Days
 | Local Execution | Stable |
 | Container Tasks | Stable |
 | Mesh Distribution | Beta |
+| AI Context (Occurrences) | Stable |
 | Cross-platform Verify | Beta |
 | K8s Target | Beta |
 | Gate Tasks | Beta |
@@ -562,7 +616,7 @@ sykli --timeout=1d             # Days
 Sykli is open source under the MIT license. Contributions welcome!
 
 ```bash
-cd core && mix test          # Run tests (714 tests)
+cd core && mix test          # Run tests (770+ tests)
 mix escript.build            # Build binary
 
 test/blackbox/run.sh         # Run black-box test suite
