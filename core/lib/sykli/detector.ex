@@ -145,9 +145,14 @@ defmodule Sykli.Detector do
 
             {:error, _} ->
               case run_cargo_emit(dir, ["--features", "sykli"]) do
-                {:ok, _} = ok -> ok
-                {:error, :timeout} -> {:error, {:rust_timeout, "Cargo build timed out after 2 minutes"}}
-                {:error, error} -> {:error, {:rust_cargo_failed, error}}
+                {:ok, _} = ok ->
+                  ok
+
+                {:error, :timeout} ->
+                  {:error, {:rust_timeout, "Cargo build timed out after 2 minutes"}}
+
+                {:error, error} ->
+                  {:error, {:rust_cargo_failed, error}}
               end
           end
         end

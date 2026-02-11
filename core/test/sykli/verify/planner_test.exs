@@ -40,8 +40,8 @@ defmodule Sykli.Verify.PlannerTest do
   end
 
   defp mac_labels, do: ["darwin", "arm64"]
-  defp linux_node, do: %{node: :"worker@linux", labels: ["linux", "amd64"]}
-  defp mac_node, do: %{node: :"worker@mac2", labels: ["darwin", "arm64"]}
+  defp linux_node, do: %{node: :worker@linux, labels: ["linux", "amd64"]}
+  defp mac_node, do: %{node: :worker@mac2, labels: ["darwin", "arm64"]}
 
   # ── Tests ────────────────────────────────────────────────────────────────────
 
@@ -105,7 +105,7 @@ defmodule Sykli.Verify.PlannerTest do
       assert length(plan.entries) == 1
       [entry] = plan.entries
       assert entry.task_name == "deploy"
-      assert entry.target_node == :"worker@mac2"
+      assert entry.target_node == :worker@mac2
       assert entry.reason == :explicit_verify
     end
   end
@@ -120,7 +120,7 @@ defmodule Sykli.Verify.PlannerTest do
       assert length(plan.entries) == 1
       [entry] = plan.entries
       assert entry.task_name == "build"
-      assert entry.target_node == :"worker@linux"
+      assert entry.target_node == :worker@linux
       assert entry.target_labels == ["linux", "amd64"]
       assert entry.reason == :cross_platform
     end
@@ -146,7 +146,7 @@ defmodule Sykli.Verify.PlannerTest do
       assert length(plan.entries) == 1
       [entry] = plan.entries
       assert entry.task_name == "test"
-      assert entry.target_node == :"worker@linux"
+      assert entry.target_node == :worker@linux
       assert entry.reason == :retry_on_different_platform
     end
 
@@ -159,7 +159,7 @@ defmodule Sykli.Verify.PlannerTest do
       assert length(plan.entries) == 1
       [entry] = plan.entries
       assert entry.task_name == "test"
-      assert entry.target_node == :"worker@mac2"
+      assert entry.target_node == :worker@mac2
       assert entry.reason == :retry_on_different_platform
     end
   end
@@ -277,7 +277,7 @@ defmodule Sykli.Verify.PlannerTest do
   describe "find_different_platform_node/2" do
     test "finds linux node from darwin" do
       node = Planner.find_different_platform_node(["darwin", "arm64"], [linux_node()])
-      assert node.node == :"worker@linux"
+      assert node.node == :worker@linux
     end
 
     test "returns nil when all nodes have same platform" do
@@ -287,12 +287,12 @@ defmodule Sykli.Verify.PlannerTest do
     test "finds first different-platform node" do
       nodes = [mac_node(), linux_node()]
       node = Planner.find_different_platform_node(["darwin", "arm64"], nodes)
-      assert node.node == :"worker@linux"
+      assert node.node == :worker@linux
     end
 
     test "ignores non-platform labels" do
       local = ["darwin", "arm64", "gpu", "docker"]
-      remote = %{node: :"worker@other", labels: ["darwin", "arm64", "ssd"]}
+      remote = %{node: :worker@other, labels: ["darwin", "arm64", "ssd"]}
       assert nil == Planner.find_different_platform_node(local, [remote])
     end
   end

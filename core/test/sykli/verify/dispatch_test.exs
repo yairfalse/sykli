@@ -16,7 +16,7 @@ defmodule Sykli.Verify.DispatchTest do
 
   # ── Helpers ──────────────────────────────────────────────────────────────────
 
-  defp linux_node, do: %{node: :"worker@linux", labels: ["linux", "amd64"]}
+  defp linux_node, do: %{node: :worker@linux, labels: ["linux", "amd64"]}
 
   defp make_run(task_results) do
     %Run{
@@ -83,7 +83,7 @@ defmodule Sykli.Verify.DispatchTest do
         entries: [
           %Verify.Plan.Entry{
             task_name: "build",
-            target_node: :"worker@linux",
+            target_node: :worker@linux,
             reason: :cross_platform
           }
         ],
@@ -113,8 +113,8 @@ defmodule Sykli.Verify.DispatchTest do
 
       plan = %Verify.Plan{
         entries: [
-          %Verify.Plan.Entry{task_name: "a", target_node: :"w@1", reason: :cross_platform},
-          %Verify.Plan.Entry{task_name: "b", target_node: :"w@1", reason: :cross_platform}
+          %Verify.Plan.Entry{task_name: "a", target_node: :w@1, reason: :cross_platform},
+          %Verify.Plan.Entry{task_name: "b", target_node: :w@1, reason: :cross_platform}
         ],
         skipped: [],
         local_labels: ["darwin"],
@@ -194,7 +194,7 @@ defmodule Sykli.Verify.DispatchTest do
       setup_run_and_fixture(tmp_dir, run, [task_json("build")])
 
       dispatch_fn = fn _task, _node, _opts ->
-        {:error, {:node_not_connected, :"worker@linux"}}
+        {:error, {:node_not_connected, :worker@linux}}
       end
 
       assert {:ok, _plan} = Verify.verify(verify_opts(tmp_dir, dispatch_fn: dispatch_fn))
@@ -245,7 +245,7 @@ defmodule Sykli.Verify.DispatchTest do
       # Same platform → planner produces no entries
       opts =
         verify_opts(tmp_dir,
-          discover_fn: fn -> [%{node: :"worker@mac2", labels: ["darwin", "arm64"]}] end,
+          discover_fn: fn -> [%{node: :worker@mac2, labels: ["darwin", "arm64"]}] end,
           dispatch_fn: dispatch_fn
         )
 

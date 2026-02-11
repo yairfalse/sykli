@@ -5,7 +5,7 @@ defmodule Sykli do
   Direct orchestration: detect SDK file, run it, parse JSON, execute tasks.
   """
 
-  alias Sykli.{Detector, Graph, Executor, Cache, RunHistory, GitContext, Context}
+  alias Sykli.{Detector, Graph, Executor, Cache, RunHistory, GitContext, Context, Occurrence}
 
   @doc """
   Run the sykli pipeline.
@@ -90,7 +90,12 @@ defmodule Sykli do
         IO.puts(:stderr, "")
         IO.puts(:stderr, "\e[36mQuick start:\e[0m")
         IO.puts(:stderr, "")
-        IO.puts(:stderr, "  \e[32msykli init\e[0m    Auto-detect language and generate a sykli file")
+
+        IO.puts(
+          :stderr,
+          "  \e[32msykli init\e[0m    Auto-detect language and generate a sykli file"
+        )
+
         IO.puts(:stderr, "")
         IO.puts(:stderr, "\e[2mOr create one manually:\e[0m")
         IO.puts(:stderr, "  sykli.go    sykli.rs    sykli.ts    sykli.exs    sykli.py")
@@ -175,14 +180,21 @@ defmodule Sykli do
 
   # Save run history and generate AI context after execution
   defp save_run_history(path, result, graph) do
-    {overall, task_results} = extract_task_results(result, graph, path)
     timestamp = DateTime.utc_now()
+    run_id = generate_run_id()
+
+    # Generate occurrence FIRST — has access to raw Error structs
+    # (before convert_results_to_history stringifies them)
+    run_meta = %{id: run_id, timestamp: timestamp}
+    generate_occurrence(path, result, graph, run_meta)
+
+    {overall, task_results} = extract_task_results(result, graph, path)
 
     # Add likely cause for failed tasks
     task_results_with_cause = add_likely_causes(task_results, path)
 
     run = %RunHistory.Run{
-      id: generate_run_id(),
+      id: run_id,
       timestamp: timestamp,
       git_ref: get_git_ref(path),
       git_branch: get_git_branch(path),
@@ -199,6 +211,24 @@ defmodule Sykli do
     e ->
       IO.puts(
         "#{IO.ANSI.yellow()}⚠ Warning: Failed to save run history: #{Exception.message(e)}#{IO.ANSI.reset()}"
+      )
+  end
+
+  # Generate .sykli/occurrence.json — AI-readable run report with structured errors
+  defp generate_occurrence(path, executor_result, graph, run_meta) do
+    case Occurrence.generate(graph, executor_result, run_meta, path) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        IO.puts(
+          "#{IO.ANSI.yellow()}⚠ Warning: Failed to generate occurrence: #{inspect(reason)}#{IO.ANSI.reset()}"
+        )
+    end
+  rescue
+    e ->
+      IO.puts(
+        "#{IO.ANSI.yellow()}⚠ Warning: Failed to generate occurrence: #{Exception.message(e)}#{IO.ANSI.reset()}"
       )
   end
 

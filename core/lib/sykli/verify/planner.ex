@@ -77,7 +77,15 @@ defmodule Sykli.Verify.Planner do
         {entries, [{task_result.name, :verify_never} | skipped]}
 
       _ ->
-        decide_with_mode(task_result, task, verify_mode, local_labels, remote_nodes, entries, skipped)
+        decide_with_mode(
+          task_result,
+          task,
+          verify_mode,
+          local_labels,
+          remote_nodes,
+          entries,
+          skipped
+        )
     end
   end
 
@@ -86,7 +94,15 @@ defmodule Sykli.Verify.Planner do
     {entries, [{task_result.name, :no_remote_nodes} | skipped]}
   end
 
-  defp decide_with_mode(task_result, _task, "always", _local_labels, remote_nodes, entries, skipped) do
+  defp decide_with_mode(
+         task_result,
+         _task,
+         "always",
+         _local_labels,
+         remote_nodes,
+         entries,
+         skipped
+       ) do
     # Verify on any remote node
     node = List.first(remote_nodes)
 
@@ -100,7 +116,15 @@ defmodule Sykli.Verify.Planner do
     {[entry | entries], skipped}
   end
 
-  defp decide_with_mode(task_result, _task, "cross_platform", local_labels, remote_nodes, entries, skipped) do
+  defp decide_with_mode(
+         task_result,
+         _task,
+         "cross_platform",
+         local_labels,
+         remote_nodes,
+         entries,
+         skipped
+       ) do
     case find_different_platform_node(local_labels, remote_nodes) do
       nil ->
         {entries, [{task_result.name, :same_platform} | skipped]}

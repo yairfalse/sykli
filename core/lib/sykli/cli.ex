@@ -49,6 +49,9 @@ defmodule Sykli.CLI do
       ["verify" | verify_args] ->
         handle_verify(verify_args)
 
+      ["explain" | explain_args] ->
+        handle_explain(explain_args)
+
       ["context" | context_args] ->
         handle_context(context_args)
 
@@ -86,6 +89,7 @@ defmodule Sykli.CLI do
       sykli run [path] Run pipeline (explicit form)
       sykli init       Create a new sykli file (auto-detects language)
       sykli validate   Check sykli file for errors without running
+      sykli explain    Show last run occurrence (AI-readable report)
       sykli context    Generate AI context file (.sykli/context.json)
       sykli verify     Cross-platform verification via mesh nodes
       sykli delta      Run only tasks affected by git changes
@@ -838,7 +842,10 @@ defmodule Sykli.CLI do
             IO.puts(Jason.encode!(%{error: "No runs found"}))
           else
             IO.puts("#{IO.ANSI.red()}No runs found#{IO.ANSI.reset()}")
-            IO.puts("#{IO.ANSI.faint()}Run 'sykli' first to create a run record#{IO.ANSI.reset()}")
+
+            IO.puts(
+              "#{IO.ANSI.faint()}Run 'sykli' first to create a run record#{IO.ANSI.reset()}"
+            )
           end
 
           halt(1)
@@ -877,7 +884,10 @@ defmodule Sykli.CLI do
             IO.puts(Jason.encode!(%{error: "No runs found"}))
           else
             IO.puts("#{IO.ANSI.red()}No runs found#{IO.ANSI.reset()}")
-            IO.puts("#{IO.ANSI.faint()}Run 'sykli' first to create a run record#{IO.ANSI.reset()}")
+
+            IO.puts(
+              "#{IO.ANSI.faint()}Run 'sykli' first to create a run record#{IO.ANSI.reset()}"
+            )
           end
 
           halt(1)
@@ -937,7 +947,9 @@ defmodule Sykli.CLI do
         IO.puts("#{IO.ANSI.faint()}Skipped #{length(plan.skipped)} task(s):#{IO.ANSI.reset()}")
 
         Enum.each(plan.skipped, fn {name, reason} ->
-          IO.puts("  #{IO.ANSI.faint()}○#{IO.ANSI.reset()} #{name} #{IO.ANSI.faint()}(#{format_skip_reason(reason)})#{IO.ANSI.reset()}")
+          IO.puts(
+            "  #{IO.ANSI.faint()}○#{IO.ANSI.reset()} #{name} #{IO.ANSI.faint()}(#{format_skip_reason(reason)})#{IO.ANSI.reset()}"
+          )
         end)
       end
     else
@@ -946,7 +958,9 @@ defmodule Sykli.CLI do
 
       Enum.each(plan.entries, fn entry ->
         reason_str = format_verify_reason(entry.reason)
-        labels_str = if entry.target_labels, do: " [#{Enum.join(entry.target_labels, ", ")}]", else: ""
+
+        labels_str =
+          if entry.target_labels, do: " [#{Enum.join(entry.target_labels, ", ")}]", else: ""
 
         IO.puts(
           "  #{IO.ANSI.green()}•#{IO.ANSI.reset()} #{entry.task_name} → #{entry.target_node}#{labels_str}"
@@ -1020,6 +1034,230 @@ defmodule Sykli.CLI do
   defp format_verify_reason(:retry_on_different_platform), do: "retry on different platform"
   defp format_verify_reason(:explicit_verify), do: "explicit verify: always"
   defp format_verify_reason(reason), do: to_string(reason)
+
+  # ----- EXPLAIN SUBCOMMAND -----
+
+  defp handle_explain(["--help"]) do
+    IO.puts("""
+    Usage: sykli explain [options] [path]
+
+    Show the last run occurrence — an AI-readable report of what happened.
+
+    The occurrence file (.sykli/occurrence.json) contains structured errors,
+    git context, causality analysis, and per-task history in a single file.
+
+    Options:
+      --json       Output raw JSON (default: human-readable summary)
+      --help       Show this help
+
+    Examples:
+      sykli explain              Show human-readable summary
+      sykli explain --json       Output raw occurrence JSON
+    """)
+
+    halt(0)
+  end
+
+  defp handle_explain(args) do
+    {opts, path} = parse_explain_args(args)
+    path = path || "."
+    json_output = Keyword.get(opts, :json, false)
+
+    # Try hot path (ETS store) first, fall back to cold path (JSON file)
+    data = load_occurrence_hot(path)
+
+    case data do
+      nil ->
+        IO.puts("#{IO.ANSI.yellow()}No occurrence data found#{IO.ANSI.reset()}")
+
+        IO.puts(
+          "#{IO.ANSI.faint()}Run 'sykli' first to generate occurrence data#{IO.ANSI.reset()}"
+        )
+
+        halt(1)
+
+      occurrence ->
+        if json_output do
+          IO.puts(Jason.encode!(occurrence, pretty: true))
+        else
+          output_explain_summary(occurrence)
+        end
+
+        halt(0)
+    end
+  end
+
+  defp load_occurrence_hot(path) do
+    # Hot path: try ETS store (instant, if daemon is running)
+    case safe_store_call(fn -> Sykli.Occurrence.Store.get_latest() end) do
+      nil ->
+        # Cold path: read JSON file
+        load_occurrence_cold(path)
+
+      occurrence ->
+        occurrence
+    end
+  end
+
+  defp load_occurrence_cold(path) do
+    occurrence_path = Path.join([path, ".sykli", "occurrence.json"])
+
+    case File.read(occurrence_path) do
+      {:ok, json} -> Jason.decode!(json)
+      {:error, _} -> nil
+    end
+  end
+
+  defp safe_store_call(fun) do
+    fun.()
+  catch
+    :exit, _ -> nil
+    :error, _ -> nil
+  end
+
+  defp parse_explain_args(args) do
+    {opts, rest} =
+      Enum.reduce(args, {[], []}, fn arg, {opts, rest} ->
+        cond do
+          arg == "--json" ->
+            {[{:json, true} | opts], rest}
+
+          String.starts_with?(arg, "--") ->
+            {opts, rest}
+
+          true ->
+            {opts, rest ++ [arg]}
+        end
+      end)
+
+    {opts, List.first(rest)}
+  end
+
+  defp output_explain_summary(data) do
+    ci_data = data["ci_data"] || %{}
+    summary = ci_data["summary"] || %{}
+    git = ci_data["git"] || %{}
+    tasks = ci_data["tasks"] || []
+    error_block = data["error"]
+    reasoning = data["reasoning"]
+
+    # Header
+    outcome = data["outcome"] || "unknown"
+    outcome_color = if outcome == "passed", do: IO.ANSI.green(), else: IO.ANSI.red()
+    outcome_icon = if outcome == "passed", do: "\u2713", else: "\u2717"
+
+    IO.puts("")
+
+    IO.puts(
+      "#{outcome_color}#{outcome_icon} Run #{outcome}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{data["id"]}#{IO.ANSI.reset()}"
+    )
+
+    if git["sha"] do
+      IO.puts(
+        "  #{IO.ANSI.faint()}#{git["sha"]} (#{git["branch"] || "detached"})#{IO.ANSI.reset()}"
+      )
+    end
+
+    duration_str = format_duration(data["history"]["duration_ms"] || 0)
+
+    IO.puts(
+      "  #{IO.ANSI.faint()}#{summary["passed"] || 0} passed, #{summary["failed"] || 0} failed, #{summary["cached"] || 0} cached in #{duration_str}#{IO.ANSI.reset()}"
+    )
+
+    # Error block (FALSE Protocol)
+    if error_block do
+      IO.puts("")
+      IO.puts("#{IO.ANSI.red()}Error: #{error_block["what_failed"]}#{IO.ANSI.reset()}")
+
+      if error_block["suggested_fix"] do
+        IO.puts("  #{IO.ANSI.cyan()}Fix: #{error_block["suggested_fix"]}#{IO.ANSI.reset()}")
+      end
+
+      causes = error_block["possible_causes"] || []
+
+      Enum.each(Enum.take(causes, 3), fn cause ->
+        IO.puts("  #{IO.ANSI.faint()}\u2514\u2500 #{cause}#{IO.ANSI.reset()}")
+      end)
+    end
+
+    IO.puts("")
+
+    # Tasks
+    Enum.each(tasks, fn task ->
+      status = task["status"]
+
+      icon =
+        case status do
+          "passed" -> "#{IO.ANSI.green()}\u2713#{IO.ANSI.reset()}"
+          "cached" -> "#{IO.ANSI.yellow()}\u2299#{IO.ANSI.reset()}"
+          "failed" -> "#{IO.ANSI.red()}\u2717#{IO.ANSI.reset()}"
+          "skipped" -> "#{IO.ANSI.faint()}\u25CB#{IO.ANSI.reset()}"
+          "blocked" -> "#{IO.ANSI.faint()}\u25CB#{IO.ANSI.reset()}"
+          _ -> " "
+        end
+
+      dur = format_duration(task["duration_ms"] || 0)
+      IO.puts("  #{icon} #{task["name"]}  #{IO.ANSI.faint()}#{dur}#{IO.ANSI.reset()}")
+
+      # Show error for failed tasks
+      if status == "failed" do
+        case task["error"] do
+          %{"message" => msg} ->
+            IO.puts("    #{IO.ANSI.red()}\u2514\u2500 #{msg}#{IO.ANSI.reset()}")
+
+          %{"code" => code} ->
+            IO.puts("    #{IO.ANSI.red()}\u2514\u2500 [#{code}]#{IO.ANSI.reset()}")
+
+          _ ->
+            :ok
+        end
+
+        # Show hints
+        hints = get_in(task, ["error", "hints"]) || []
+
+        Enum.each(hints, fn hint ->
+          IO.puts("    #{IO.ANSI.cyan()}   hint: #{hint}#{IO.ANSI.reset()}")
+        end)
+      end
+
+      # Show history if interesting
+      case task["history"] do
+        %{"flaky" => true} ->
+          IO.puts("    #{IO.ANSI.yellow()}   \u26A0 flaky#{IO.ANSI.reset()}")
+
+        _ ->
+          :ok
+      end
+    end)
+
+    # Reasoning section (FALSE Protocol)
+    if reasoning do
+      IO.puts("")
+      IO.puts("#{IO.ANSI.cyan()}Reasoning:#{IO.ANSI.reset()} #{reasoning["summary"]}")
+
+      per_task = reasoning["tasks"] || %{}
+
+      Enum.each(per_task, fn {task_name, detail} ->
+        files = detail["changed_files"] || []
+
+        if files != [] do
+          IO.puts("  #{task_name}:")
+
+          Enum.each(Enum.take(files, 5), fn file ->
+            IO.puts("    #{IO.ANSI.faint()}\u2514\u2500 #{file}#{IO.ANSI.reset()}")
+          end)
+
+          if length(files) > 5 do
+            IO.puts(
+              "    #{IO.ANSI.faint()}\u2514\u2500 +#{length(files) - 5} more#{IO.ANSI.reset()}"
+            )
+          end
+        end
+      end)
+    end
+
+    IO.puts("")
+  end
 
   # ----- CONTEXT SUBCOMMAND -----
 
