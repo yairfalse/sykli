@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sykli"
-version = "0.5.2"
+version = "0.5.3"
 description = "AI-native CI pipeline SDK for Python"
 readme = "README.md"
 license = "MIT"
