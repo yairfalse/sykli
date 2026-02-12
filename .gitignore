@@ -60,6 +60,10 @@ temp/
 docs/*
 !docs/adr/
 
+# Sykli runtime data (AI context, run history, logs)
+.sykli/
+examples/**/.sykli/
+
 # Build artifacts from example projects
 examples/go-project/app
 docs/landing-page.md
