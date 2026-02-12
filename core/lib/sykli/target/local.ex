@@ -305,7 +305,7 @@ defmodule Sykli.Target.Local do
     ]
 
     case runtime.run(task.command, image, mounts, run_opts) do
-      {:ok, 0, lines, _output} ->
+      {:ok, 0, lines, output} ->
         duration_ms = System.monotonic_time(:millisecond) - start_time
         lines_str = if lines > 0, do: " #{lines}L", else: ""
 
@@ -313,7 +313,7 @@ defmodule Sykli.Target.Local do
           "#{IO.ANSI.green()}✓ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{format_duration(duration_ms)}#{lines_str}#{IO.ANSI.reset()}"
         )
 
-        :ok
+        {:ok, output || ""}
 
       {:ok, code, _lines, output} ->
         duration_ms = System.monotonic_time(:millisecond) - start_time

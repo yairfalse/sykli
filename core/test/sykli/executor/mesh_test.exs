@@ -34,7 +34,7 @@ defmodule Sykli.Executor.MeshTest do
 
       result = Mesh.run_task(task, state, [])
 
-      assert result == :ok
+      assert {:ok, _output} = result
       Mesh.teardown(state)
     end
 
@@ -85,7 +85,7 @@ defmodule Sykli.Executor.MeshTest do
 
       result = Mesh.run_task(task, state, [])
 
-      assert result == :ok
+      assert {:ok, _output} = result
       Mesh.teardown(state)
     end
   end

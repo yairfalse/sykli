@@ -132,7 +132,7 @@ defmodule Sykli.Target.LocalTest do
         container: nil
       }
 
-      assert :ok = Local.run_task(task, state, [])
+      assert {:ok, _output} = Local.run_task(task, state, [])
     end
 
     test "returns error for failing command" do
@@ -162,7 +162,7 @@ defmodule Sykli.Target.LocalTest do
         container: nil
       }
 
-      assert :ok = Local.run_task_stateless(task, workdir: ".")
+      assert {:ok, _output} = Local.run_task_stateless(task, workdir: ".")
     end
 
     test "returns error for failing command" do

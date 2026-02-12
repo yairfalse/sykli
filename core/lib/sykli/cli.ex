@@ -206,6 +206,11 @@ defmodule Sykli.CLI do
       {:error, results} when is_list(results) ->
         # Task failures are already displayed during execution
         IO.puts("\n#{IO.ANSI.red()}Build failed#{IO.ANSI.reset()}")
+
+        IO.puts(
+          "\n  #{IO.ANSI.faint()}💡 Ask your AI: \"read .sykli/occurrence.json and fix the failure\"#{IO.ANSI.reset()}"
+        )
+
         halt(1)
 
       {:error, reason} ->

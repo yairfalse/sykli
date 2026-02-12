@@ -25,7 +25,7 @@ defmodule Sykli.MeshTest do
 
       result = Mesh.dispatch_task(task, :local, workdir: "/tmp")
 
-      assert result == :ok
+      assert {:ok, _output} = result
     end
 
     test "runs task locally when node is current node" do
@@ -33,7 +33,7 @@ defmodule Sykli.MeshTest do
 
       result = Mesh.dispatch_task(task, node(), workdir: "/tmp")
 
-      assert result == :ok
+      assert {:ok, _output} = result
     end
 
     test "returns error when remote node is not connected" do
@@ -135,7 +135,7 @@ defmodule Sykli.MeshTest do
 
       result = Mesh.dispatch_to_any(task, workdir: "/tmp")
 
-      assert result == :ok
+      assert {:ok, _output} = result
     end
 
     test "falls back to local when no remote nodes" do
@@ -143,7 +143,7 @@ defmodule Sykli.MeshTest do
 
       result = Mesh.dispatch_to_any(task, workdir: "/tmp")
 
-      assert result == :ok
+      assert {:ok, _output} = result
     end
   end
 
@@ -169,7 +169,7 @@ defmodule Sykli.MeshTest do
       # Should at least run on :local
       assert is_map(results)
       assert Map.has_key?(results, :local)
-      assert results[:local] == :ok
+      assert {:ok, _output} = results[:local]
     end
   end
 
@@ -180,7 +180,7 @@ defmodule Sykli.MeshTest do
       # Should use the local executor
       result = Mesh.dispatch_task(task, :local, workdir: "/tmp")
 
-      assert result == :ok
+      assert {:ok, _output} = result
     end
 
     test "dispatch passes workdir to executor" do
@@ -194,7 +194,7 @@ defmodule Sykli.MeshTest do
 
       result = Mesh.dispatch_task(task, :local, workdir: workdir)
 
-      assert result == :ok
+      assert {:ok, _output} = result
     end
   end
 

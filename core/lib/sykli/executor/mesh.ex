@@ -122,6 +122,9 @@ defmodule Sykli.Executor.Mesh do
       end
 
       case Mesh.dispatch_task(task, node, workdir: workdir) do
+        {:ok, output} ->
+          {:ok, output}
+
         :ok ->
           :ok
 
@@ -135,6 +138,9 @@ defmodule Sykli.Executor.Mesh do
     case NodeSelector.select_and_try(task, candidates, capabilities, opts, runner) do
       {:ok, _node} ->
         :ok
+
+      {:ok, _node, output} ->
+        {:ok, output}
 
       {:error, %NodeSelector.PlacementError{} = error} ->
         Logger.error(

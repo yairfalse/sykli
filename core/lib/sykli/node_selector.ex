@@ -95,6 +95,9 @@ defmodule Sykli.NodeSelector do
       :ok ->
         {:ok, node}
 
+      {:ok, output} ->
+        {:ok, node, output}
+
       {:error, reason} ->
         do_try_nodes(task, rest, opts, runner, [{node, reason} | failures])
     end

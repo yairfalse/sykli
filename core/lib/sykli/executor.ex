@@ -45,14 +45,15 @@ defmodule Sykli.Executor do
     """
 
     @enforce_keys [:name, :status, :duration_ms]
-    defstruct [:name, :status, :duration_ms, :error]
+    defstruct [:name, :status, :duration_ms, :error, :output]
 
     @type status :: :passed | :failed | :cached | :skipped | :blocked
     @type t :: %__MODULE__{
             name: String.t(),
             status: status(),
             duration_ms: non_neg_integer(),
-            error: term() | nil
+            error: term() | nil,
+            output: String.t() | nil
           }
   end
 
@@ -478,14 +479,21 @@ defmodule Sykli.Executor do
          start_time
        ) do
     case run_and_cache(task, state, cache_key, progress, target) do
-      :ok ->
+      result when result == :ok or (is_tuple(result) and elem(result, 0) == :ok) ->
         duration = System.monotonic_time(:millisecond) - start_time
+
+        output =
+          case result do
+            {:ok, out} -> out
+            :ok -> nil
+          end
 
         %TaskResult{
           name: task.name,
           status: :passed,
           duration_ms: duration,
-          error: nil
+          error: nil,
+          output: output
         }
 
       {:error, _reason} when attempt < max_attempts ->
@@ -508,11 +516,19 @@ defmodule Sykli.Executor do
       {:error, reason} ->
         duration = System.monotonic_time(:millisecond) - start_time
 
+        # Extract output from Sykli.Error if available
+        output =
+          case reason do
+            %Sykli.Error{output: out} when is_binary(out) -> out
+            _ -> nil
+          end
+
         %TaskResult{
           name: task.name,
           status: :failed,
           duration_ms: duration,
-          error: reason
+          error: reason,
+          output: output
         }
     end
   end
@@ -554,8 +570,15 @@ defmodule Sykli.Executor do
           duration_ms = System.monotonic_time(:millisecond) - start_time
 
           case result do
+            {:ok, output} ->
+              if cache_key do
+                Sykli.Cache.store(cache_key, task, outputs || [], duration_ms, workdir)
+              end
+
+              maybe_github_status(name, "success")
+              {:ok, output}
+
             :ok ->
-              # Store in cache with outputs
               if cache_key do
                 Sykli.Cache.store(cache_key, task, outputs || [], duration_ms, workdir)
               end

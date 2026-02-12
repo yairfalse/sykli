@@ -382,6 +382,24 @@ defmodule Sykli.OccurrenceTest do
     {graph, {:error, results}, run_meta()}
   end
 
+  describe "TaskResult output field" do
+    test "TaskResult supports output field" do
+      result = %TaskResult{
+        name: "test",
+        status: :passed,
+        duration_ms: 100,
+        output: "some output\n"
+      }
+
+      assert result.output == "some output\n"
+    end
+
+    test "TaskResult output defaults to nil" do
+      result = %TaskResult{name: "test", status: :passed, duration_ms: 100}
+      assert result.output == nil
+    end
+  end
+
   defp run_meta do
     %{
       id: "test-#{:erlang.unique_integer([:positive])}",

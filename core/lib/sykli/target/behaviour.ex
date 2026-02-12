@@ -177,10 +177,12 @@ defmodule Sykli.Target.Behaviour do
 
   ## Returns
 
-  - `:ok` on success
+  - `:ok` on success (no output captured)
+  - `{:ok, output}` on success with captured output
   - `{:error, reason}` on failure
   """
-  @callback run_task(task_spec(), state(), run_opts()) :: :ok | {:error, term()}
+  @callback run_task(task_spec(), state(), run_opts()) ::
+              :ok | {:ok, String.t()} | {:error, term()}
 
   # ─────────────────────────────────────────────────────────────────────────────
   # SECRETS

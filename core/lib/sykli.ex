@@ -202,6 +202,9 @@ defmodule Sykli do
       overall: overall
     }
 
+    # Write per-task logs
+    write_logs(path, run_id, result)
+
     # save/2 uses File.write! so it raises on error (caught by rescue below)
     RunHistory.save(run, path: path)
 
@@ -265,6 +268,69 @@ defmodule Sykli do
       IO.puts(
         "#{IO.ANSI.yellow()}⚠ Warning: Failed to generate context: #{Exception.message(e)}#{IO.ANSI.reset()}"
       )
+  end
+
+  # Write per-task log files to .sykli/logs/<run_id>/
+  defp write_logs(path, run_id, result) do
+    results =
+      case result do
+        {:ok, list} when is_list(list) -> list
+        {:error, list} when is_list(list) -> list
+        _ -> []
+      end
+
+    if results == [], do: :ok
+
+    logs_dir = Path.join([path, ".sykli", "logs", run_id])
+    File.mkdir_p!(logs_dir)
+
+    Enum.each(results, fn %Executor.TaskResult{name: name, output: output} ->
+      if output && output != "" do
+        # Sanitize task name for filename (replace / with :)
+        safe_name = String.replace(name, "/", ":")
+        log_path = Path.join(logs_dir, "#{safe_name}.log")
+        File.write!(log_path, output)
+      end
+    end)
+
+    # Update latest symlink
+    latest_link = Path.join([path, ".sykli", "logs", "latest"])
+    File.rm(latest_link)
+    File.ln_s(run_id, latest_link)
+
+    # Evict old log directories (keep last 10)
+    evict_old_logs(Path.join([path, ".sykli", "logs"]))
+  rescue
+    e ->
+      IO.puts(
+        "#{IO.ANSI.yellow()}⚠ Warning: Failed to write task logs: #{Exception.message(e)}#{IO.ANSI.reset()}"
+      )
+  end
+
+  # Keep only the most recent N log directories
+  @max_log_dirs 10
+  defp evict_old_logs(logs_base) do
+    case File.ls(logs_base) do
+      {:ok, entries} ->
+        dirs =
+          entries
+          |> Enum.reject(&(&1 == "latest"))
+          |> Enum.filter(fn entry ->
+            File.dir?(Path.join(logs_base, entry))
+          end)
+          |> Enum.sort()
+          |> Enum.reverse()
+
+        # ULID-sorted dirs: newest first, drop the ones to keep, delete the rest
+        dirs
+        |> Enum.drop(@max_log_dirs)
+        |> Enum.each(fn dir ->
+          File.rm_rf(Path.join(logs_base, dir))
+        end)
+
+      {:error, _} ->
+        :ok
+    end
   end
 
   # Add likely cause to failed tasks by correlating git changes with task inputs
@@ -390,7 +456,7 @@ defmodule Sykli do
   end
 
   defp generate_run_id do
-    :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
+    Sykli.ULID.generate()
   end
 
   defp get_git_ref(path) do

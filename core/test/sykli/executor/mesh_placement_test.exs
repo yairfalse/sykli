@@ -40,7 +40,7 @@ defmodule Sykli.Executor.MeshPlacementTest do
       Mesh.teardown(state)
 
       # Should succeed (runs locally when no remote nodes)
-      assert result == :ok
+      assert {:ok, _output} = result
     end
 
     test "task with unsatisfiable requires returns PlacementError" do
@@ -72,7 +72,7 @@ defmodule Sykli.Executor.MeshPlacementTest do
       Mesh.teardown(state)
 
       if has_docker do
-        assert result == :ok
+        assert {:ok, _output} = result
       else
         # No docker, should get placement error
         assert {:error, %PlacementError{}} = result
