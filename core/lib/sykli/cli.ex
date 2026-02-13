@@ -90,6 +90,7 @@ defmodule Sykli.CLI do
       sykli init       Create a new sykli file (auto-detects language)
       sykli validate   Check sykli file for errors without running
       sykli explain    Show last run occurrence (AI-readable report)
+      sykli explain --pipeline  Show pipeline structure (for AI)
       sykli context    Generate AI context file (.sykli/context.json)
       sykli verify     Cross-platform verification via mesh nodes
       sykli delta      Run only tasks affected by git changes
@@ -1052,12 +1053,15 @@ defmodule Sykli.CLI do
     git context, causality analysis, and per-task history in a single file.
 
     Options:
+      --pipeline   Show pipeline structure instead of last occurrence
       --json       Output raw JSON (default: human-readable summary)
       --help       Show this help
 
     Examples:
-      sykli explain              Show human-readable summary
-      sykli explain --json       Output raw occurrence JSON
+      sykli explain                       Show human-readable occurrence summary
+      sykli explain --json                Output raw occurrence JSON
+      sykli explain --pipeline            Show pipeline structure (human-readable)
+      sykli explain --pipeline --json     Pipeline structure as JSON (for AI)
     """)
 
     halt(0)
@@ -1067,7 +1071,16 @@ defmodule Sykli.CLI do
     {opts, path} = parse_explain_args(args)
     path = path || "."
     json_output = Keyword.get(opts, :json, false)
+    pipeline_mode = Keyword.get(opts, :pipeline, false)
 
+    if pipeline_mode do
+      handle_explain_pipeline(path, json_output)
+    else
+      handle_explain_occurrence(path, json_output)
+    end
+  end
+
+  defp handle_explain_occurrence(path, json_output) do
     # Try hot path (ETS store) first, fall back to cold path (JSON file)
     data = load_occurrence_hot(path)
 
@@ -1090,6 +1103,118 @@ defmodule Sykli.CLI do
 
         halt(0)
     end
+  end
+
+  defp handle_explain_pipeline(path, json_output) do
+    alias Sykli.{Detector, Graph, Explain, RunHistory}
+
+    with {:ok, sdk_file} <- Detector.find(path),
+         {:ok, json} <- Detector.emit(sdk_file) do
+      sdk_name = Path.basename(elem(sdk_file, 0))
+
+      case Graph.parse(json) do
+        {:ok, graph} ->
+          expanded = Graph.expand_matrix(graph)
+
+          # Optionally load run history for duration estimates
+          run_history =
+            case RunHistory.load_latest(path: path) do
+              {:ok, run} -> run
+              {:error, _} -> nil
+            end
+
+          explanation =
+            Explain.pipeline(expanded, sdk_file: sdk_name, run_history: run_history)
+
+          if json_output do
+            IO.puts(Jason.encode!(explanation, pretty: true))
+          else
+            output_pipeline_summary(explanation)
+          end
+
+          halt(0)
+
+        {:error, reason} ->
+          display_error(reason)
+          halt(1)
+      end
+    else
+      {:error, reason} ->
+        display_error(reason)
+        halt(1)
+    end
+  end
+
+  defp output_pipeline_summary(explanation) do
+    IO.puts("")
+    IO.puts("#{IO.ANSI.cyan()}Pipeline: #{explanation.sdk_file || "unknown"}#{IO.ANSI.reset()}")
+
+    IO.puts(
+      "#{IO.ANSI.faint()}#{explanation.task_count} tasks, #{explanation.parallelism} max parallel#{IO.ANSI.reset()}"
+    )
+
+    IO.puts("")
+
+    # Execution levels
+    Enum.each(explanation.execution_levels, fn level_info ->
+      level = level_info.level
+      tasks = level_info.tasks
+
+      IO.puts(
+        "  #{IO.ANSI.cyan()}Level #{level}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(#{length(tasks)} task#{if length(tasks) != 1, do: "s"})#{IO.ANSI.reset()}"
+      )
+
+      Enum.each(tasks, fn task_name ->
+        task_info = Enum.find(explanation.tasks, &(&1.name == task_name))
+
+        extras = []
+
+        extras =
+          if task_info && task_info.cacheable,
+            do: extras ++ ["cacheable"],
+            else: extras
+
+        extras =
+          if task_info && task_info.container,
+            do: extras ++ ["container: #{task_info.container}"],
+            else: extras
+
+        extras =
+          if task_info && task_info.retry,
+            do: extras ++ ["retry: #{task_info.retry}"],
+            else: extras
+
+        extras_str =
+          if extras != [],
+            do: " #{IO.ANSI.faint()}(#{Enum.join(extras, ", ")})#{IO.ANSI.reset()}",
+            else: ""
+
+        IO.puts("    • #{task_name}#{extras_str}")
+
+        if task_info && task_info.depends_on != [] do
+          IO.puts(
+            "      #{IO.ANSI.faint()}← #{Enum.join(task_info.depends_on, ", ")}#{IO.ANSI.reset()}"
+          )
+        end
+      end)
+
+      IO.puts("")
+    end)
+
+    # Critical path
+    if explanation.critical_path != [] do
+      IO.puts(
+        "#{IO.ANSI.cyan()}Critical path:#{IO.ANSI.reset()} #{Enum.join(explanation.critical_path, " → ")}"
+      )
+    end
+
+    if explanation.estimated_duration_ms do
+      IO.puts(
+        "#{IO.ANSI.faint()}Estimated duration: #{format_duration(explanation.estimated_duration_ms)}#{IO.ANSI.reset()}"
+      )
+    end
+
+    IO.puts("")
   end
 
   defp load_occurrence_hot(path) do
@@ -1126,6 +1251,9 @@ defmodule Sykli.CLI do
         cond do
           arg == "--json" ->
             {[{:json, true} | opts], rest}
+
+          arg == "--pipeline" ->
+            {[{:pipeline, true} | opts], rest}
 
           String.starts_with?(arg, "--") ->
             {opts, rest}
