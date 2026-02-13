@@ -1215,7 +1215,7 @@ defmodule Sykli.CLI do
       )
     end
 
-    if plan_data.estimated_duration_ms do
+    if plan_data.estimated_duration_ms != nil do
       IO.puts(
         "#{IO.ANSI.faint()}Estimated: #{format_duration(plan_data.estimated_duration_ms)}, #{plan_data.parallelism} max parallel#{IO.ANSI.reset()}"
       )

@@ -112,7 +112,6 @@ defmodule Sykli.PlanTest do
           assert is_list(plan_data.execution_levels)
           assert is_list(plan_data.critical_path)
           assert is_integer(plan_data.parallelism)
-
           assert is_integer(plan_data.estimated_duration_ms)
 
         {:error, _reason} ->
