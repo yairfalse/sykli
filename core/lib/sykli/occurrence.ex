@@ -64,7 +64,7 @@ defmodule Sykli.Occurrence do
     |> maybe_add("error", build_error_block(results, graph, likely_causes))
     |> maybe_add("reasoning", build_reasoning_block(results, graph, likely_causes, workdir))
     |> Map.put("history", build_history_block(results))
-    |> Map.put("ci_data", build_ci_data(results, graph, history_map, workdir))
+    |> Map.put("ci_data", build_ci_data(results, graph, history_map, run_meta.id, workdir))
   end
 
   # ─────────────────────────────────────────────────────────────────────────────
@@ -357,7 +357,7 @@ defmodule Sykli.Occurrence do
   # CI DATA (Domain-Specific Payload)
   # ─────────────────────────────────────────────────────────────────────────────
 
-  defp build_ci_data(results, graph, history_map, workdir) do
+  defp build_ci_data(results, graph, history_map, run_id, workdir) do
     passed = Enum.count(results, &(&1.status in [:passed, :cached]))
     failed = Enum.count(results, &(&1.status == :failed))
     cached = Enum.count(results, &(&1.status == :cached))
@@ -371,11 +371,11 @@ defmodule Sykli.Occurrence do
         "cached" => cached,
         "skipped" => skipped
       },
-      "tasks" => build_task_details(results, graph, history_map)
+      "tasks" => build_task_details(results, graph, history_map, run_id)
     }
   end
 
-  defp build_task_details(results, graph, history_map) do
+  defp build_task_details(results, graph, history_map, run_id) do
     Enum.map(results, fn %TaskResult{} = result ->
       task = Map.get(graph, result.name, %{})
       history = Map.get(history_map, result.name, %{})
@@ -389,6 +389,7 @@ defmodule Sykli.Occurrence do
       }
 
       task_map
+      |> maybe_add("log", task_log_path(result, run_id))
       |> maybe_add("error", error_detail_map(result.error))
       |> maybe_add("covers", non_empty(get_semantic_covers(task)))
       |> maybe_add("inputs", non_empty(get_field(task, :inputs)))
@@ -397,6 +398,14 @@ defmodule Sykli.Occurrence do
       |> maybe_add("history", non_empty_map(history))
     end)
   end
+
+  defp task_log_path(%TaskResult{output: output, name: name}, run_id)
+       when is_binary(output) and output != "" do
+    safe_name = String.replace(name, "/", ":")
+    ".sykli/logs/#{run_id}/#{safe_name}.log"
+  end
+
+  defp task_log_path(_result, _run_id), do: nil
 
   @doc """
   Converts a `Sykli.Error` struct to a detailed map for per-task error info.

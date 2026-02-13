@@ -382,6 +382,64 @@ defmodule Sykli.OccurrenceTest do
     {graph, {:error, results}, run_meta()}
   end
 
+  describe "build/4 — log paths in ci_data tasks" do
+    test "task with output includes log path", %{workdir: workdir} do
+      graph = parse_graph!([%{"name" => "test", "command" => "mix test"}])
+
+      results = [
+        %TaskResult{name: "test", status: :passed, duration_ms: 100, output: "ok\n"}
+      ]
+
+      meta = %{id: "01ABC", timestamp: DateTime.utc_now()}
+      occurrence = Occurrence.build(graph, {:ok, results}, meta, workdir)
+
+      task = hd(occurrence["ci_data"]["tasks"])
+      assert task["log"] == ".sykli/logs/01ABC/test.log"
+    end
+
+    test "task without output has no log path", %{workdir: workdir} do
+      graph = parse_graph!([%{"name" => "test", "command" => "mix test"}])
+
+      results = [
+        %TaskResult{name: "test", status: :passed, duration_ms: 100, output: nil}
+      ]
+
+      meta = run_meta()
+      occurrence = Occurrence.build(graph, {:ok, results}, meta, workdir)
+
+      task = hd(occurrence["ci_data"]["tasks"])
+      refute Map.has_key?(task, "log")
+    end
+
+    test "task with empty output has no log path", %{workdir: workdir} do
+      graph = parse_graph!([%{"name" => "test", "command" => "mix test"}])
+
+      results = [
+        %TaskResult{name: "test", status: :passed, duration_ms: 100, output: ""}
+      ]
+
+      meta = run_meta()
+      occurrence = Occurrence.build(graph, {:ok, results}, meta, workdir)
+
+      task = hd(occurrence["ci_data"]["tasks"])
+      refute Map.has_key?(task, "log")
+    end
+
+    test "task name with slash is sanitized in log path", %{workdir: workdir} do
+      graph = parse_graph!([%{"name" => "sdk/go", "command" => "go test"}])
+
+      results = [
+        %TaskResult{name: "sdk/go", status: :passed, duration_ms: 50, output: "PASS\n"}
+      ]
+
+      meta = %{id: "01XYZ", timestamp: DateTime.utc_now()}
+      occurrence = Occurrence.build(graph, {:ok, results}, meta, workdir)
+
+      task = hd(occurrence["ci_data"]["tasks"])
+      assert task["log"] == ".sykli/logs/01XYZ/sdk:go.log"
+    end
+  end
+
   describe "TaskResult output field" do
     test "TaskResult supports output field" do
       result = %TaskResult{
