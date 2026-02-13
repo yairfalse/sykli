@@ -158,6 +158,24 @@
     },
 
     {
+      "id": "POS-022",
+      "name": "Plan help text exits 0 with usage",
+      "fixture": "single_task",
+      "command": "sykli plan --help",
+      "expect_exit": 0,
+      "expect_stdout_contains": ["Usage:", "--from=", "--json"]
+    },
+    {
+      "id": "POS-023",
+      "name": "Plan JSON output is valid JSON",
+      "fixture": "dependency_chain",
+      "command": "git init -q && git add . && git commit -q -m init && sykli plan --json --from=HEAD",
+      "shell": true,
+      "expect_exit": 0,
+      "expect_json_contains": {"version": "1.0"}
+    },
+
+    {
       "id": "NEG-001",
       "name": "Cycle detection rejects circular deps",
       "fixture": "cycle_ab",
@@ -353,6 +371,16 @@
       "command": "sykli",
       "expect_exit": 0,
       "expect_stdout": "1 passed"
+    },
+
+    {
+      "id": "SYS-011",
+      "name": "Plan with no changes shows empty plan",
+      "fixture": "dependency_chain",
+      "command": "git init -q && git add . && git commit -q -m init && sykli plan --from=HEAD --json",
+      "shell": true,
+      "expect_exit": 0,
+      "expect_json_contains": {"version": "1.0"}
     },
 
     {
