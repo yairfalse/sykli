@@ -3,6 +3,7 @@ defmodule Sykli.CLI do
   CLI entry point for escript.
   """
 
+  alias Sykli.Delta
   alias Sykli.Error
   alias Sykli.Error.Formatter
 
@@ -49,6 +50,9 @@ defmodule Sykli.CLI do
       ["verify" | verify_args] ->
         handle_verify(verify_args)
 
+      ["plan" | plan_args] ->
+        handle_plan(plan_args)
+
       ["explain" | explain_args] ->
         handle_explain(explain_args)
 
@@ -91,6 +95,7 @@ defmodule Sykli.CLI do
       sykli validate   Check sykli file for errors without running
       sykli explain    Show last run occurrence (AI-readable report)
       sykli explain --pipeline  Show pipeline structure (for AI)
+      sykli plan       Dry-run: show what would run based on git changes
       sykli context    Generate AI context file (.sykli/context.json)
       sykli verify     Cross-platform verification via mesh nodes
       sykli delta      Run only tasks affected by git changes
@@ -1040,6 +1045,248 @@ defmodule Sykli.CLI do
   defp format_verify_reason(:retry_on_different_platform), do: "retry on different platform"
   defp format_verify_reason(:explicit_verify), do: "explicit verify: always"
   defp format_verify_reason(reason), do: to_string(reason)
+
+  # ----- PLAN SUBCOMMAND -----
+
+  defp handle_plan(["--help"]) do
+    IO.puts("""
+    Usage: sykli plan [options] [path]
+
+    Dry-run: show what tasks would execute based on git changes.
+
+    Analyzes git diff to determine affected tasks, predicts cache hits,
+    and shows the execution plan without running anything.
+
+    Options:
+      --from=<ref>    Compare against branch/commit (default: auto-detect)
+      --json          Output as JSON (for AI assistants)
+      --verbose, -v   Show file-level details
+      --help          Show this help
+
+    Examples:
+      sykli plan                  What would run? (auto-detects base branch)
+      sykli plan --json           Structured JSON output (for AI)
+      sykli plan --from=main      Compare against specific branch
+      sykli plan --verbose        Show file-level details
+    """)
+
+    halt(0)
+  end
+
+  defp handle_plan(args) do
+    {opts, path} = parse_plan_args(args)
+    path = path || "."
+    json_output = Keyword.get(opts, :json, false)
+    verbose = Keyword.get(opts, :verbose, false)
+
+    case get_task_graph_parsed(path) do
+      {:ok, graph} ->
+        # Load run history for duration estimates
+        run_history =
+          case Sykli.RunHistory.load_latest(path: path) do
+            {:ok, run} -> run
+            {:error, _} -> nil
+          end
+
+        plan_opts = [path: path, run_history: run_history]
+
+        plan_opts =
+          if opts[:from] do
+            [{:from, opts[:from]} | plan_opts]
+          else
+            plan_opts
+          end
+
+        case Sykli.Plan.generate(graph, plan_opts) do
+          {:ok, plan} ->
+            if json_output do
+              output_plan_json(plan)
+            else
+              output_plan_text(plan, verbose)
+            end
+
+            halt(0)
+
+          {:error, reason} ->
+            if json_output do
+              IO.puts(Jason.encode!(%{error: Delta.format_error(reason)}))
+            else
+              IO.puts("#{IO.ANSI.red()}#{Delta.format_error(reason)}#{IO.ANSI.reset()}")
+            end
+
+            halt(1)
+        end
+
+      {:error, reason} ->
+        if json_output do
+          error = Error.wrap(reason)
+          IO.puts(Jason.encode!(%{error: error.message, code: error.code}))
+        else
+          display_error(reason)
+        end
+
+        halt(1)
+    end
+  end
+
+  defp parse_plan_args(args) do
+    {opts, rest} =
+      Enum.reduce(args, {[], []}, fn arg, {opts, rest} ->
+        cond do
+          String.starts_with?(arg, "--from=") ->
+            from = String.replace_prefix(arg, "--from=", "")
+            {[{:from, from} | opts], rest}
+
+          arg == "--json" ->
+            {[{:json, true} | opts], rest}
+
+          arg == "--verbose" or arg == "-v" ->
+            {[{:verbose, true} | opts], rest}
+
+          String.starts_with?(arg, "--") ->
+            {opts, rest}
+
+          true ->
+            {opts, rest ++ [arg]}
+        end
+      end)
+
+    {opts, List.first(rest)}
+  end
+
+  defp output_plan_json(plan) do
+    IO.puts(Jason.encode!(plan, pretty: true))
+  end
+
+  defp output_plan_text(plan, verbose) do
+    changed_count = length(plan.changed_files)
+    from = plan.from
+    plan_data = plan.plan
+    tasks = plan_data.tasks
+    skipped = plan.skipped
+    total = length(tasks) + length(skipped)
+
+    IO.puts("")
+
+    IO.puts(
+      "#{IO.ANSI.cyan()}Based on changes since #{from}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(#{changed_count} file#{if changed_count != 1, do: "s"})#{IO.ANSI.reset()}"
+    )
+
+    IO.puts("")
+
+    if tasks == [] do
+      IO.puts("#{IO.ANSI.green()}No tasks would run#{IO.ANSI.reset()}")
+    else
+      IO.puts("Would run #{length(tasks)} of #{total} tasks:")
+      IO.puts("")
+
+      # Group by level
+      Enum.each(plan_data.execution_levels, fn level_info ->
+        IO.puts("  #{IO.ANSI.cyan()}Level #{level_info.level}#{IO.ANSI.reset()}")
+
+        Enum.each(level_info.tasks, fn task_name ->
+          task = Enum.find(tasks, &(&1.name == task_name))
+
+          if task do
+            output_plan_task(task, verbose)
+          end
+        end)
+      end)
+    end
+
+    # Skipped
+    if skipped != [] do
+      IO.puts("")
+      IO.puts("  #{IO.ANSI.faint()}Skipped:#{IO.ANSI.reset()}")
+
+      Enum.each(skipped, fn s ->
+        IO.puts(
+          "    #{IO.ANSI.faint()}○ #{s.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{s.reason}#{IO.ANSI.reset()}"
+        )
+      end)
+    end
+
+    # Summary
+    IO.puts("")
+
+    if plan_data.critical_path != [] do
+      IO.puts(
+        "#{IO.ANSI.cyan()}Critical path:#{IO.ANSI.reset()} #{Enum.join(plan_data.critical_path, " → ")}"
+      )
+    end
+
+    if plan_data.estimated_duration_ms != nil do
+      IO.puts(
+        "#{IO.ANSI.faint()}Estimated: #{format_duration(plan_data.estimated_duration_ms)}, #{plan_data.parallelism} max parallel#{IO.ANSI.reset()}"
+      )
+    end
+
+    IO.puts("")
+  end
+
+  defp output_plan_task(task, verbose) do
+    icon =
+      if task.cached do
+        "#{IO.ANSI.yellow()}⊙#{IO.ANSI.reset()}"
+      else
+        "#{IO.ANSI.green()}•#{IO.ANSI.reset()}"
+      end
+
+    cached_label = if task.cached, do: " (cached)", else: ""
+    reason_str = format_plan_reason(task)
+
+    IO.puts(
+      "    #{icon} #{task.name}#{cached_label}  #{IO.ANSI.faint()}#{reason_str}#{IO.ANSI.reset()}"
+    )
+
+    if verbose and task.triggered_by != [] do
+      files_str = Enum.take(task.triggered_by, 3) |> Enum.join(", ")
+
+      suffix =
+        if length(task.triggered_by) > 3,
+          do: " +#{length(task.triggered_by) - 3} more",
+          else: ""
+
+      IO.puts("      #{IO.ANSI.faint()}↳ #{files_str}#{suffix}#{IO.ANSI.reset()}")
+    end
+  end
+
+  defp format_plan_reason(task) do
+    case task.reason do
+      "direct" ->
+        count = length(task.triggered_by)
+
+        if count > 0 do
+          first = List.first(task.triggered_by)
+
+          if count > 1 do
+            "#{first} (+#{count - 1} more)"
+          else
+            first
+          end
+        else
+          "inputs changed"
+        end
+
+      "dependent" ->
+        dep = Map.get(task, :depends_on_affected, "upstream")
+        "depends on #{dep}"
+
+      other ->
+        other
+    end
+  end
+
+  # Get task graph as parsed Graph (map of name => Task struct)
+  defp get_task_graph_parsed(path) do
+    alias Sykli.{Detector, Graph}
+
+    with {:ok, sdk_file} <- Detector.find(path),
+         {:ok, json} <- Detector.emit(sdk_file),
+         {:ok, graph} <- Graph.parse(json) do
+      {:ok, Graph.expand_matrix(graph)}
+    end
+  end
 
   # ----- EXPLAIN SUBCOMMAND -----
 
