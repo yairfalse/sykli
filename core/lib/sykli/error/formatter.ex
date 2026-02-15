@@ -399,6 +399,25 @@ defmodule Sykli.Error.Formatter do
         lines
       end
 
+    # Locations (file:line from parsed output)
+    lines =
+      if error.locations != [] do
+        loc_lines =
+          Enum.map(error.locations, fn loc ->
+            loc_str = "#{loc.file}:#{loc.line}"
+
+            if loc.message do
+              "  #{colors.cyan}-->#{colors.reset} #{loc_str} — #{loc.message}"
+            else
+              "  #{colors.cyan}-->#{colors.reset} #{loc_str}"
+            end
+          end)
+
+        lines ++ [""] ++ loc_lines
+      else
+        lines
+      end
+
     # Hints
     lines =
       Enum.reduce(error.hints, lines, fn hint, acc ->

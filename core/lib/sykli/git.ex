@@ -162,4 +162,113 @@ defmodule Sykli.Git do
         {:ok, false}
     end
   end
+
+  @doc """
+  Recent commits touching a file (last 5 by default).
+
+  ## Options
+    - `:limit` - max commits to return (default: 5)
+    - `:timeout` - milliseconds before killing the command (default: 10_000)
+    - `:cd` - directory to run the command in (default: current directory)
+
+  ## Returns
+    - `{:ok, [%{sha: String.t(), author: String.t(), date: String.t(), message: String.t()}]}`
+    - `{:error, term()}`
+  """
+  @spec log_file(String.t(), keyword()) ::
+          {:ok, [%{sha: String.t(), author: String.t(), date: String.t(), message: String.t()}]}
+          | {:error, term()}
+  def log_file(file, opts \\ []) do
+    limit = Keyword.get(opts, :limit, 5)
+
+    case run(["log", "--format=%H|%an|%aI|%s", "-#{limit}", "--", file], opts) do
+      {:ok, output} ->
+        commits =
+          output
+          |> String.split("\n", trim: true)
+          |> Enum.flat_map(&parse_log_line/1)
+
+        {:ok, commits}
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp parse_log_line(line) do
+    case String.split(line, "|", parts: 4) do
+      [sha, author, date, message] ->
+        [%{sha: sha, author: author, date: date, message: message}]
+
+      _ ->
+        []
+    end
+  end
+
+  @doc """
+  Blame info for a specific line of a file.
+
+  Uses `git blame --porcelain` for machine-parseable output.
+
+  ## Options
+    - `:timeout` - milliseconds before killing the command (default: 10_000)
+    - `:cd` - directory to run the command in (default: current directory)
+
+  ## Returns
+    - `{:ok, %{sha: String.t(), author: String.t(), date: String.t(), message: String.t()}}`
+    - `{:error, term()}`
+  """
+  @spec blame_line(String.t(), pos_integer(), keyword()) ::
+          {:ok, %{sha: String.t(), author: String.t(), date: String.t(), message: String.t()}}
+          | {:error, term()}
+  def blame_line(file, line, opts \\ []) do
+    case run(["blame", "-L", "#{line},#{line}", "--porcelain", file], opts) do
+      {:ok, output} ->
+        parse_porcelain_blame(output)
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp parse_porcelain_blame(output) do
+    lines = String.split(output, "\n")
+
+    sha =
+      case lines do
+        [first | _] -> first |> String.split(" ") |> hd()
+        _ -> nil
+      end
+
+    fields =
+      Map.new(lines, fn line ->
+        case String.split(line, " ", parts: 2) do
+          [key, value] -> {key, value}
+          _ -> {"", line}
+        end
+      end)
+
+    author = Map.get(fields, "author", "unknown")
+
+    # Convert author-time (unix) to ISO 8601
+    date =
+      case Map.get(fields, "author-time") do
+        nil ->
+          "unknown"
+
+        timestamp_str ->
+          case Integer.parse(timestamp_str) do
+            {ts, _} -> DateTime.from_unix!(ts) |> DateTime.to_iso8601()
+            :error -> "unknown"
+          end
+      end
+
+    message = Map.get(fields, "summary", "")
+
+    if sha do
+      {:ok, %{sha: sha, author: author, date: date, message: message}}
+    else
+      {:error, :parse_failed}
+    end
+  end
 end

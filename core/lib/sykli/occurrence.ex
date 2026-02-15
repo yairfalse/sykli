@@ -18,6 +18,7 @@ defmodule Sykli.Occurrence do
       ci.task.failed   — individual task failure (per-task reasoning)
   """
 
+  alias Sykli.ErrorContext
   alias Sykli.Executor.TaskResult
   alias Sykli.Occurrence.GitContext
   alias Sykli.Occurrence.HistoryAnalyzer
@@ -61,7 +62,7 @@ defmodule Sykli.Occurrence do
     }
 
     occurrence
-    |> maybe_add("error", build_error_block(results, graph, likely_causes))
+    |> maybe_add("error", build_error_block(results, graph, likely_causes, workdir))
     |> maybe_add("reasoning", build_reasoning_block(results, graph, likely_causes, workdir))
     |> Map.put("history", build_history_block(results))
     |> Map.put("ci_data", build_ci_data(results, graph, history_map, run_meta.id, workdir))
@@ -72,7 +73,7 @@ defmodule Sykli.Occurrence do
   # ─────────────────────────────────────────────────────────────────────────────
 
   # Only present when the run failed
-  defp build_error_block(results, graph, likely_causes) do
+  defp build_error_block(results, graph, likely_causes, workdir) do
     failed = Enum.filter(results, &(&1.status == :failed))
 
     case failed do
@@ -80,7 +81,7 @@ defmodule Sykli.Occurrence do
         nil
 
       [single] ->
-        build_task_error(single, graph, likely_causes)
+        build_task_error(single, graph, likely_causes, workdir)
 
       multiple ->
         names = Enum.map(multiple, & &1.name)
@@ -96,7 +97,7 @@ defmodule Sykli.Occurrence do
     end
   end
 
-  defp build_task_error(%TaskResult{} = result, graph, likely_causes) do
+  defp build_task_error(%TaskResult{} = result, graph, likely_causes, workdir) do
     task = Map.get(graph, result.name, %{})
     blocks = find_blocks(result.name, graph)
 
@@ -108,10 +109,14 @@ defmodule Sykli.Occurrence do
       "suggested_fix" => suggested_fix(result.error)
     }
 
+    # Enrich with file:line locations + git context
+    locations = ErrorContext.enrich(error_output(result.error), workdir)
+
     # Include raw output for AI consumption
     error_map
     |> maybe_add("output", truncate_output(error_output(result.error)))
     |> maybe_add("exit_code", error_exit_code(result.error))
+    |> maybe_add("locations", non_empty(locations))
     |> reject_empty()
   end
 
@@ -416,6 +421,14 @@ defmodule Sykli.Occurrence do
   def error_detail_map(nil), do: nil
 
   def error_detail_map(%Sykli.Error{} = e) do
+    locations =
+      e.locations
+      |> Enum.map(fn loc ->
+        %{"file" => loc.file, "line" => loc.line}
+        |> maybe_add("column", loc.column)
+        |> maybe_add("message", loc.message)
+      end)
+
     %{
       "code" => e.code,
       "message" => e.message,
@@ -424,6 +437,7 @@ defmodule Sykli.Occurrence do
       "hints" => e.hints,
       "notes" => e.notes
     }
+    |> maybe_add("locations", non_empty(locations))
     |> Enum.reject(fn {_k, v} -> is_nil(v) or v == [] end)
     |> Map.new()
   end

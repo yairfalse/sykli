@@ -156,4 +156,82 @@ defmodule Sykli.GitTest do
       assert {:ok, _} = Git.run(["status"], cd: @test_workdir, timeout: 5000)
     end
   end
+
+  describe "log_file/2" do
+    test "returns recent commits for a file" do
+      file = Path.join(@test_workdir, "tracked.txt")
+      File.write!(file, "v1")
+      System.cmd("git", ["add", "."], cd: @test_workdir)
+      System.cmd("git", ["commit", "-m", "add tracked.txt"], cd: @test_workdir)
+
+      File.write!(file, "v2")
+      System.cmd("git", ["add", "."], cd: @test_workdir)
+      System.cmd("git", ["commit", "-m", "update tracked.txt"], cd: @test_workdir)
+
+      assert {:ok, commits} = Git.log_file("tracked.txt", cd: @test_workdir)
+      assert length(commits) == 2
+
+      [latest | _] = commits
+      assert latest.message == "update tracked.txt"
+      assert latest.author == "Test"
+      assert is_binary(latest.sha)
+      assert String.length(latest.sha) == 40
+      assert is_binary(latest.date)
+    end
+
+    test "returns empty list for untracked file" do
+      # Need at least one commit for git log to work
+      File.write!(Path.join(@test_workdir, "init.txt"), "init")
+      System.cmd("git", ["add", "."], cd: @test_workdir)
+      System.cmd("git", ["commit", "-m", "init"], cd: @test_workdir)
+
+      assert {:ok, []} = Git.log_file("nonexistent.txt", cd: @test_workdir)
+    end
+
+    test "respects limit option" do
+      file = Path.join(@test_workdir, "multi.txt")
+
+      for i <- 1..5 do
+        File.write!(file, "v#{i}")
+        System.cmd("git", ["add", "."], cd: @test_workdir)
+        System.cmd("git", ["commit", "-m", "commit #{i}"], cd: @test_workdir)
+      end
+
+      assert {:ok, commits} = Git.log_file("multi.txt", cd: @test_workdir, limit: 2)
+      assert length(commits) == 2
+    end
+  end
+
+  describe "blame_line/3" do
+    test "returns blame info for a specific line" do
+      file = Path.join(@test_workdir, "blame_test.txt")
+      File.write!(file, "line one\nline two\nline three\n")
+      System.cmd("git", ["add", "."], cd: @test_workdir)
+      System.cmd("git", ["commit", "-m", "add blame_test"], cd: @test_workdir)
+
+      assert {:ok, blame} = Git.blame_line("blame_test.txt", 2, cd: @test_workdir)
+      assert blame.author == "Test"
+      assert blame.message == "add blame_test"
+      assert is_binary(blame.sha)
+      assert String.length(blame.sha) == 40
+      assert is_binary(blame.date)
+    end
+
+    test "returns error for non-existent file" do
+      File.write!(Path.join(@test_workdir, "dummy.txt"), "x")
+      System.cmd("git", ["add", "."], cd: @test_workdir)
+      System.cmd("git", ["commit", "-m", "init"], cd: @test_workdir)
+
+      assert {:error, _} = Git.blame_line("no_such_file.txt", 1, cd: @test_workdir)
+    end
+
+    test "returns error for out-of-range line" do
+      file = Path.join(@test_workdir, "short.txt")
+      File.write!(file, "only one line\n")
+      System.cmd("git", ["add", "."], cd: @test_workdir)
+      System.cmd("git", ["commit", "-m", "add short"], cd: @test_workdir)
+
+      assert {:error, _} = Git.blame_line("short.txt", 999, cd: @test_workdir)
+    end
+  end
 end
