@@ -181,7 +181,8 @@ defmodule Sykli.Git do
   def log_file(file, opts \\ []) do
     limit = Keyword.get(opts, :limit, 5)
 
-    case run(["log", "--format=%H|%an|%aI|%s", "-#{limit}", "--", file], opts) do
+    # Use null byte separator — safe against any field content
+    case run(["log", "--format=%H%x00%an%x00%aI%x00%s", "-#{limit}", "--", file], opts) do
       {:ok, output} ->
         commits =
           output
@@ -196,7 +197,7 @@ defmodule Sykli.Git do
   end
 
   defp parse_log_line(line) do
-    case String.split(line, "|", parts: 4) do
+    case String.split(line, "\0", parts: 4) do
       [sha, author, date, message] ->
         [%{sha: sha, author: author, date: date, message: message}]
 

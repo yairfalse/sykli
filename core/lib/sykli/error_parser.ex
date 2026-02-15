@@ -69,7 +69,7 @@ defmodule Sykli.ErrorParser do
 
   # Rust: `--> src/main.rs:10:5`
   defp parse_rust(line) do
-    case Regex.run(~r/^\s*--> (.+):(\d+):(\d+)/, line) do
+    case Regex.run(~r/^\s*--> (.+?):(\d+):(\d+)/, line) do
       [_, file, line_str, col_str] ->
         %{
           file: file,
@@ -181,11 +181,12 @@ defmodule Sykli.ErrorParser do
   # ─────────────────────────────────────────────────────────────────────────────
 
   # Heuristic: does this look like a file path rather than a URL or label?
+  # Requires a recognizable file extension (e.g. .go, .rs, .ts, .py, .ex, .c)
+  # to filter out IP addresses, version numbers, and bare labels.
+  @file_ext_pattern ~r/\.[a-zA-Z]{1,10}$/
   defp looks_like_file?(path) do
-    # Not a URL
-    # Has a file extension or path separator
     not String.starts_with?(path, "http") and
-      (String.contains?(path, ".") or String.contains?(path, "/"))
+      Regex.match?(@file_ext_pattern, path)
   end
 
   defp dedup_by_file_line(locations) do

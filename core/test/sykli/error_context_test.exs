@@ -67,5 +67,20 @@ defmodule Sykli.ErrorContextTest do
       output = "PASS\nok  my-package  0.5s"
       assert ErrorContext.enrich(output, @test_workdir) == []
     end
+
+    test "normalizes absolute paths within workdir to relative" do
+      abs_path = Path.join(@test_workdir, "src/main.go")
+      output = "#{abs_path}:1:1: absolute path error"
+      locations = ErrorContext.enrich(output, @test_workdir)
+
+      assert length(locations) == 1
+      # Should be normalized to relative
+      assert hd(locations)["file"] == "src/main.go"
+    end
+
+    test "filters out absolute paths outside workdir" do
+      output = "/some/other/project/file.go:10:5: error"
+      assert ErrorContext.enrich(output, @test_workdir) == []
+    end
   end
 end

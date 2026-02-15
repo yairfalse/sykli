@@ -165,5 +165,15 @@ defmodule Sykli.ErrorParserTest do
       output = "https://example.com:443/path — connection refused"
       assert ErrorParser.parse(output) == []
     end
+
+    test "ignores IP address patterns" do
+      output = "192.168.1.1:8080:0: connection refused"
+      assert ErrorParser.parse(output) == []
+    end
+
+    test "ignores bare version numbers" do
+      output = "v1.2:3:4: something"
+      assert ErrorParser.parse(output) == []
+    end
   end
 end

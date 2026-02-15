@@ -42,6 +42,7 @@ defmodule Sykli.ErrorContext do
   def enrich(output, workdir) do
     output
     |> ErrorParser.parse()
+    |> Enum.map(&normalize_path(&1, workdir))
     |> Enum.filter(&file_exists?(&1.file, workdir))
     |> Enum.map(&enrich_location(&1, workdir))
   end
@@ -93,6 +94,25 @@ defmodule Sykli.ErrorContext do
 
     context
   end
+
+  # Convert absolute paths to relative if they're within workdir.
+  # Discard absolute paths outside workdir.
+  defp normalize_path(%{file: file} = loc, workdir) do
+    if Path.type(file) == :absolute do
+      abs_workdir = Path.expand(workdir)
+
+      if String.starts_with?(file, abs_workdir <> "/") do
+        %{loc | file: Path.relative_to(file, abs_workdir)}
+      else
+        # Absolute path outside workdir — mark for filtering
+        %{loc | file: :skip}
+      end
+    else
+      loc
+    end
+  end
+
+  defp file_exists?(:skip, _workdir), do: false
 
   defp file_exists?(file, workdir) do
     Path.join(workdir, file) |> File.exists?()
