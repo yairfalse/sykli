@@ -258,9 +258,11 @@ defmodule Sykli.Git do
           "unknown"
 
         timestamp_str ->
-          case Integer.parse(timestamp_str) do
-            {ts, _} -> DateTime.from_unix!(ts) |> DateTime.to_iso8601()
-            :error -> "unknown"
+          with {ts, _} <- Integer.parse(timestamp_str),
+               {:ok, dt} <- DateTime.from_unix(ts) do
+            DateTime.to_iso8601(dt)
+          else
+            _ -> "unknown"
           end
       end
 

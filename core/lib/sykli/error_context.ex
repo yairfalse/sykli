@@ -47,13 +47,17 @@ defmodule Sykli.ErrorContext do
     |> Enum.map(&enrich_location(&1, workdir))
   end
 
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
   defp enrich_location(location, workdir) do
-    base = %{
-      "file" => location.file,
-      "line" => location.line,
-      "column" => location.column,
-      "message" => location.message
-    }
+    base =
+      %{
+        "file" => location.file,
+        "line" => location.line
+      }
+      |> maybe_put("column", location.column)
+      |> maybe_put("message", location.message)
 
     case build_context(location.file, location.line, workdir) do
       context when context != %{} ->
