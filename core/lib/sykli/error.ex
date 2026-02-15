@@ -90,7 +90,9 @@ defmodule Sykli.Error do
     # Actionable suggestions (default: [])
     hints: [],
     # Contextual information (default: [])
-    notes: []
+    notes: [],
+    # Parsed file:line locations from output (default: [])
+    locations: []
   ]
 
   @type t :: %__MODULE__{
@@ -105,6 +107,7 @@ defmodule Sykli.Error do
           duration_ms: integer() | nil,
           hints: [String.t()],
           notes: [String.t()],
+          locations: [Sykli.ErrorParser.location()],
           cause: term() | nil
         }
 
@@ -127,6 +130,9 @@ defmodule Sykli.Error do
     # Generate automatic hints based on exit code and output
     auto_hints = generate_hints(exit_code, output)
 
+    # Parse file:line locations from output
+    locations = Sykli.ErrorParser.parse(output || "")
+
     %__MODULE__{
       code: "task_failed",
       type: :execution,
@@ -138,7 +144,8 @@ defmodule Sykli.Error do
       exit_code: exit_code,
       duration_ms: duration_ms,
       hints: auto_hints,
-      notes: build_duration_note(duration_ms)
+      notes: build_duration_note(duration_ms),
+      locations: locations
     }
   end
 
