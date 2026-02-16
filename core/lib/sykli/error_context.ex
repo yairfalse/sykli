@@ -23,7 +23,6 @@ defmodule Sykli.ErrorContext do
         %{
           "file" => "src/auth/login.ts",
           "line" => 42,
-          "column" => nil,
           "message" => "expected 200 got 401",
           "context" => %{
             "last_modified_by" => "alice",
@@ -42,6 +41,20 @@ defmodule Sykli.ErrorContext do
   def enrich(output, workdir) do
     output
     |> ErrorParser.parse()
+    |> enrich_locations(workdir)
+  end
+
+  @doc """
+  Enrich pre-parsed locations with git context.
+
+  Use this when locations have already been parsed (e.g., from `Error.locations`)
+  to avoid re-parsing the same output.
+  """
+  @spec enrich_locations([ErrorParser.location()], String.t()) :: [map()]
+  def enrich_locations([], _workdir), do: []
+
+  def enrich_locations(locations, workdir) do
+    locations
     |> Enum.map(&normalize_path(&1, workdir))
     |> Enum.filter(&file_exists?(&1.file, workdir))
     |> Enum.map(&enrich_location(&1, workdir))
@@ -70,12 +83,20 @@ defmodule Sykli.ErrorContext do
 
   defp build_context(file, line, workdir) do
     opts = [cd: workdir, timeout: 5_000]
+    outer_timeout = opts[:timeout] + 5_000
+
+    # Run blame and log in parallel
+    blame_task = Task.async(fn -> Git.blame_line(file, line, opts) end)
+    log_task = Task.async(fn -> Git.log_file(file, opts) end)
+
+    blame_result = Task.yield(blame_task, outer_timeout) || Task.shutdown(blame_task)
+    log_result = Task.yield(log_task, outer_timeout) || Task.shutdown(log_task)
+
     context = %{}
 
-    # Blame for the specific line
     context =
-      case Git.blame_line(file, line, opts) do
-        {:ok, blame} ->
+      case blame_result do
+        {:ok, {:ok, blame}} ->
           context
           |> Map.put("last_modified_by", blame.author)
           |> Map.put("last_modified_at", blame.date)
@@ -86,10 +107,9 @@ defmodule Sykli.ErrorContext do
           context
       end
 
-    # Recent commit count for the file
     context =
-      case Git.log_file(file, opts) do
-        {:ok, commits} ->
+      case log_result do
+        {:ok, {:ok, commits}} ->
           Map.put(context, "recent_commits", length(commits))
 
         _ ->

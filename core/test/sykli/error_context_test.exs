@@ -83,4 +83,46 @@ defmodule Sykli.ErrorContextTest do
       assert ErrorContext.enrich(output, @test_workdir) == []
     end
   end
+
+  describe "enrich_locations/2" do
+    test "returns empty list for empty locations" do
+      assert ErrorContext.enrich_locations([], @test_workdir) == []
+    end
+
+    test "enriches pre-parsed locations with git context" do
+      locations = [
+        %{file: "src/main.go", line: 1, column: 1, message: "some error"}
+      ]
+
+      result = ErrorContext.enrich_locations(locations, @test_workdir)
+      assert length(result) == 1
+      loc = hd(result)
+      assert loc["file"] == "src/main.go"
+      assert loc["line"] == 1
+      assert loc["message"] == "some error"
+      assert is_map(loc["context"])
+      assert loc["context"]["last_modified_by"] == "TestUser"
+    end
+
+    test "filters out non-existent files from pre-parsed locations" do
+      locations = [
+        %{file: "nonexistent.go", line: 1, column: nil, message: nil},
+        %{file: "src/main.go", line: 1, column: nil, message: nil}
+      ]
+
+      result = ErrorContext.enrich_locations(locations, @test_workdir)
+      assert length(result) == 1
+      assert hd(result)["file"] == "src/main.go"
+    end
+
+    test "produces same results as enrich/2 for matching output" do
+      output = "src/main.go:1:1: undefined variable x"
+      from_enrich = ErrorContext.enrich(output, @test_workdir)
+
+      locations = [%{file: "src/main.go", line: 1, column: 1, message: "undefined variable x"}]
+      from_locations = ErrorContext.enrich_locations(locations, @test_workdir)
+
+      assert from_enrich == from_locations
+    end
+  end
 end

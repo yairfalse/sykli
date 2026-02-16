@@ -57,22 +57,27 @@ defmodule Sykli.Executor.Server do
   Returns `{:ok, run_id, results}` or `{:error, run_id, reason}`.
   """
   def execute_sync(project_path, tasks, graph, opts \\ []) do
+    # Subscribe BEFORE execute to avoid race: fast tasks (e.g. nil command)
+    # can complete before a post-execute subscription is active.
+    Events.subscribe_legacy(:all)
+
     {:ok, run_id} = execute(project_path, tasks, graph, opts)
 
-    # Subscribe to legacy format (tuples) for backward compatibility
-    Events.subscribe_legacy(run_id)
+    result =
+      receive do
+        {:run_completed, ^run_id, :ok} ->
+          {:ok, run} = RunRegistry.get_run(run_id)
+          {:ok, run_id, run.result}
 
-    receive do
-      {:run_completed, ^run_id, :ok} ->
-        {:ok, run} = RunRegistry.get_run(run_id)
-        {:ok, run_id, run.result}
+        {:run_completed, ^run_id, {:error, reason}} ->
+          {:error, run_id, reason}
+      after
+        sync_timeout() ->
+          {:error, run_id, :timeout}
+      end
 
-      {:run_completed, ^run_id, {:error, reason}} ->
-        {:error, run_id, reason}
-    after
-      sync_timeout() ->
-        {:error, run_id, :timeout}
-    end
+    Events.unsubscribe(:all)
+    result
   end
 
   @doc """

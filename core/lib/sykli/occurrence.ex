@@ -110,7 +110,15 @@ defmodule Sykli.Occurrence do
     }
 
     # Enrich with file:line locations + git context
-    locations = ErrorContext.enrich(error_output(result.error), workdir)
+    # Reuse pre-parsed locations from Error struct to avoid double parsing
+    locations =
+      case result.error do
+        %Sykli.Error{locations: locs} when locs != [] ->
+          ErrorContext.enrich_locations(locs, workdir)
+
+        _ ->
+          ErrorContext.enrich(error_output(result.error), workdir)
+      end
 
     # Include raw output for AI consumption
     error_map
