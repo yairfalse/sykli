@@ -64,7 +64,7 @@ defmodule Sykli.ErrorParserTest do
   end
 
   describe "parse/1 — Python errors" do
-    test "parses File \"path\", line N" do
+    test "parses File \"path\", line N with message from next line" do
       output = """
       Traceback (most recent call last):
         File "test_auth.py", line 15, in test_login
@@ -72,10 +72,13 @@ defmodule Sykli.ErrorParserTest do
       AssertionError
       """
 
-      assert [%{file: "test_auth.py", line: 15, column: nil}] = ErrorParser.parse(output)
+      assert [%{file: "test_auth.py", line: 15, column: nil, message: msg}] =
+               ErrorParser.parse(output)
+
+      assert msg == "assert response.status == 200"
     end
 
-    test "parses nested Python traceback" do
+    test "parses nested Python traceback with messages" do
       output = """
         File "src/auth/login.py", line 42, in authenticate
           token = generate_token()
@@ -86,7 +89,29 @@ defmodule Sykli.ErrorParserTest do
       locations = ErrorParser.parse(output)
       assert length(locations) == 2
       assert Enum.at(locations, 0).file == "src/auth/login.py"
+      assert Enum.at(locations, 0).message == "token = generate_token()"
       assert Enum.at(locations, 1).file == "src/auth/token.py"
+      assert Enum.at(locations, 1).message == "raise ValueError(\"invalid key\")"
+    end
+
+    test "Python message is nil when next line is another File reference" do
+      output = """
+        File "a.py", line 1, in foo
+        File "b.py", line 2, in bar
+          actual_error()
+      """
+
+      locations = ErrorParser.parse(output)
+      assert length(locations) == 2
+      assert Enum.at(locations, 0).message == nil
+      assert Enum.at(locations, 1).message == "actual_error()"
+    end
+
+    test "Python message is nil at end of output" do
+      output = "  File \"last.py\", line 99, in main"
+      [loc] = ErrorParser.parse(output)
+      assert loc.file == "last.py"
+      assert loc.message == nil
     end
   end
 
@@ -104,6 +129,22 @@ defmodule Sykli.ErrorParserTest do
 
       assert [%{file: "lib/auth.ex", line: 42, message: msg}] = ErrorParser.parse(output)
       assert String.contains?(msg, "variable x is unused")
+    end
+
+    test "parses .erl Erlang file in parens" do
+      output = """
+      ** (CompileError) (src/gen_server_impl.erl:15) undefined callback
+      """
+
+      assert [%{file: "src/gen_server_impl.erl", line: 15}] = ErrorParser.parse(output)
+    end
+
+    test "parses .hrl header file in parens" do
+      output = """
+      ** (CompileError) (include/records.hrl:8) bad record definition
+      """
+
+      assert [%{file: "include/records.hrl", line: 8}] = ErrorParser.parse(output)
     end
   end
 

@@ -242,10 +242,13 @@ defmodule Sykli.Git do
       end
 
     fields =
-      Map.new(lines, fn line ->
+      lines
+      |> Enum.drop(1)
+      |> Enum.reject(&(&1 == "" or String.starts_with?(&1, "\t")))
+      |> Map.new(fn line ->
         case String.split(line, " ", parts: 2) do
           [key, value] -> {key, value}
-          _ -> {"", line}
+          [single] -> {single, ""}
         end
       end)
 

@@ -6,10 +6,11 @@ defmodule Sykli.ExplainTest do
 
   describe "pipeline/2" do
     test "returns schema version and task count" do
-      {:ok, graph} = parse_graph([
-        %{"name" => "lint", "command" => "mix credo"},
-        %{"name" => "test", "command" => "mix test"}
-      ])
+      {:ok, graph} =
+        parse_graph([
+          %{"name" => "lint", "command" => "mix credo"},
+          %{"name" => "test", "command" => "mix test"}
+        ])
 
       result = Explain.pipeline(graph)
 
@@ -19,29 +20,31 @@ defmodule Sykli.ExplainTest do
     end
 
     test "includes sdk_file when provided" do
-      {:ok, graph} = parse_graph([
-        %{"name" => "test", "command" => "mix test"}
-      ])
+      {:ok, graph} =
+        parse_graph([
+          %{"name" => "test", "command" => "mix test"}
+        ])
 
       result = Explain.pipeline(graph, sdk_file: "sykli.go")
       assert result.sdk_file == "sykli.go"
     end
 
     test "task entries include all expected fields" do
-      {:ok, graph} = parse_graph([
-        %{
-          "name" => "test",
-          "command" => "mix test",
-          "inputs" => ["**/*.ex"],
-          "container" => "elixir:1.16",
-          "retry" => 2,
-          "semantic" => %{
-            "covers" => ["lib/auth/*"],
-            "intent" => "unit tests",
-            "criticality" => "high"
+      {:ok, graph} =
+        parse_graph([
+          %{
+            "name" => "test",
+            "command" => "mix test",
+            "inputs" => ["**/*.ex"],
+            "container" => "elixir:1.16",
+            "retry" => 2,
+            "semantic" => %{
+              "covers" => ["lib/auth/*"],
+              "intent" => "unit tests",
+              "criticality" => "high"
+            }
           }
-        }
-      ])
+        ])
 
       result = Explain.pipeline(graph)
       task = Enum.find(result.tasks, &(&1.name == "test"))
@@ -60,9 +63,10 @@ defmodule Sykli.ExplainTest do
     end
 
     test "tasks without semantic have nil semantic" do
-      {:ok, graph} = parse_graph([
-        %{"name" => "lint", "command" => "mix credo"}
-      ])
+      {:ok, graph} =
+        parse_graph([
+          %{"name" => "lint", "command" => "mix credo"}
+        ])
 
       result = Explain.pipeline(graph)
       task = Enum.find(result.tasks, &(&1.name == "lint"))
@@ -71,9 +75,10 @@ defmodule Sykli.ExplainTest do
     end
 
     test "tasks without inputs are not cacheable" do
-      {:ok, graph} = parse_graph([
-        %{"name" => "lint", "command" => "mix credo"}
-      ])
+      {:ok, graph} =
+        parse_graph([
+          %{"name" => "lint", "command" => "mix credo"}
+        ])
 
       result = Explain.pipeline(graph)
       task = Enum.find(result.tasks, &(&1.name == "lint"))
@@ -82,9 +87,10 @@ defmodule Sykli.ExplainTest do
     end
 
     test "tasks without retry have nil retry" do
-      {:ok, graph} = parse_graph([
-        %{"name" => "lint", "command" => "mix credo"}
-      ])
+      {:ok, graph} =
+        parse_graph([
+          %{"name" => "lint", "command" => "mix credo"}
+        ])
 
       result = Explain.pipeline(graph)
       task = Enum.find(result.tasks, &(&1.name == "lint"))
@@ -95,9 +101,10 @@ defmodule Sykli.ExplainTest do
 
   describe "compute_levels/1" do
     test "single task gets level 0" do
-      {:ok, graph} = parse_graph([
-        %{"name" => "test", "command" => "mix test"}
-      ])
+      {:ok, graph} =
+        parse_graph([
+          %{"name" => "test", "command" => "mix test"}
+        ])
 
       levels = Explain.compute_levels(graph)
 
@@ -105,10 +112,11 @@ defmodule Sykli.ExplainTest do
     end
 
     test "independent tasks share level 0" do
-      {:ok, graph} = parse_graph([
-        %{"name" => "lint", "command" => "mix credo"},
-        %{"name" => "format", "command" => "mix format --check"}
-      ])
+      {:ok, graph} =
+        parse_graph([
+          %{"name" => "lint", "command" => "mix credo"},
+          %{"name" => "format", "command" => "mix format --check"}
+        ])
 
       levels = Explain.compute_levels(graph)
 
@@ -116,11 +124,12 @@ defmodule Sykli.ExplainTest do
     end
 
     test "dependent tasks get higher levels" do
-      {:ok, graph} = parse_graph([
-        %{"name" => "lint", "command" => "mix credo"},
-        %{"name" => "test", "command" => "mix test", "depends_on" => ["lint"]},
-        %{"name" => "build", "command" => "mix compile", "depends_on" => ["test"]}
-      ])
+      {:ok, graph} =
+        parse_graph([
+          %{"name" => "lint", "command" => "mix credo"},
+          %{"name" => "test", "command" => "mix test", "depends_on" => ["lint"]},
+          %{"name" => "build", "command" => "mix compile", "depends_on" => ["test"]}
+        ])
 
       levels = Explain.compute_levels(graph)
 
@@ -130,12 +139,13 @@ defmodule Sykli.ExplainTest do
     end
 
     test "diamond dependency graph levels correctly" do
-      {:ok, graph} = parse_graph([
-        %{"name" => "setup", "command" => "npm install"},
-        %{"name" => "lint", "command" => "eslint .", "depends_on" => ["setup"]},
-        %{"name" => "test", "command" => "jest", "depends_on" => ["setup"]},
-        %{"name" => "build", "command" => "webpack", "depends_on" => ["lint", "test"]}
-      ])
+      {:ok, graph} =
+        parse_graph([
+          %{"name" => "setup", "command" => "npm install"},
+          %{"name" => "lint", "command" => "eslint .", "depends_on" => ["setup"]},
+          %{"name" => "test", "command" => "jest", "depends_on" => ["setup"]},
+          %{"name" => "build", "command" => "webpack", "depends_on" => ["lint", "test"]}
+        ])
 
       levels = Explain.compute_levels(graph)
 
@@ -147,11 +157,12 @@ defmodule Sykli.ExplainTest do
 
   describe "execution_levels in pipeline output" do
     test "levels are sorted and tasks within levels are sorted" do
-      {:ok, graph} = parse_graph([
-        %{"name" => "c_task", "command" => "echo c"},
-        %{"name" => "a_task", "command" => "echo a"},
-        %{"name" => "b_task", "command" => "echo b", "depends_on" => ["c_task", "a_task"]}
-      ])
+      {:ok, graph} =
+        parse_graph([
+          %{"name" => "c_task", "command" => "echo c"},
+          %{"name" => "a_task", "command" => "echo a"},
+          %{"name" => "b_task", "command" => "echo b", "depends_on" => ["c_task", "a_task"]}
+        ])
 
       result = Explain.pipeline(graph)
 
@@ -165,21 +176,23 @@ defmodule Sykli.ExplainTest do
 
   describe "compute_blocks/1" do
     test "returns empty map for independent tasks" do
-      {:ok, graph} = parse_graph([
-        %{"name" => "a", "command" => "echo a"},
-        %{"name" => "b", "command" => "echo b"}
-      ])
+      {:ok, graph} =
+        parse_graph([
+          %{"name" => "a", "command" => "echo a"},
+          %{"name" => "b", "command" => "echo b"}
+        ])
 
       blocks = Explain.compute_blocks(graph)
       assert blocks == %{}
     end
 
     test "maps blocking relationships correctly" do
-      {:ok, graph} = parse_graph([
-        %{"name" => "lint", "command" => "mix credo"},
-        %{"name" => "test", "command" => "mix test", "depends_on" => ["lint"]},
-        %{"name" => "build", "command" => "mix compile", "depends_on" => ["lint"]}
-      ])
+      {:ok, graph} =
+        parse_graph([
+          %{"name" => "lint", "command" => "mix credo"},
+          %{"name" => "test", "command" => "mix test", "depends_on" => ["lint"]},
+          %{"name" => "build", "command" => "mix compile", "depends_on" => ["lint"]}
+        ])
 
       blocks = Explain.compute_blocks(graph)
 
@@ -191,11 +204,12 @@ defmodule Sykli.ExplainTest do
 
   describe "blocks in pipeline output" do
     test "task entries include sorted blocks" do
-      {:ok, graph} = parse_graph([
-        %{"name" => "lint", "command" => "mix credo"},
-        %{"name" => "test", "command" => "mix test", "depends_on" => ["lint"]},
-        %{"name" => "build", "command" => "mix compile", "depends_on" => ["lint"]}
-      ])
+      {:ok, graph} =
+        parse_graph([
+          %{"name" => "lint", "command" => "mix credo"},
+          %{"name" => "test", "command" => "mix test", "depends_on" => ["lint"]},
+          %{"name" => "build", "command" => "mix compile", "depends_on" => ["lint"]}
+        ])
 
       result = Explain.pipeline(graph)
       lint_task = Enum.find(result.tasks, &(&1.name == "lint"))
@@ -206,32 +220,35 @@ defmodule Sykli.ExplainTest do
 
   describe "compute_critical_path/2" do
     test "single task is the critical path" do
-      {:ok, graph} = parse_graph([
-        %{"name" => "test", "command" => "mix test"}
-      ])
+      {:ok, graph} =
+        parse_graph([
+          %{"name" => "test", "command" => "mix test"}
+        ])
 
       path = Explain.compute_critical_path(graph, %{})
       assert path == ["test"]
     end
 
     test "linear chain is the full critical path" do
-      {:ok, graph} = parse_graph([
-        %{"name" => "lint", "command" => "mix credo"},
-        %{"name" => "test", "command" => "mix test", "depends_on" => ["lint"]},
-        %{"name" => "build", "command" => "mix compile", "depends_on" => ["test"]}
-      ])
+      {:ok, graph} =
+        parse_graph([
+          %{"name" => "lint", "command" => "mix credo"},
+          %{"name" => "test", "command" => "mix test", "depends_on" => ["lint"]},
+          %{"name" => "build", "command" => "mix compile", "depends_on" => ["test"]}
+        ])
 
       path = Explain.compute_critical_path(graph, %{})
       assert path == ["lint", "test", "build"]
     end
 
     test "picks longer branch when weighted equally" do
-      {:ok, graph} = parse_graph([
-        %{"name" => "setup", "command" => "npm install"},
-        %{"name" => "lint", "command" => "eslint .", "depends_on" => ["setup"]},
-        %{"name" => "test", "command" => "jest", "depends_on" => ["setup"]},
-        %{"name" => "build", "command" => "webpack", "depends_on" => ["lint", "test"]}
-      ])
+      {:ok, graph} =
+        parse_graph([
+          %{"name" => "setup", "command" => "npm install"},
+          %{"name" => "lint", "command" => "eslint .", "depends_on" => ["setup"]},
+          %{"name" => "test", "command" => "jest", "depends_on" => ["setup"]},
+          %{"name" => "build", "command" => "webpack", "depends_on" => ["lint", "test"]}
+        ])
 
       # Both branches have same weight (default 1000ms each)
       # Either [setup, lint, build] or [setup, test, build] is valid
@@ -243,12 +260,13 @@ defmodule Sykli.ExplainTest do
     end
 
     test "uses duration map for weighting" do
-      {:ok, graph} = parse_graph([
-        %{"name" => "setup", "command" => "npm install"},
-        %{"name" => "fast", "command" => "echo fast", "depends_on" => ["setup"]},
-        %{"name" => "slow", "command" => "sleep 10", "depends_on" => ["setup"]},
-        %{"name" => "build", "command" => "webpack", "depends_on" => ["fast", "slow"]}
-      ])
+      {:ok, graph} =
+        parse_graph([
+          %{"name" => "setup", "command" => "npm install"},
+          %{"name" => "fast", "command" => "echo fast", "depends_on" => ["setup"]},
+          %{"name" => "slow", "command" => "sleep 10", "depends_on" => ["setup"]},
+          %{"name" => "build", "command" => "webpack", "depends_on" => ["fast", "slow"]}
+        ])
 
       duration_map = %{"setup" => 1000, "fast" => 500, "slow" => 10000, "build" => 2000}
       path = Explain.compute_critical_path(graph, duration_map)
@@ -264,13 +282,18 @@ defmodule Sykli.ExplainTest do
 
   describe "parallelism" do
     test "reports max parallel tasks across levels" do
-      {:ok, graph} = parse_graph([
-        %{"name" => "setup", "command" => "npm install"},
-        %{"name" => "lint", "command" => "eslint .", "depends_on" => ["setup"]},
-        %{"name" => "test", "command" => "jest", "depends_on" => ["setup"]},
-        %{"name" => "typecheck", "command" => "tsc", "depends_on" => ["setup"]},
-        %{"name" => "build", "command" => "webpack", "depends_on" => ["lint", "test", "typecheck"]}
-      ])
+      {:ok, graph} =
+        parse_graph([
+          %{"name" => "setup", "command" => "npm install"},
+          %{"name" => "lint", "command" => "eslint .", "depends_on" => ["setup"]},
+          %{"name" => "test", "command" => "jest", "depends_on" => ["setup"]},
+          %{"name" => "typecheck", "command" => "tsc", "depends_on" => ["setup"]},
+          %{
+            "name" => "build",
+            "command" => "webpack",
+            "depends_on" => ["lint", "test", "typecheck"]
+          }
+        ])
 
       result = Explain.pipeline(graph)
       assert result.parallelism == 3
@@ -279,10 +302,11 @@ defmodule Sykli.ExplainTest do
 
   describe "estimated_duration_ms" do
     test "estimates based on max-per-level with default durations" do
-      {:ok, graph} = parse_graph([
-        %{"name" => "lint", "command" => "mix credo"},
-        %{"name" => "test", "command" => "mix test", "depends_on" => ["lint"]}
-      ])
+      {:ok, graph} =
+        parse_graph([
+          %{"name" => "lint", "command" => "mix credo"},
+          %{"name" => "test", "command" => "mix test", "depends_on" => ["lint"]}
+        ])
 
       result = Explain.pipeline(graph)
 
@@ -291,10 +315,11 @@ defmodule Sykli.ExplainTest do
     end
 
     test "uses run history durations when available" do
-      {:ok, graph} = parse_graph([
-        %{"name" => "lint", "command" => "mix credo"},
-        %{"name" => "test", "command" => "mix test", "depends_on" => ["lint"]}
-      ])
+      {:ok, graph} =
+        parse_graph([
+          %{"name" => "lint", "command" => "mix credo"},
+          %{"name" => "test", "command" => "mix test", "depends_on" => ["lint"]}
+        ])
 
       run_history = %{
         tasks: [
@@ -312,13 +337,14 @@ defmodule Sykli.ExplainTest do
 
   describe "matrix expansion" do
     test "works with expanded matrix tasks" do
-      {:ok, graph} = parse_graph([
-        %{
-          "name" => "test",
-          "command" => "mix test",
-          "matrix" => %{"version" => ["1.15", "1.16"]}
-        }
-      ])
+      {:ok, graph} =
+        parse_graph([
+          %{
+            "name" => "test",
+            "command" => "mix test",
+            "matrix" => %{"version" => ["1.15", "1.16"]}
+          }
+        ])
 
       expanded = Graph.expand_matrix(graph)
       result = Explain.pipeline(expanded)

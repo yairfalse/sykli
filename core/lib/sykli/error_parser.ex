@@ -34,9 +34,12 @@ defmodule Sykli.ErrorParser do
   """
   @spec parse(String.t()) :: [location()]
   def parse(output) when is_binary(output) do
-    output
-    |> String.split("\n")
-    |> Enum.flat_map(&parse_line/1)
+    lines = String.split(output, "\n")
+
+    # Use sliding pairs for Python lookahead (each element sees the next line)
+    lines
+    |> Enum.chunk_every(2, 1, [:eof])
+    |> Enum.flat_map(&parse_pair/1)
     |> dedup_by_file_line()
     |> Enum.take(@max_locations)
   end
@@ -49,13 +52,15 @@ defmodule Sykli.ErrorParser do
 
   # Each parser returns nil or a location map.
   # Order matters: language-specific before generic.
+  # Python needs the next line for message lookahead.
 
-  defp parse_line(line) do
+  defp parse_pair([line, next]) do
     line = String.trim(line)
+    next = if next == :eof, do: nil, else: String.trim(next)
 
     parsers = [
       &parse_rust/1,
-      &parse_python/1,
+      fn l -> parse_python(l, next) end,
       &parse_typescript_parens/1,
       &parse_elixir_parens/1,
       &parse_generic/1
@@ -65,6 +70,10 @@ defmodule Sykli.ErrorParser do
       nil -> []
       loc -> [loc]
     end
+  end
+
+  defp parse_pair([line]) do
+    parse_pair([line, :eof])
   end
 
   # Rust: `--> src/main.rs:10:5`
@@ -84,18 +93,31 @@ defmodule Sykli.ErrorParser do
   end
 
   # Python: `File "test_auth.py", line 15`
-  defp parse_python(line) do
+  # Message is on the next non-traceback line after the File reference.
+  defp parse_python(line, next_line) do
     case Regex.run(~r/File "([^"]+)", line (\d+)/, line) do
       [_, file, line_str] ->
         %{
           file: file,
           line: String.to_integer(line_str),
           column: nil,
-          message: nil
+          message: extract_python_message(next_line)
         }
 
       _ ->
         nil
+    end
+  end
+
+  defp extract_python_message(nil), do: nil
+
+  defp extract_python_message(line) do
+    trimmed = String.trim(line)
+
+    if trimmed == "" or String.starts_with?(trimmed, "File ") do
+      nil
+    else
+      trimmed
     end
   end
 
@@ -121,7 +143,7 @@ defmodule Sykli.ErrorParser do
 
   # Elixir parenthesized: `(lib/auth.ex:42)` or `** (CompileError) lib/auth.ex:42:`
   defp parse_elixir_parens(line) do
-    case Regex.run(~r/\(([^\s()]+\.exs?):(\d+)\)/, line) do
+    case Regex.run(~r/\(([^\s()]+\.(?:exs?|erl|hrl)):(\d+)\)/, line) do
       [_, file, line_str] ->
         %{
           file: file,

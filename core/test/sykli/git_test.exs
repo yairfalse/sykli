@@ -233,5 +233,18 @@ defmodule Sykli.GitTest do
 
       assert {:error, _} = Git.blame_line("short.txt", 999, cd: @test_workdir)
     end
+
+    test "handles multi-word author names correctly" do
+      System.cmd("git", ["config", "user.name", "Alice Bob Carol"], cd: @test_workdir)
+
+      file = Path.join(@test_workdir, "multiword.txt")
+      File.write!(file, "hello world\n")
+      System.cmd("git", ["add", "."], cd: @test_workdir)
+      System.cmd("git", ["commit", "-m", "multi-word author"], cd: @test_workdir)
+
+      assert {:ok, blame} = Git.blame_line("multiword.txt", 1, cd: @test_workdir)
+      assert blame.author == "Alice Bob Carol"
+      assert blame.message == "multi-word author"
+    end
   end
 end

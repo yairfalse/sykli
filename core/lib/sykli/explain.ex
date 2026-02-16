@@ -99,7 +99,9 @@ defmodule Sykli.Explain do
         end)
       end)
     else
-      new_assigned = Enum.reduce(ready, assigned, fn name, acc -> Map.put(acc, name, current_level) end)
+      new_assigned =
+        Enum.reduce(ready, assigned, fn name, acc -> Map.put(acc, name, current_level) end)
+
       do_compute_levels(graph, new_assigned, current_level + 1)
     end
   end
@@ -137,7 +139,8 @@ defmodule Sykli.Explain do
       |> Enum.flat_map(fn {_level, names} -> names end)
 
     # dist[name] = {total_duration_to_here, predecessor}
-    initial = Map.new(sorted_names, fn name -> {name, {duration_for(name, duration_map), nil}} end)
+    initial =
+      Map.new(sorted_names, fn name -> {name, {duration_for(name, duration_map), nil}} end)
 
     dist =
       Enum.reduce(sorted_names, initial, fn name, acc ->
