@@ -83,13 +83,14 @@ defmodule Sykli.ErrorContext do
 
   defp build_context(file, line, workdir) do
     opts = [cd: workdir, timeout: 5_000]
+    outer_timeout = opts[:timeout] + 5_000
 
     # Run blame and log in parallel
     blame_task = Task.async(fn -> Git.blame_line(file, line, opts) end)
     log_task = Task.async(fn -> Git.log_file(file, opts) end)
 
-    blame_result = Task.yield(blame_task, 6_000) || Task.shutdown(blame_task)
-    log_result = Task.yield(log_task, 6_000) || Task.shutdown(log_task)
+    blame_result = Task.yield(blame_task, outer_timeout) || Task.shutdown(blame_task)
+    log_result = Task.yield(log_task, outer_timeout) || Task.shutdown(log_task)
 
     context = %{}
 
