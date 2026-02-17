@@ -512,10 +512,50 @@ defmodule Sykli.Graph do
   end
 
   @doc """
+  Validates that all task dependencies reference existing tasks.
+
+  Returns `:ok` if all dependencies are valid, or
+  `{:error, {:missing_dependencies, [{task_name, [missing_deps]}]}}` if any
+  task depends on a non-existent task.
+  """
+  @spec validate_dependencies(map()) :: :ok | {:error, {:missing_dependencies, list()}}
+  def validate_dependencies(graph) do
+    task_names = Map.keys(graph)
+
+    missing =
+      graph
+      |> Enum.reduce([], fn {name, task}, acc ->
+        deps = task.depends_on || []
+        bad = Enum.reject(deps, &(&1 in task_names))
+
+        if bad == [] do
+          acc
+        else
+          [{name, bad} | acc]
+        end
+      end)
+      |> Enum.sort_by(&elem(&1, 0))
+
+    if missing == [] do
+      :ok
+    else
+      {:error, {:missing_dependencies, missing}}
+    end
+  end
+
+  @doc """
   Topological sort using Kahn's algorithm.
   Returns tasks in execution order.
   """
   def topo_sort(graph) do
+    # Validate dependencies before sorting
+    case validate_dependencies(graph) do
+      {:error, _} = error -> error
+      :ok -> do_topo_sort_start(graph)
+    end
+  end
+
+  defp do_topo_sort_start(graph) do
     # Build in-degree map
     in_degree =
       graph
@@ -655,7 +695,14 @@ defmodule Sykli.Graph do
     if current == target do
       [target | path]
     else
-      build_cycle_path(Map.get(parent, current, target), target, parent, [current | path])
+      case Map.fetch(parent, current) do
+        {:ok, next} ->
+          build_cycle_path(next, target, parent, [current | path])
+
+        :error ->
+          # Parent chain is incomplete — return what we have
+          [current | path]
+      end
     end
   end
 
