@@ -49,6 +49,7 @@ logs/
 # Test artifacts
 test-results/
 coverage/
+.hypothesis/
 
 # Temporary files
 tmp/
