@@ -415,6 +415,8 @@ class Task:
         # Capability-based dependencies
         self._provides: list[dict[str, str]] = []
         self._needs: list[str] = []
+        # Cross-platform verification
+        self._verify: str | None = None
         # Gate fields
         self._gate_strategy: str = "prompt" if is_gate else ""
         self._gate_timeout: int = 3600 if is_gate else 0
@@ -778,6 +780,9 @@ class Task:
                 gate["file_path"] = self._gate_file_path
             d["gate"] = gate
 
+        if self._verify:
+            d["verify"] = self._verify
+
         return d
 
     def _semantic_to_dict(self) -> dict[str, Any] | None:
@@ -805,6 +810,18 @@ class Task:
     def k8s_raw(self, raw: str) -> Self:
         """Set raw JSON for advanced K8s options (escape hatch)."""
         self._k8s_raw = raw
+        return self
+
+    def verify(self, mode: str) -> Self:
+        """Set cross-platform verification mode.
+
+        Args:
+            mode: One of "cross_platform", "always", "never".
+        """
+        valid = ("cross_platform", "always", "never")
+        if mode not in valid:
+            raise ValueError(f"verify mode must be one of {valid}, got {mode!r}")
+        self._verify = mode
         return self
 
     def _k8s_to_dict(self) -> dict[str, Any] | None:

@@ -163,7 +163,10 @@ class TestTaskArtifacts:
     def test_outputs_v1(self):
         p = Pipeline()
         p.task("build").run("make").outputs("/out/app", "/out/lib")
-        assert p.to_dict()["tasks"][0]["outputs"] == ["/out/app", "/out/lib"]
+        assert p.to_dict()["tasks"][0]["outputs"] == {
+            "output_0": "/out/app",
+            "output_1": "/out/lib",
+        }
 
     def test_input_from(self):
         p = Pipeline()
@@ -439,3 +442,38 @@ class TestTaskGate:
         d = p.to_dict()
         deploy = next(t for t in d["tasks"] if t["name"] == "deploy")
         assert deploy["depends_on"] == ["approval"]
+
+
+class TestTaskVerify:
+    def test_verify_cross_platform(self):
+        p = Pipeline()
+        p.task("test").run("pytest").verify("cross_platform")
+        assert p.to_dict()["tasks"][0]["verify"] == "cross_platform"
+
+    def test_verify_always(self):
+        p = Pipeline()
+        p.task("test").run("pytest").verify("always")
+        assert p.to_dict()["tasks"][0]["verify"] == "always"
+
+    def test_verify_never(self):
+        p = Pipeline()
+        p.task("test").run("pytest").verify("never")
+        assert p.to_dict()["tasks"][0]["verify"] == "never"
+
+    def test_verify_invalid_raises(self):
+        p = Pipeline()
+        with pytest.raises(ValueError, match="verify mode must be one of"):
+            p.task("test").verify("invalid")
+
+    def test_verify_omitted_when_unset(self):
+        p = Pipeline()
+        p.task("test").run("pytest")
+        assert "verify" not in p.to_dict()["tasks"][0]
+
+    def test_verify_chains(self):
+        p = Pipeline()
+        p.task("test").run("pytest").retry(2).verify("always").timeout(300)
+        d = p.to_dict()["tasks"][0]
+        assert d["verify"] == "always"
+        assert d["retry"] == 2
+        assert d["timeout"] == 300

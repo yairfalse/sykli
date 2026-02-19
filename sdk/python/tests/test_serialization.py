@@ -138,7 +138,7 @@ class TestResourceSerialization:
         src = p.dir("src").glob("**/*.py", "*.toml")
         p.task("test").run("pytest").mount(src, "/src")
         d = p.to_dict()
-        assert d["resources"]["src:src"]["glob"] == ["**/*.py", "*.toml"]
+        assert d["resources"]["src:src"]["globs"] == ["**/*.py", "*.toml"]
 
 
 class TestGateSerialization:
