@@ -25,10 +25,10 @@ defmodule Sykli.OccurrenceTest do
 
       assert %Occurrence{} = occ
       assert occ.type == "ci.run.passed"
-      assert occ.outcome == "passed"
+      assert occ.outcome == "success"
       assert occ.severity == :info
       assert occ.source == "sykli"
-      assert occ.version == "1.0"
+      assert occ.protocol_version == "1.0"
     end
 
     test "creates ci.run.failed for {:error, _} result" do
@@ -36,7 +36,7 @@ defmodule Sykli.OccurrenceTest do
 
       assert %Occurrence{} = occ
       assert occ.type == "ci.run.failed"
-      assert occ.outcome == "failed"
+      assert occ.outcome == "failure"
       assert occ.severity == :error
     end
   end
@@ -60,9 +60,11 @@ defmodule Sykli.OccurrenceTest do
       json = File.read!(Path.join(workdir, ".sykli/occurrence.json"))
       data = Jason.decode!(json)
 
-      assert data["version"] == "1.0"
-      assert data["id"] == occ.run_id
+      assert data["protocol_version"] == "1.0"
+      assert data["id"] == occ.id
       assert is_binary(data["timestamp"])
+      assert is_map(data["context"])
+      assert is_map(data["context"]["labels"])
     end
   end
 
@@ -76,7 +78,7 @@ defmodule Sykli.OccurrenceTest do
 
       enriched = Enrichment.enrich(occ, graph, result, workdir)
 
-      assert enriched.outcome == "passed"
+      assert enriched.outcome == "success"
       assert enriched.type == "ci.run.passed"
       assert enriched.severity == :info
       assert enriched.source == "sykli"
@@ -87,7 +89,7 @@ defmodule Sykli.OccurrenceTest do
 
       enriched = Enrichment.enrich(occ, graph, result, workdir)
 
-      assert enriched.outcome == "failed"
+      assert enriched.outcome == "failure"
       assert enriched.type == "ci.run.failed"
       assert enriched.severity == :error
     end
@@ -110,17 +112,17 @@ defmodule Sykli.OccurrenceTest do
   end
 
   # ─────────────────────────────────────────────────────────────────────────────
-  # enrich/4 — ci_data summary
+  # enrich/4 — data summary
   # ─────────────────────────────────────────────────────────────────────────────
 
-  describe "enrich/4 — ci_data summary" do
+  describe "enrich/4 — data summary" do
     test "includes summary for passing run", %{workdir: workdir} do
       {graph, result, occ} = simple_passing_run()
 
       enriched = Enrichment.enrich(occ, graph, result, workdir)
 
-      assert enriched.ci_data["summary"]["passed"] == 1
-      assert enriched.ci_data["summary"]["failed"] == 0
+      assert enriched.data["summary"]["passed"] == 1
+      assert enriched.data["summary"]["failed"] == 0
     end
 
     test "includes summary for failing run", %{workdir: workdir} do
@@ -128,7 +130,7 @@ defmodule Sykli.OccurrenceTest do
 
       enriched = Enrichment.enrich(occ, graph, result, workdir)
 
-      assert enriched.ci_data["summary"]["failed"] == 1
+      assert enriched.data["summary"]["failed"] == 1
     end
 
     test "includes cached task count", %{workdir: workdir} do
@@ -146,24 +148,24 @@ defmodule Sykli.OccurrenceTest do
       occ = Occurrence.run_completed("test-cached", :ok)
       enriched = Enrichment.enrich(occ, graph, {:ok, results}, workdir)
 
-      assert enriched.ci_data["summary"]["cached"] == 1
-      assert enriched.ci_data["summary"]["passed"] == 2
+      assert enriched.data["summary"]["cached"] == 1
+      assert enriched.data["summary"]["passed"] == 2
 
-      lint = Enum.find(enriched.ci_data["tasks"], &(&1["name"] == "lint"))
+      lint = Enum.find(enriched.data["tasks"], &(&1["name"] == "lint"))
       assert lint["cached"] == true
     end
   end
 
   # ─────────────────────────────────────────────────────────────────────────────
-  # enrich/4 — ci_data tasks
+  # enrich/4 — data tasks
   # ─────────────────────────────────────────────────────────────────────────────
 
-  describe "enrich/4 — ci_data tasks" do
+  describe "enrich/4 — data tasks" do
     test "includes task details", %{workdir: workdir} do
       {graph, result, occ} = simple_passing_run()
 
       enriched = Enrichment.enrich(occ, graph, result, workdir)
-      tasks = enriched.ci_data["tasks"]
+      tasks = enriched.data["tasks"]
 
       assert length(tasks) == 1
       task = hd(tasks)
@@ -177,7 +179,7 @@ defmodule Sykli.OccurrenceTest do
       {graph, result, occ} = run_with_structured_error()
 
       enriched = Enrichment.enrich(occ, graph, result, workdir)
-      task = Enum.find(enriched.ci_data["tasks"], &(&1["name"] == "build"))
+      task = Enum.find(enriched.data["tasks"], &(&1["name"] == "build"))
 
       assert task["status"] == "failed"
       assert task["error"]["code"] == "task_failed"
@@ -207,7 +209,7 @@ defmodule Sykli.OccurrenceTest do
       occ = Occurrence.run_completed("test-blocked", {:error, :task_failed})
       enriched = Enrichment.enrich(occ, graph, {:error, results}, workdir)
 
-      blocked = Enum.find(enriched.ci_data["tasks"], &(&1["name"] == "test"))
+      blocked = Enum.find(enriched.data["tasks"], &(&1["name"] == "test"))
       assert blocked["status"] == "blocked"
       assert blocked["error"]["code"] == "dependency_failed"
     end
@@ -229,7 +231,7 @@ defmodule Sykli.OccurrenceTest do
       occ = Occurrence.run_completed("test-deps", :ok)
       enriched = Enrichment.enrich(occ, graph, {:ok, results}, workdir)
 
-      test_task = Enum.find(enriched.ci_data["tasks"], &(&1["name"] == "test"))
+      test_task = Enum.find(enriched.data["tasks"], &(&1["name"] == "test"))
       assert test_task["depends_on"] == ["lint"]
       assert test_task["blocks"] == ["build"]
     end
@@ -251,7 +253,7 @@ defmodule Sykli.OccurrenceTest do
       occ = Occurrence.run_completed("test-covers", :ok)
       enriched = Enrichment.enrich(occ, graph, {:ok, results}, workdir)
 
-      task = hd(enriched.ci_data["tasks"])
+      task = hd(enriched.data["tasks"])
       assert task["covers"] == ["lib/auth/*"]
     end
   end
@@ -261,14 +263,14 @@ defmodule Sykli.OccurrenceTest do
   # ─────────────────────────────────────────────────────────────────────────────
 
   describe "enrich/4 — git context" do
-    test "includes git context in ci_data", %{workdir: workdir} do
+    test "includes git context in data", %{workdir: workdir} do
       {graph, result, occ} = simple_passing_run()
 
       enriched = Enrichment.enrich(occ, graph, result, workdir)
 
-      assert is_map(enriched.ci_data["git"])
-      assert Map.has_key?(enriched.ci_data["git"], "sha")
-      assert Map.has_key?(enriched.ci_data["git"], "branch")
+      assert is_map(enriched.data["git"])
+      assert Map.has_key?(enriched.data["git"], "sha")
+      assert Map.has_key?(enriched.data["git"], "branch")
     end
   end
 
@@ -287,13 +289,23 @@ defmodule Sykli.OccurrenceTest do
       assert enriched.error["code"] != nil
     end
 
-    test "error block has exit_code and output for task failure", %{workdir: workdir} do
+    test "error block is spec-conformant (no output/exit_code/locations)", %{workdir: workdir} do
       {graph, result, occ} = run_with_structured_error()
 
       enriched = Enrichment.enrich(occ, graph, result, workdir)
 
-      assert enriched.error["exit_code"] == 127
-      assert is_binary(enriched.error["output"])
+      # Spec-allowed fields only
+      assert enriched.error["code"] != nil
+      assert is_binary(enriched.error["what_failed"])
+      # CI-specific fields moved to data.error_details
+      refute Map.has_key?(enriched.error, "exit_code")
+      refute Map.has_key?(enriched.error, "output")
+      refute Map.has_key?(enriched.error, "locations")
+
+      # CI-specific error details are in data
+      assert is_list(enriched.data["error_details"])
+      detail = hd(enriched.data["error_details"])
+      assert detail["exit_code"] == 127
     end
   end
 
@@ -309,9 +321,13 @@ defmodule Sykli.OccurrenceTest do
 
       assert is_map(enriched.reasoning)
       assert is_binary(enriched.reasoning["summary"])
+      assert is_binary(enriched.reasoning["explanation"])
       assert is_number(enriched.reasoning["confidence"])
-      assert is_map(enriched.reasoning["tasks"])
-      assert Map.has_key?(enriched.reasoning["tasks"], "build")
+
+      # Per-task reasoning moved to data.reasoning_details
+      refute Map.has_key?(enriched.reasoning, "tasks")
+      assert is_map(enriched.data["reasoning_details"])
+      assert Map.has_key?(enriched.data["reasoning_details"]["tasks"], "build")
     end
   end
 
@@ -330,19 +346,22 @@ defmodule Sykli.OccurrenceTest do
       assert length(enriched.history["steps"]) == 1
 
       step = hd(enriched.history["steps"])
-      assert step["description"] == "test"
-      assert step["status"] == "passed"
+      assert step["action"] == "test"
+      assert step["outcome"] == "success"
+      assert is_binary(step["timestamp"])
       assert is_integer(step["duration_ms"])
     end
 
-    test "history step includes error for failed task", %{workdir: workdir} do
+    test "history step includes error object for failed task", %{workdir: workdir} do
       {graph, result, occ} = simple_failing_run()
 
       enriched = Enrichment.enrich(occ, graph, result, workdir)
 
       step = hd(enriched.history["steps"])
-      assert step["status"] == "failed"
-      assert is_binary(step["error"])
+      assert step["outcome"] == "failure"
+      assert is_map(step["error"])
+      assert is_binary(step["error"]["code"])
+      assert is_binary(step["error"]["what_failed"])
     end
 
     test "history includes total duration", %{workdir: workdir} do
@@ -417,13 +436,16 @@ defmodule Sykli.OccurrenceTest do
       enriched = Enrichment.enrich(occ, graph, result, workdir)
       map = Enrichment.to_persistence_map(enriched)
 
-      assert map["version"] == "1.0"
+      assert map["protocol_version"] == "1.0"
       assert map["type"] == "ci.run.passed"
       assert map["source"] == "sykli"
-      assert map["outcome"] == "passed"
+      assert map["outcome"] == "success"
       assert map["severity"] == "info"
       assert is_binary(map["timestamp"])
-      assert is_map(map["ci_data"])
+      assert is_map(map["context"])
+      assert is_map(map["context"]["labels"])
+      assert is_binary(map["context"]["labels"]["sykli.run_id"])
+      assert is_map(map["data"])
       assert is_map(map["history"])
     end
 
@@ -452,7 +474,7 @@ defmodule Sykli.OccurrenceTest do
   # Log paths in ci_data tasks
   # ─────────────────────────────────────────────────────────────────────────────
 
-  describe "enrich/4 — log paths in ci_data tasks" do
+  describe "enrich/4 — log paths in data tasks" do
     test "task with output includes log path", %{workdir: workdir} do
       graph = parse_graph!([%{"name" => "test", "command" => "mix test"}])
 
@@ -464,7 +486,7 @@ defmodule Sykli.OccurrenceTest do
       occ = Occurrence.run_completed(run_id, :ok)
       enriched = Enrichment.enrich(occ, graph, {:ok, results}, workdir)
 
-      task = hd(enriched.ci_data["tasks"])
+      task = hd(enriched.data["tasks"])
       assert task["log"] == ".sykli/logs/01ABC/test.log"
     end
 
@@ -478,7 +500,7 @@ defmodule Sykli.OccurrenceTest do
       occ = Occurrence.run_completed("test-nolog", :ok)
       enriched = Enrichment.enrich(occ, graph, {:ok, results}, workdir)
 
-      task = hd(enriched.ci_data["tasks"])
+      task = hd(enriched.data["tasks"])
       refute Map.has_key?(task, "log")
     end
 
@@ -492,7 +514,7 @@ defmodule Sykli.OccurrenceTest do
       occ = Occurrence.run_completed("test-emptylog", :ok)
       enriched = Enrichment.enrich(occ, graph, {:ok, results}, workdir)
 
-      task = hd(enriched.ci_data["tasks"])
+      task = hd(enriched.data["tasks"])
       refute Map.has_key?(task, "log")
     end
 
@@ -507,7 +529,7 @@ defmodule Sykli.OccurrenceTest do
       occ = Occurrence.run_completed(run_id, :ok)
       enriched = Enrichment.enrich(occ, graph, {:ok, results}, workdir)
 
-      task = hd(enriched.ci_data["tasks"])
+      task = hd(enriched.data["tasks"])
       assert task["log"] == ".sykli/logs/01XYZ/sdk:go.log"
     end
   end

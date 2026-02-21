@@ -94,7 +94,7 @@ defmodule Sykli.EventsTest do
       assert_receive %Occurrence{
         type: "ci.run.passed",
         run_id: ^run_id,
-        outcome: "passed",
+        outcome: "success",
         data: %{outcome: :success}
       }
     end
@@ -108,7 +108,7 @@ defmodule Sykli.EventsTest do
       assert_receive %Occurrence{
         type: "ci.run.failed",
         run_id: ^run_id,
-        outcome: "failed",
+        outcome: "failure",
         data: %{outcome: :failure}
       }
     end
@@ -164,7 +164,7 @@ defmodule Sykli.EventsTest do
 
       OccPubSub.task_started("run_ver", "task")
 
-      assert_receive %Occurrence{version: "1.0"}
+      assert_receive %Occurrence{protocol_version: "1.0"}
     end
 
     test "has source set to sykli" do

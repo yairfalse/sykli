@@ -24,7 +24,7 @@ defmodule Sykli.Occurrence do
 
       occ = Occurrence.run_completed(run_id, result)
       occ = Enrichment.enrich(occ, graph, results, workdir)
-      # → rich occurrence with error, reasoning, history, ci_data
+      # → rich occurrence with error, reasoning, history, data
   """
 
   alias Sykli.Occurrence.{
@@ -43,43 +43,35 @@ defmodule Sykli.Occurrence do
   @type t :: %__MODULE__{
           id: String.t(),
           timestamp: DateTime.t(),
-          version: String.t(),
+          protocol_version: String.t(),
           type: String.t(),
           source: String.t(),
           severity: severity(),
           outcome: String.t() | nil,
           run_id: String.t(),
           node: atom() | nil,
-          trace_id: String.t() | nil,
-          span_id: String.t() | nil,
-          parent_span_id: String.t() | nil,
-          duration_us: non_neg_integer() | nil,
+          context: map(),
           data: struct() | map() | nil,
           error: map() | nil,
           reasoning: map() | nil,
-          history: map() | nil,
-          ci_data: map() | nil
+          history: map() | nil
         }
 
   defstruct [
     :id,
     :timestamp,
-    :version,
+    :protocol_version,
     :type,
     :source,
     :severity,
     :outcome,
     :run_id,
     :node,
-    :trace_id,
-    :span_id,
-    :parent_span_id,
-    :duration_us,
     :data,
     :error,
     :reasoning,
     :history,
-    :ci_data
+    context: %{}
   ]
 
   # ─────────────────────────────────────────────────────────────────────────────
@@ -177,24 +169,29 @@ defmodule Sykli.Occurrence do
   defp new(type, run_id, data, kw) do
     opts = Keyword.get(kw, :opts, [])
 
+    context =
+      %{}
+      |> maybe_put("trace_id", opts[:trace_id])
+      |> maybe_put("span_id", opts[:span_id])
+
     %__MODULE__{
       id: Sykli.ULID.generate(),
       timestamp: opts[:timestamp] || DateTime.utc_now(),
-      version: @occurrence_version,
+      protocol_version: @occurrence_version,
       type: type,
       source: "sykli",
       severity: Keyword.get(kw, :severity, :info),
       outcome: Keyword.get(kw, :outcome),
       run_id: run_id,
       node: node(),
-      data: data,
-      trace_id: opts[:trace_id],
-      span_id: opts[:span_id],
-      parent_span_id: opts[:parent_span_id],
-      duration_us: opts[:duration_us]
+      context: context,
+      data: data
     }
   end
 
-  defp run_completed_fields(:success), do: {"ci.run.passed", :info, "passed"}
-  defp run_completed_fields(:failure), do: {"ci.run.failed", :error, "failed"}
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp run_completed_fields(:success), do: {"ci.run.passed", :info, "success"}
+  defp run_completed_fields(:failure), do: {"ci.run.failed", :error, "failure"}
 end

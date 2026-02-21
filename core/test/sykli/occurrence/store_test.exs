@@ -109,15 +109,15 @@ defmodule Sykli.Occurrence.StoreTest do
 
     test "filters by status" do
       start_store()
-      Store.put(make_occurrence("pass-1", "2026-01-01T00:00:00Z", "passed"))
-      Store.put(make_occurrence("fail-1", "2026-01-02T00:00:00Z", "failed"))
-      Store.put(make_occurrence("pass-2", "2026-01-03T00:00:00Z", "passed"))
+      Store.put(make_occurrence("pass-1", "2026-01-01T00:00:00Z", "success"))
+      Store.put(make_occurrence("fail-1", "2026-01-02T00:00:00Z", "failure"))
+      Store.put(make_occurrence("pass-2", "2026-01-03T00:00:00Z", "success"))
 
-      passed = Store.list(status: "passed")
+      passed = Store.list(status: "success")
       assert length(passed) == 2
-      assert Enum.all?(passed, &(&1["outcome"] == "passed"))
+      assert Enum.all?(passed, &(&1["outcome"] == "success"))
 
-      failed = Store.list(status: "failed")
+      failed = Store.list(status: "failure")
       assert length(failed) == 1
     end
 
@@ -258,13 +258,14 @@ defmodule Sykli.Occurrence.StoreTest do
       original = %{
         "id" => "roundtrip",
         "timestamp" => "2026-01-01T00:00:00Z",
-        "outcome" => "failed",
+        "protocol_version" => "1.0",
+        "outcome" => "failure",
+        "context" => %{"labels" => %{}},
         "error" => %{
           "code" => "task_failed",
-          "what_failed" => "test task",
-          "exit_code" => 127
+          "what_failed" => "test task"
         },
-        "ci_data" => %{
+        "data" => %{
           "tasks" => [
             %{"name" => "test", "status" => "failed", "duration_ms" => 1500}
           ]
@@ -277,23 +278,49 @@ defmodule Sykli.Occurrence.StoreTest do
       loaded = Store.get("roundtrip")
       assert loaded == original
     end
+
+    test "loads old format (ci_data) for backward compat", %{workdir: workdir} do
+      etf_dir = Path.join([workdir, ".sykli", "occurrences"])
+      File.mkdir_p!(etf_dir)
+
+      old_format = %{
+        "id" => "old-format",
+        "timestamp" => "2026-01-01T00:00:00Z",
+        "version" => "1.0",
+        "outcome" => "failed",
+        "ci_data" => %{
+          "tasks" => [
+            %{"name" => "test", "status" => "failed", "duration_ms" => 1500}
+          ]
+        }
+      }
+
+      File.write!(Path.join(etf_dir, "old-format.etf"), :erlang.term_to_binary(old_format))
+      start_store(workdir: workdir)
+
+      loaded = Store.get("old-format")
+      assert loaded["ci_data"]["tasks"] != nil
+    end
   end
 
   # ─────────────────────────────────────────────────────────────────────────────
   # FIXTURES
   # ─────────────────────────────────────────────────────────────────────────────
 
-  defp make_occurrence(id, timestamp, outcome \\ "passed") do
+  defp make_occurrence(id, timestamp, outcome \\ "success") do
+    type = if outcome == "success", do: "ci.run.passed", else: "ci.run.failed"
+
     %{
       "id" => id,
       "timestamp" => timestamp,
       "outcome" => outcome,
-      "version" => "1.0",
+      "protocol_version" => "1.0",
       "source" => "sykli",
-      "type" => "ci.run.#{outcome}",
-      "severity" => if(outcome == "passed", do: "info", else: "error"),
+      "type" => type,
+      "severity" => if(outcome == "success", do: "info", else: "error"),
+      "context" => %{"labels" => %{}},
       "history" => %{"steps" => [], "duration_ms" => 0},
-      "ci_data" => %{"summary" => %{}, "tasks" => [], "git" => %{}}
+      "data" => %{"summary" => %{}, "tasks" => [], "git" => %{}}
     }
   end
 
@@ -301,13 +328,14 @@ defmodule Sykli.Occurrence.StoreTest do
     %{
       "id" => id,
       "timestamp" => timestamp,
-      "outcome" => "passed",
-      "version" => "1.0",
+      "outcome" => "success",
+      "protocol_version" => "1.0",
       "source" => "sykli",
       "type" => "ci.run.passed",
       "severity" => "info",
+      "context" => %{"labels" => %{}},
       "history" => %{"steps" => [], "duration_ms" => 0},
-      "ci_data" => %{"summary" => %{}, "tasks" => tasks, "git" => %{}}
+      "data" => %{"summary" => %{}, "tasks" => tasks, "git" => %{}}
     }
   end
 end

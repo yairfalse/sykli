@@ -12,7 +12,7 @@ defmodule Sykli.Occurrence.SerializerTest do
       assert is_binary(json)
       data = Jason.decode!(json)
       assert data["type"] == "ci.task.started"
-      assert data["run_id"] == "run-1"
+      assert data["context"]["labels"]["sykli.run_id"] == "run-1"
     end
   end
 
@@ -22,13 +22,14 @@ defmodule Sykli.Occurrence.SerializerTest do
       map = Serializer.to_map(occ)
 
       assert map["type"] == "ci.task.started"
-      assert map["run_id"] == "run-1"
-      assert map["version"] == "1.0"
+      assert map["protocol_version"] == "1.0"
       assert map["source"] == "sykli"
       assert map["severity"] == "info"
       assert is_binary(map["id"])
       assert is_binary(map["timestamp"])
-      assert is_binary(map["node"])
+      # run_id and node are now in context.labels
+      assert map["context"]["labels"]["sykli.run_id"] == "run-1"
+      assert is_binary(map["context"]["labels"]["sykli.node"])
     end
 
     test "includes data as plain map" do
@@ -44,25 +45,23 @@ defmodule Sykli.Occurrence.SerializerTest do
       map = Serializer.to_map(occ)
 
       refute Map.has_key?(map, "outcome")
-      refute Map.has_key?(map, "trace_id")
       refute Map.has_key?(map, "error")
       refute Map.has_key?(map, "reasoning")
       refute Map.has_key?(map, "history")
-      refute Map.has_key?(map, "ci_data")
     end
 
     test "includes outcome for run_completed" do
       occ = Occurrence.run_completed("run-1", :ok)
       map = Serializer.to_map(occ)
 
-      assert map["outcome"] == "passed"
+      assert map["outcome"] == "success"
     end
 
-    test "includes trace_id when set" do
+    test "includes trace_id in context when set" do
       occ = Occurrence.task_started("run-1", "test", trace_id: "trace-abc")
       map = Serializer.to_map(occ)
 
-      assert map["trace_id"] == "trace-abc"
+      assert map["context"]["trace_id"] == "trace-abc"
     end
   end
 
@@ -80,7 +79,7 @@ defmodule Sykli.Occurrence.SerializerTest do
       occ = %Occurrence{
         id: "test",
         timestamp: DateTime.utc_now(),
-        version: "1.0",
+        protocol_version: "1.0",
         type: "ci.test",
         source: "sykli",
         severity: :info,

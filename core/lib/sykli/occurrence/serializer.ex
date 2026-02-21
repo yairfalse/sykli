@@ -25,26 +25,28 @@ defmodule Sykli.Occurrence.Serializer do
   @doc "Convert an occurrence to a JSON-friendly map (string keys, no nils)."
   @spec to_map(Occurrence.t()) :: map()
   def to_map(%Occurrence{} = occ) do
+    # Build context with labels for run_id/node (not top-level per spec)
+    context =
+      (occ.context || %{})
+      |> Map.put("labels", %{
+        "sykli.run_id" => occ.run_id,
+        "sykli.node" => to_string(occ.node)
+      })
+
     %{
       "id" => occ.id,
       "timestamp" => DateTime.to_iso8601(occ.timestamp),
-      "version" => occ.version,
+      "protocol_version" => occ.protocol_version,
       "type" => occ.type,
       "source" => occ.source,
       "severity" => to_string(occ.severity),
-      "run_id" => occ.run_id,
-      "node" => to_string(occ.node)
+      "context" => context
     }
     |> maybe_add("outcome", occ.outcome)
-    |> maybe_add("trace_id", occ.trace_id)
-    |> maybe_add("span_id", occ.span_id)
-    |> maybe_add("parent_span_id", occ.parent_span_id)
-    |> maybe_add("duration_us", occ.duration_us)
     |> maybe_add("data", encode_data(occ.data))
     |> maybe_add("error", occ.error)
     |> maybe_add("reasoning", occ.reasoning)
     |> maybe_add("history", occ.history)
-    |> maybe_add("ci_data", occ.ci_data)
   end
 
   # ─────────────────────────────────────────────────────────────────────────────
@@ -76,6 +78,8 @@ defmodule Sykli.Occurrence.Serializer do
   """
   @spec to_ahti(Occurrence.t(), String.t(), keyword()) :: map()
   def to_ahti(%Occurrence{} = occ, cluster, opts \\ []) do
+    ctx = occ.context || %{}
+
     %{
       id: occ.id,
       timestamp: DateTime.to_iso8601(occ.timestamp),
@@ -86,10 +90,8 @@ defmodule Sykli.Occurrence.Serializer do
       cluster: cluster,
       namespace: opts[:namespace],
       source: opts[:source] || occ.source,
-      trace_id: occ.trace_id,
-      span_id: occ.span_id,
-      parent_span_id: occ.parent_span_id,
-      duration: occ.duration_us,
+      trace_id: ctx["trace_id"],
+      span_id: ctx["span_id"],
       entities: build_entities(occ, cluster),
       relationships: [],
       labels:
@@ -131,8 +133,8 @@ defmodule Sykli.Occurrence.Serializer do
   defp ahti_severity(%Occurrence{severity: :warning}), do: "warning"
   defp ahti_severity(_), do: "info"
 
-  defp ahti_outcome(%Occurrence{outcome: "passed"}), do: "success"
-  defp ahti_outcome(%Occurrence{outcome: "failed"}), do: "failure"
+  defp ahti_outcome(%Occurrence{outcome: "success"}), do: "success"
+  defp ahti_outcome(%Occurrence{outcome: "failure"}), do: "failure"
 
   defp ahti_outcome(%Occurrence{type: "ci.task.completed", data: data}) do
     case data do

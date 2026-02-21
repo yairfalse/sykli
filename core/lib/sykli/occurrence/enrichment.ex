@@ -3,10 +3,10 @@ defmodule Sykli.Occurrence.Enrichment do
   Enriches a terminal occurrence with FALSE Protocol blocks.
 
   Called once at the end of a pipeline run to populate:
-  - **error** — what_failed, why_it_matters, possible_causes, suggested_fix
-  - **reasoning** — summary, confidence, per-task causality
-  - **history** — ordered steps with outcomes, cross-run regression
-  - **ci_data** — git context, task details, summary counts
+  - **error** — code, what_failed, why_it_matters, possible_causes, suggested_fix
+  - **reasoning** — summary, explanation, confidence
+  - **history** — ordered steps with timestamps, actions, outcomes
+  - **data** — git context, task details, summary counts (domain-specific payload)
   """
 
   alias Sykli.ErrorContext
@@ -48,14 +48,39 @@ defmodule Sykli.Occurrence.Enrichment do
     history_map = HistoryAnalyzer.analyze(task_names, workdir)
     likely_causes = compute_likely_causes(results, graph, workdir)
 
+    # Build domain-specific data (was ci_data, now goes into data per spec)
+    ci_data = build_ci_data(results, graph, history_map, occ.run_id, workdir)
+
+    # Build reasoning — returns {reasoning_block, extra_data} where extra_data
+    # contains per-task reasoning and last_good_ref (not spec-conformant in reasoning)
+    {reasoning, reasoning_data} =
+      build_reasoning_block(results, graph, likely_causes, workdir)
+
+    # Merge error-related CI-specific fields into data
+    error_data = build_error_data(results, workdir)
+
+    # Build cross-run analysis (goes into data, not history — spec is strict)
+    cross_run_data = build_cross_run_data(results)
+
+    # Merge all into data
+    merged_data =
+      ci_data
+      |> maybe_merge(reasoning_data)
+      |> maybe_merge(error_data)
+      |> maybe_merge(cross_run_data)
+
     %{
       occ
       | error: build_error_block(results, graph, likely_causes, workdir),
-        reasoning: build_reasoning_block(results, graph, likely_causes, workdir),
-        history: build_history_block(results),
-        ci_data: build_ci_data(results, graph, history_map, occ.run_id, workdir)
+        reasoning: reasoning,
+        history: build_history_block(results, occ.timestamp),
+        data: merged_data
     }
   end
+
+  defp maybe_merge(map, nil), do: map
+  defp maybe_merge(map, other) when other == %{}, do: map
+  defp maybe_merge(map, other), do: Map.merge(map, other)
 
   # ─────────────────────────────────────────────────────────────────────────────
   # FALSE PROTOCOL: ERROR BLOCK
@@ -85,37 +110,62 @@ defmodule Sykli.Occurrence.Enrichment do
     end
   end
 
-  defp build_task_error(%TaskResult{} = result, graph, likely_causes, workdir) do
+  defp build_task_error(%TaskResult{} = result, graph, likely_causes, _workdir) do
     task = Map.get(graph, result.name, %{})
     blocks = find_blocks(result.name, graph)
 
-    error_map = %{
+    %{
       "code" => error_code(result.error),
       "what_failed" => what_failed(result, task),
+      "message" => error_message(result.error),
       "why_it_matters" => why_it_matters(blocks),
       "possible_causes" => build_possible_causes([result], likely_causes),
       "suggested_fix" => suggested_fix(result.error)
     }
-
-    locations =
-      case result.error do
-        %Sykli.Error{locations: locs} when locs != [] ->
-          ErrorContext.enrich_locations(locs, workdir)
-
-        _ ->
-          ErrorContext.enrich(error_output(result.error), workdir)
-      end
-
-    error_map
-    |> maybe_add("output", truncate_output(error_output(result.error)))
-    |> maybe_add("exit_code", error_exit_code(result.error))
-    |> maybe_add("locations", non_empty(locations))
     |> reject_empty()
   end
 
   defp error_code(%Sykli.Error{code: code}), do: code
   defp error_code(:dependency_failed), do: "dependency_failed"
   defp error_code(_), do: "unknown"
+
+  defp error_message(%Sykli.Error{message: msg}), do: msg
+  defp error_message(:dependency_failed), do: "blocked by failed dependency"
+  defp error_message(_), do: nil
+
+  # Build CI-specific error fields that move into data (not spec Error)
+  defp build_error_data(results, workdir) do
+    failed = Enum.filter(results, &(&1.status == :failed))
+    if failed == [], do: nil, else: do_build_error_data(failed, workdir)
+  end
+
+  defp do_build_error_data(failed, workdir) do
+    error_details =
+      Enum.flat_map(failed, fn result ->
+        locations =
+          case result.error do
+            %Sykli.Error{locations: locs} when locs != [] ->
+              ErrorContext.enrich_locations(locs, workdir)
+
+            _ ->
+              ErrorContext.enrich(error_output(result.error), workdir)
+          end
+
+        detail =
+          %{}
+          |> maybe_add("task", result.name)
+          |> maybe_add("output", truncate_output(error_output(result.error)))
+          |> maybe_add("exit_code", error_exit_code(result.error))
+          |> maybe_add("locations", non_empty(locations))
+
+        if detail == %{}, do: [], else: [detail]
+      end)
+
+    case error_details do
+      [] -> nil
+      details -> %{"error_details" => details}
+    end
+  end
 
   defp what_failed(%TaskResult{name: name}, task) do
     command = get_field(task, :command)
@@ -177,9 +227,10 @@ defmodule Sykli.Occurrence.Enrichment do
   # FALSE PROTOCOL: REASONING BLOCK
   # ─────────────────────────────────────────────────────────────────────────────
 
-  defp build_reasoning_block(results, graph, likely_causes, workdir) do
+  # Returns {reasoning_block | nil, extra_data | nil}
+  defp build_reasoning_block(results, _graph, likely_causes, workdir) do
     failed = Enum.filter(results, &(&1.status == :failed))
-    if failed == [], do: nil, else: do_build_reasoning(failed, likely_causes, workdir)
+    if failed == [], do: {nil, nil}, else: do_build_reasoning(failed, likely_causes, workdir)
   end
 
   defp do_build_reasoning(failed, likely_causes, workdir) do
@@ -208,6 +259,19 @@ defmodule Sykli.Occurrence.Enrichment do
           "pipeline failed"
       end
 
+    # Build full explanation narrative from task analyses
+    explanation = build_explanation(task_reasonings)
+
+    confidence = if(best, do: best.confidence, else: 0.1)
+
+    # Spec-conformant reasoning block (summary + explanation + confidence only)
+    reasoning = %{
+      "summary" => summary,
+      "explanation" => explanation,
+      "confidence" => confidence
+    }
+
+    # Per-task reasoning and last_good_ref go into data (not in spec Reasoning)
     last_good_ref =
       case RunHistory.load_last_good(path: workdir) do
         {:ok, run} -> run.git_ref
@@ -219,46 +283,102 @@ defmodule Sykli.Occurrence.Enrichment do
         {r.task, %{"changed_files" => r.files, "explanation" => r.explanation}}
       end)
 
-    %{"summary" => summary, "confidence" => if(best, do: best.confidence, else: 0.1)}
-    |> maybe_add("last_good_ref", last_good_ref)
-    |> Map.put("tasks", per_task)
+    extra_data =
+      %{"reasoning_details" => %{"tasks" => per_task}}
+      |> maybe_add("last_good_ref", last_good_ref)
+
+    {reasoning, extra_data}
+  end
+
+  defp build_explanation(task_reasonings) do
+    task_reasonings
+    |> Enum.map(fn r ->
+      case r.files do
+        [_ | _] ->
+          files_str = Enum.join(r.files, ", ")
+          "The #{r.task} task failed after #{files_str} changed. #{r.explanation}."
+
+        [] ->
+          "The #{r.task} task failed. #{r.explanation}."
+      end
+    end)
+    |> Enum.join(" ")
   end
 
   # ─────────────────────────────────────────────────────────────────────────────
   # FALSE PROTOCOL: HISTORY BLOCK
   # ─────────────────────────────────────────────────────────────────────────────
 
-  defp build_history_block(results) do
-    steps =
-      Enum.map(results, fn %TaskResult{} = r ->
+  defp build_history_block(results, base_timestamp) do
+    # Build steps with computed timestamps offset from the occurrence timestamp
+    {steps, _} =
+      Enum.map_reduce(results, 0, fn %TaskResult{} = r, offset_ms ->
+        step_ts =
+          base_timestamp
+          |> DateTime.add(offset_ms, :millisecond)
+          |> DateTime.to_iso8601()
+
         step = %{
-          "description" => r.name,
-          "status" => Atom.to_string(r.status),
+          "timestamp" => step_ts,
+          "action" => r.name,
+          "description" => step_command_description(r),
+          "outcome" => map_step_outcome(r.status),
           "duration_ms" => r.duration_ms
         }
 
-        case r.error do
-          %Sykli.Error{message: msg} -> Map.put(step, "error", msg)
-          :dependency_failed -> Map.put(step, "error", "blocked by failed dependency")
-          _ -> step
-        end
+        step =
+          case r.error do
+            %Sykli.Error{} = err ->
+              Map.put(step, "error", %{
+                "code" => err.code,
+                "what_failed" => err.message || "task #{r.name} failed"
+              })
+
+            :dependency_failed ->
+              Map.put(step, "error", %{
+                "code" => "dependency_failed",
+                "what_failed" => "blocked by failed dependency"
+              })
+
+            _ ->
+              step
+          end
+
+        # Remove nil description
+        step = if step["description"], do: step, else: Map.delete(step, "description")
+
+        {step, offset_ms + r.duration_ms}
       end)
 
     duration_ms = results |> Enum.map(& &1.duration_ms) |> Enum.sum()
 
-    history = %{"steps" => steps, "duration_ms" => duration_ms}
+    %{"steps" => steps, "duration_ms" => duration_ms}
+  end
 
+  defp step_command_description(%TaskResult{name: _name, output: _output}), do: nil
+
+  defp map_step_outcome(:passed), do: "success"
+  defp map_step_outcome(:cached), do: "success"
+  defp map_step_outcome(:failed), do: "failure"
+  defp map_step_outcome(:blocked), do: "failure"
+  defp map_step_outcome(:skipped), do: "in_progress"
+
+  defp build_cross_run_data(results) do
     case safe_store_list(20) do
       [] ->
-        history
+        nil
 
       previous_occurrences ->
         recent = build_recent_outcomes(results, previous_occurrences)
         regression = detect_regression(results, previous_occurrences)
 
-        history
-        |> maybe_add("recent_outcomes", non_empty_map(recent))
-        |> maybe_add("regression", regression)
+        result = %{}
+        result = if recent != %{}, do: Map.put(result, "recent_outcomes", recent), else: result
+
+        result =
+          if regression, do: Map.put(result, "regression", regression), else: result
+
+        if result == %{}, do: nil, else: result
     end
   end
 
@@ -312,8 +432,10 @@ defmodule Sykli.Occurrence.Enrichment do
     end
   end
 
-  # Handle both old map format and new struct format from Store
-  defp get_occ_tasks(%Occurrence{ci_data: %{"tasks" => tasks}}), do: tasks || []
+  # Handle old format (ci_data at top level), new struct format (data), and new map format
+  defp get_occ_tasks(%Occurrence{data: %{"tasks" => tasks}}), do: tasks || []
+  defp get_occ_tasks(%{"data" => %{"tasks" => tasks}}), do: tasks || []
+  # Backward compat: old persisted occurrences had ci_data at top level
   defp get_occ_tasks(%{"ci_data" => %{"tasks" => tasks}}), do: tasks || []
   defp get_occ_tasks(_), do: []
 
@@ -527,26 +649,38 @@ defmodule Sykli.Occurrence.Enrichment do
 
   @doc """
   Converts an enriched Occurrence struct to the persistence map format
-  (string keys, matching the current occurrence.json schema).
+  (string keys, conforming to FALSE Protocol occurrence.json schema).
   """
   @spec to_persistence_map(Occurrence.t()) :: map()
   def to_persistence_map(%Occurrence{} = occ) do
+    context =
+      (occ.context || %{})
+      |> Map.put("labels", %{
+        "sykli.run_id" => occ.run_id,
+        "sykli.node" => to_string(occ.node)
+      })
+
     base = %{
-      "version" => occ.version,
-      "id" => occ.run_id,
+      "protocol_version" => occ.protocol_version,
+      "id" => occ.id,
       "timestamp" => DateTime.to_iso8601(occ.timestamp),
       "source" => occ.source,
       "type" => occ.type,
       "severity" => to_string(occ.severity),
-      "outcome" => occ.outcome
+      "outcome" => occ.outcome,
+      "context" => context
     }
 
     base
     |> maybe_add("error", occ.error)
     |> maybe_add("reasoning", occ.reasoning)
-    |> Map.put("history", occ.history)
-    |> Map.put("ci_data", occ.ci_data)
+    |> maybe_add("history", occ.history)
+    |> maybe_add("data", encode_data(occ.data))
   end
+
+  defp encode_data(nil), do: nil
+  defp encode_data(data) when is_struct(data), do: Map.from_struct(data)
+  defp encode_data(data) when is_map(data), do: data
 
   defp safe_store_put(occurrence) do
     Store.put(occurrence)
