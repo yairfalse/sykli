@@ -229,9 +229,7 @@ defmodule Sykli do
         _ -> {:error, :unknown}
       end
 
-    occ = Occurrence.run_completed(run_meta.id, result)
-    # Override timestamp to match the run_meta
-    occ = %{occ | timestamp: run_meta.timestamp}
+    occ = Occurrence.run_completed(run_meta.id, result, timestamp: run_meta.timestamp)
 
     case Enrichment.enrich_and_persist(occ, graph, executor_result, path) do
       :ok ->

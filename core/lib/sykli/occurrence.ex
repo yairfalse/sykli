@@ -135,22 +135,11 @@ defmodule Sykli.Occurrence do
     data = RunCompleted.from_result(result)
     {type, severity, outcome} = run_completed_fields(data.outcome)
 
-    %__MODULE__{
-      id: Sykli.ULID.generate(),
-      timestamp: DateTime.utc_now(),
-      version: @occurrence_version,
-      type: type,
-      source: "sykli",
+    new(type, run_id, data,
       severity: severity,
       outcome: outcome,
-      run_id: run_id,
-      node: node(),
-      data: data,
-      trace_id: opts[:trace_id],
-      span_id: opts[:span_id],
-      parent_span_id: opts[:parent_span_id],
-      duration_us: opts[:duration_us]
-    }
+      opts: opts
+    )
   end
 
   @doc "Create a ci.gate.waiting occurrence."
@@ -190,12 +179,12 @@ defmodule Sykli.Occurrence do
 
     %__MODULE__{
       id: Sykli.ULID.generate(),
-      timestamp: DateTime.utc_now(),
+      timestamp: opts[:timestamp] || DateTime.utc_now(),
       version: @occurrence_version,
       type: type,
       source: "sykli",
       severity: Keyword.get(kw, :severity, :info),
-      outcome: nil,
+      outcome: Keyword.get(kw, :outcome),
       run_id: run_id,
       node: node(),
       data: data,
