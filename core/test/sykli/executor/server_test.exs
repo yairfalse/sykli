@@ -2,8 +2,8 @@ defmodule Sykli.Executor.ServerTest do
   use ExUnit.Case, async: false
 
   alias Sykli.Executor.Server
-  alias Sykli.Events
-  alias Sykli.Events.Event
+  alias Sykli.Occurrence
+  alias Sykli.Occurrence.PubSub, as: OccPubSub
   alias Sykli.RunRegistry
 
   describe "execute/4" do
@@ -22,8 +22,8 @@ defmodule Sykli.Executor.ServerTest do
       assert String.length(run_id) > 0
     end
 
-    test "emits run_started event" do
-      Events.subscribe(:all)
+    test "emits run_started occurrence" do
+      OccPubSub.subscribe(:all)
 
       task = %Sykli.Graph.Task{
         name: "event_task",
@@ -35,16 +35,16 @@ defmodule Sykli.Executor.ServerTest do
 
       {:ok, run_id} = Server.execute("/tmp", [task], graph)
 
-      assert_receive %Event{
-                       type: :run_started,
+      assert_receive %Occurrence{
+                       type: "ci.run.started",
                        run_id: ^run_id,
                        data: %{tasks: ["event_task"]}
                      },
                      1000
     end
 
-    test "emits task_started and task_completed events" do
-      Events.subscribe(:all)
+    test "emits task_started and task_completed occurrences" do
+      OccPubSub.subscribe(:all)
 
       task = %Sykli.Graph.Task{
         name: "traced_task",
@@ -56,23 +56,23 @@ defmodule Sykli.Executor.ServerTest do
 
       {:ok, run_id} = Server.execute("/tmp", [task], graph)
 
-      assert_receive %Event{
-                       type: :task_started,
+      assert_receive %Occurrence{
+                       type: "ci.task.started",
                        run_id: ^run_id,
                        data: %{task_name: "traced_task"}
                      },
                      1000
 
-      assert_receive %Event{
-                       type: :task_completed,
+      assert_receive %Occurrence{
+                       type: "ci.task.completed",
                        run_id: ^run_id,
                        data: %{task_name: "traced_task"}
                      },
                      1000
     end
 
-    test "emits run_completed event" do
-      Events.subscribe(:all)
+    test "emits run_completed occurrence (ci.run.passed)" do
+      OccPubSub.subscribe(:all)
 
       task = %Sykli.Graph.Task{
         name: "complete_task",
@@ -84,7 +84,7 @@ defmodule Sykli.Executor.ServerTest do
 
       {:ok, run_id} = Server.execute("/tmp", [task], graph)
 
-      assert_receive %Event{type: :run_completed, run_id: ^run_id}, 2000
+      assert_receive %Occurrence{type: "ci.run.passed", run_id: ^run_id}, 2000
     end
 
     test "registers run with RunRegistry" do
@@ -98,7 +98,6 @@ defmodule Sykli.Executor.ServerTest do
 
       {:ok, run_id} = Server.execute("/tmp", [task], graph)
 
-      # Sync with Server to ensure registration is complete
       :sys.get_state(Server)
 
       {:ok, run} = RunRegistry.get_run(run_id)
@@ -121,7 +120,6 @@ defmodule Sykli.Executor.ServerTest do
 
       assert {:ok, run_id, run_result} = result
       assert is_binary(run_id)
-      # run_result is the run's result field (:ok on success)
       assert run_result == :ok
     end
 
@@ -140,10 +138,6 @@ defmodule Sykli.Executor.ServerTest do
     end
 
     test "respects configurable timeout" do
-      # Timeout is configurable via Application.get_env(:sykli, :executor_sync_timeout)
-      # Default is 10 minutes (600_000ms), which we won't actually test waiting for
-      # Just verify it doesn't crash with a quick task
-
       task = %Sykli.Graph.Task{
         name: "quick_task",
         command: "echo quick",
@@ -160,7 +154,7 @@ defmodule Sykli.Executor.ServerTest do
 
   describe "get_status/1" do
     test "returns run information from registry" do
-      Events.subscribe(:all)
+      OccPubSub.subscribe(:all)
 
       task = %Sykli.Graph.Task{
         name: "status_task",
@@ -172,13 +166,12 @@ defmodule Sykli.Executor.ServerTest do
 
       {:ok, run_id} = Server.execute("/tmp", [task], graph)
 
-      # Wait for run to complete by listening for event
-      assert_receive %Event{type: :run_completed, run_id: ^run_id}, 2000
+      # Wait for run to complete
+      assert_receive %Occurrence{type: "ci.run.passed", run_id: ^run_id}, 2000
 
       result = Server.get_status(run_id)
 
       assert {:ok, run} = result
-      # Run struct uses :id not :run_id
       assert run.id == run_id
     end
 
@@ -191,7 +184,7 @@ defmodule Sykli.Executor.ServerTest do
 
   describe "parallel execution" do
     test "executes independent tasks in parallel" do
-      Events.subscribe(:all)
+      OccPubSub.subscribe(:all)
 
       task1 = %Sykli.Graph.Task{name: "parallel_a", command: "echo a", depends_on: []}
       task2 = %Sykli.Graph.Task{name: "parallel_b", command: "echo b", depends_on: []}
@@ -203,11 +196,20 @@ defmodule Sykli.Executor.ServerTest do
 
       {:ok, run_id} = Server.execute("/tmp", [task1, task2], graph)
 
-      # Both tasks should start (they're at the same level)
-      assert_receive %Event{type: :task_started, run_id: ^run_id, data: %{task_name: name1}}, 1000
-      assert_receive %Event{type: :task_started, run_id: ^run_id, data: %{task_name: name2}}, 1000
+      assert_receive %Occurrence{
+                       type: "ci.task.started",
+                       run_id: ^run_id,
+                       data: %{task_name: name1}
+                     },
+                     1000
 
-      # Verify both names were received (order may vary)
+      assert_receive %Occurrence{
+                       type: "ci.task.started",
+                       run_id: ^run_id,
+                       data: %{task_name: name2}
+                     },
+                     1000
+
       assert MapSet.new([name1, name2]) == MapSet.new(["parallel_a", "parallel_b"])
     end
   end
@@ -230,9 +232,8 @@ defmodule Sykli.Executor.ServerTest do
 
   describe "crash handling" do
     test "handles execution errors gracefully" do
-      Events.subscribe(:all)
+      OccPubSub.subscribe(:all)
 
-      # A task with invalid command that might cause issues
       task = %Sykli.Graph.Task{
         name: "bad_cmd",
         command: "nonexistent_command_xyz_123",
@@ -243,8 +244,20 @@ defmodule Sykli.Executor.ServerTest do
 
       {:ok, run_id} = Server.execute("/tmp", [task], graph)
 
-      # Should complete (with failure) rather than crash
-      assert_receive %Event{type: :run_completed, run_id: ^run_id}, 2000
+      # Should complete (with failure) rather than crash.
+      # Use execute_sync-style wait: drain all events until a terminal one arrives.
+      result = wait_for_terminal(run_id, 3000)
+      assert result in ["ci.run.passed", "ci.run.failed"]
+    end
+  end
+
+  defp wait_for_terminal(run_id, timeout) do
+    receive do
+      %Occurrence{type: "ci.run.passed", run_id: ^run_id} -> "ci.run.passed"
+      %Occurrence{type: "ci.run.failed", run_id: ^run_id} -> "ci.run.failed"
+      %Occurrence{run_id: ^run_id} -> wait_for_terminal(run_id, timeout)
+    after
+      timeout -> flunk("timed out waiting for terminal event")
     end
   end
 end

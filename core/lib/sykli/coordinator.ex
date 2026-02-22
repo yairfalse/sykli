@@ -1,42 +1,22 @@
 defmodule Sykli.Coordinator do
   @moduledoc """
-  Central coordinator that receives execution events from all nodes.
+  Central coordinator that receives occurrences from all nodes.
 
-  The Coordinator provides:
+  Provides:
   - Real-time view of all active runs across the team
   - Run history for analysis
   - Node health tracking
   - Query interface for dashboards
-
-  ## Running as Coordinator
-
-  Start a coordinator node:
-
-      iex --name coordinator@192.168.1.100 -S mix
-
-  Worker nodes will auto-discover and report to this node.
-
-  ## Queries
-
-      # Get all active runs across all nodes
-      Sykli.Coordinator.active_runs()
-
-      # Get run history
-      Sykli.Coordinator.run_history(limit: 100)
-
-      # Get connected nodes
-      Sykli.Coordinator.connected_nodes()
   """
 
   use GenServer
 
   require Logger
 
-  alias Sykli.Events.Event
+  alias Sykli.Occurrence
 
   @default_history_limit 1000
 
-  # Configurable via Application.get_env(:sykli, :coordinator_history_limit, 1000)
   defp history_limit do
     Application.get_env(:sykli, :coordinator_history_limit, @default_history_limit)
   end
@@ -47,9 +27,7 @@ defmodule Sykli.Coordinator do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
-  @doc """
-  Get all currently active runs across all nodes.
-  """
+  @doc "Get all currently active runs across all nodes."
   def active_runs do
     GenServer.call(__MODULE__, :active_runs)
   end
@@ -66,23 +44,17 @@ defmodule Sykli.Coordinator do
     GenServer.call(__MODULE__, {:run_history, opts})
   end
 
-  @doc """
-  Get a specific run by ID.
-  """
+  @doc "Get a specific run by ID."
   def get_run(run_id) do
     GenServer.call(__MODULE__, {:get_run, run_id})
   end
 
-  @doc """
-  Get list of connected worker nodes.
-  """
+  @doc "Get list of connected worker nodes."
   def connected_nodes do
     GenServer.call(__MODULE__, :connected_nodes)
   end
 
-  @doc """
-  Get coordinator statistics.
-  """
+  @doc "Get coordinator statistics."
   def stats do
     GenServer.call(__MODULE__, :stats)
   end
@@ -91,18 +63,13 @@ defmodule Sykli.Coordinator do
 
   @impl true
   def init(_opts) do
-    # Monitor node connections
     :net_kernel.monitor_nodes(true)
 
     state = %{
-      # Active runs: %{run_id => run_info}
       active_runs: %{},
-      # Completed runs history (ring buffer)
       history: [],
       history_size: 0,
-      # Known nodes: %{node => last_seen}
       nodes: %{},
-      # Statistics
       stats: %{
         total_runs: 0,
         successful_runs: 0,
@@ -114,24 +81,12 @@ defmodule Sykli.Coordinator do
     {:ok, state}
   end
 
-  # Handle Event struct format (v2 with ULIDs) from reporters
+  # Handle Occurrence struct (the only format now)
   @impl true
-  def handle_cast({:event, %Event{} = event}, state) do
-    from_node = event.node
+  def handle_cast({:occurrence, %Occurrence{} = occ}, state) do
+    from_node = occ.node
     state = update_node_seen(state, from_node)
-    state = process_event_struct(event, state)
-    {:noreply, state}
-  end
-
-  # Handle legacy tuple format for backward compatibility and tests
-  @impl true
-  def handle_cast({:event, {from_node, event}}, state) do
-    # Update node last seen
-    state = update_node_seen(state, from_node)
-
-    # Process the event
-    state = process_event(from_node, event, state)
-
+    state = process_occurrence(occ, state)
     {:noreply, state}
   end
 
@@ -160,11 +115,8 @@ defmodule Sykli.Coordinator do
   def handle_call({:get_run, run_id}, _from, state) do
     result =
       case Map.get(state.active_runs, run_id) do
-        nil ->
-          Enum.find(state.history, fn run -> run.id == run_id end)
-
-        run ->
-          run
+        nil -> Enum.find(state.history, fn run -> run.id == run_id end)
+        run -> run
       end
 
     {:reply, result, state}
@@ -211,42 +163,45 @@ defmodule Sykli.Coordinator do
 
   ## Private Functions
 
-  defp process_event(from_node, {:run_started, run_id, project_path, tasks}, state) do
+  defp process_occurrence(%Occurrence{type: "ci.run.started"} = occ, state) do
     run = %{
-      id: run_id,
-      node: from_node,
-      project_path: project_path,
-      tasks: tasks,
+      id: occ.run_id,
+      node: occ.node,
+      project_path: occ.data.project_path,
+      tasks: occ.data.tasks,
       task_status: %{},
       status: :running,
-      started_at: DateTime.utc_now(),
+      started_at: occ.timestamp,
       completed_at: nil
     }
 
-    Logger.info("[Coordinator] Run started: #{run_id} on #{from_node}")
+    Logger.info("[Coordinator] Run started: #{occ.run_id} on #{occ.node}")
 
     state
-    |> put_in([:active_runs, run_id], run)
+    |> put_in([:active_runs, occ.run_id], run)
     |> update_in([:stats, :total_runs], &(&1 + 1))
   end
 
-  defp process_event(_from_node, {:task_started, run_id, task_name}, state) do
-    update_task_status(state, run_id, task_name, :running)
+  defp process_occurrence(%Occurrence{type: "ci.task.started"} = occ, state) do
+    update_task_status(state, occ.run_id, occ.data.task_name, :running)
   end
 
-  defp process_event(_from_node, {:task_completed, run_id, task_name, result}, state) do
-    status = if result == :ok, do: :completed, else: :failed
-    update_task_status(state, run_id, task_name, status)
+  defp process_occurrence(%Occurrence{type: "ci.task.completed"} = occ, state) do
+    status = if occ.data.outcome == :success, do: :completed, else: :failed
+    update_task_status(state, occ.run_id, occ.data.task_name, status)
   end
 
-  defp process_event(_from_node, {:run_completed, run_id, result}, state) do
+  defp process_occurrence(%Occurrence{type: type} = occ, state)
+       when type in ["ci.run.passed", "ci.run.failed"] do
+    run_id = occ.run_id
+
     case Map.get(state.active_runs, run_id) do
       nil ->
         state
 
       run ->
-        status = if result == :ok, do: :completed, else: :failed
-        completed_run = %{run | status: status, completed_at: DateTime.utc_now()}
+        status = if type == "ci.run.passed", do: :completed, else: :failed
+        completed_run = %{run | status: status, completed_at: occ.timestamp}
 
         Logger.info("[Coordinator] Run completed: #{run_id} (#{status})")
 
@@ -257,60 +212,7 @@ defmodule Sykli.Coordinator do
     end
   end
 
-  defp process_event(_from_node, _event, state), do: state
-
-  # Process Event struct format (v2)
-  defp process_event_struct(%Event{type: :run_started} = event, state) do
-    %{run_id: run_id, node: from_node, data: data} = event
-
-    run = %{
-      id: run_id,
-      node: from_node,
-      project_path: data.project_path,
-      tasks: data.tasks,
-      task_status: %{},
-      status: :running,
-      started_at: event.timestamp,
-      completed_at: nil
-    }
-
-    Logger.info("[Coordinator] Run started: #{run_id} on #{from_node}")
-
-    state
-    |> put_in([:active_runs, run_id], run)
-    |> update_in([:stats, :total_runs], &(&1 + 1))
-  end
-
-  defp process_event_struct(%Event{type: :task_started} = event, state) do
-    update_task_status(state, event.run_id, event.data.task_name, :running)
-  end
-
-  defp process_event_struct(%Event{type: :task_completed} = event, state) do
-    status = if event.data.outcome == :success, do: :completed, else: :failed
-    update_task_status(state, event.run_id, event.data.task_name, status)
-  end
-
-  defp process_event_struct(%Event{type: :run_completed} = event, state) do
-    run_id = event.run_id
-
-    case Map.get(state.active_runs, run_id) do
-      nil ->
-        state
-
-      run ->
-        status = if event.data.outcome == :success, do: :completed, else: :failed
-        completed_run = %{run | status: status, completed_at: event.timestamp}
-
-        Logger.info("[Coordinator] Run completed: #{run_id} (#{status})")
-
-        state
-        |> update_in([:active_runs], &Map.delete(&1, run_id))
-        |> add_to_history(completed_run)
-        |> update_stats(status)
-    end
-  end
-
-  defp process_event_struct(_event, state), do: state
+  defp process_occurrence(_occ, state), do: state
 
   defp update_task_status(state, run_id, task_name, status) do
     case Map.get(state.active_runs, run_id) do

@@ -1,5 +1,5 @@
-defmodule Sykli.Events.GateWaiting do
-  @moduledoc "Event data for when a gate starts waiting for approval."
+defmodule Sykli.Occurrence.GateWaiting do
+  @moduledoc "Typed payload for ci.gate.waiting occurrences."
 
   defstruct [:gate_name, :strategy, :message, :timeout]
 
@@ -11,11 +11,6 @@ defmodule Sykli.Events.GateWaiting do
         }
 
   def new(gate_name, strategy, message, timeout) do
-    %__MODULE__{
-      gate_name: gate_name,
-      strategy: strategy,
-      message: message,
-      timeout: timeout
-    }
+    %__MODULE__{gate_name: gate_name, strategy: strategy, message: message, timeout: timeout}
   end
 end

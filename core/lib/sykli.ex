@@ -6,6 +6,7 @@ defmodule Sykli do
   """
 
   alias Sykli.{Detector, Graph, Executor, Cache, RunHistory, GitContext, Context, Occurrence}
+  alias Sykli.Occurrence.Enrichment
 
   @doc """
   Run the sykli pipeline.
@@ -218,8 +219,19 @@ defmodule Sykli do
   end
 
   # Generate .sykli/occurrence.json — AI-readable run report with structured errors
+  # Creates a terminal occurrence (ci.run.passed/ci.run.failed), enriches it with
+  # FALSE Protocol blocks, and persists to JSON/ETF/ETS.
   defp generate_occurrence(path, executor_result, graph, run_meta) do
-    case Occurrence.generate(graph, executor_result, run_meta, path) do
+    result =
+      case executor_result do
+        {:ok, _} -> :ok
+        {:error, _} -> {:error, :task_failed}
+        _ -> {:error, :unknown}
+      end
+
+    occ = Occurrence.run_completed(run_meta.id, result, timestamp: run_meta.timestamp)
+
+    case Enrichment.enrich_and_persist(occ, graph, executor_result, path) do
       :ok ->
         :ok
 

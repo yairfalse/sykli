@@ -1,5 +1,5 @@
-defmodule Sykli.Events.CredentialExchange do
-  @moduledoc "Event data for OIDC credential exchange."
+defmodule Sykli.Occurrence.CredentialExchange do
+  @moduledoc "Typed payload for OIDC credential exchange occurrences."
 
   defstruct [:task_name, :provider, :outcome, :duration_ms]
 

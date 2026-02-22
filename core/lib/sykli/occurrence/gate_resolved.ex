@@ -1,5 +1,5 @@
-defmodule Sykli.Events.GateResolved do
-  @moduledoc "Event data for when a gate is approved, denied, or times out."
+defmodule Sykli.Occurrence.GateResolved do
+  @moduledoc "Typed payload for ci.gate.resolved occurrences."
 
   defstruct [:gate_name, :outcome, :approver, :duration_ms]
 

@@ -22,7 +22,7 @@ defmodule Sykli.Executor do
 
   alias Sykli.Error
   alias Sykli.Error.Formatter
-  alias Sykli.Events
+  alias Sykli.Occurrence.PubSub, as: OccPubSub
   alias Sykli.Services.ArtifactResolver
   alias Sykli.Services.CacheService
   alias Sykli.Services.ConditionService
@@ -714,13 +714,13 @@ defmodule Sykli.Executor do
   defp maybe_emit_gate_waiting(nil, _name, _gate), do: :ok
 
   defp maybe_emit_gate_waiting(run_id, name, gate) do
-    Events.gate_waiting(run_id, name, gate.strategy, gate.message, gate.timeout)
+    OccPubSub.gate_waiting(run_id, name, gate.strategy, gate.message, gate.timeout)
   end
 
   defp maybe_emit_gate_resolved(nil, _name, _outcome, _approver, _duration), do: :ok
 
   defp maybe_emit_gate_resolved(run_id, name, outcome, approver, duration) do
-    Events.gate_resolved(run_id, name, outcome, approver, duration)
+    OccPubSub.gate_resolved(run_id, name, outcome, approver, duration)
   end
 
   # Build a map of task_name => status for the graph visualization

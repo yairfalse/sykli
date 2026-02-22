@@ -1,40 +1,24 @@
 defmodule Sykli.Reporter do
   @moduledoc """
-  Forwards local execution events to the coordinator node.
+  Forwards local occurrences to the coordinator node.
 
-  The Reporter subscribes to all local events and forwards them
-  to the Coordinator GenServer on the coordinator node. Events
+  The Reporter subscribes to all local occurrences and forwards them
+  to the Coordinator GenServer on the coordinator node. Occurrences
   are buffered if the coordinator is temporarily unavailable.
-
-  ## Event Format
-
-  Events are forwarded as `Sykli.Events.Event` structs, which include:
-  - ULID-based event ID for causality tracking
-  - Timestamp for temporal ordering
-  - Node information for distributed tracing
 
   ## Coordinator Discovery
 
   The Reporter looks for a coordinator in this order:
   1. Configured coordinator node (via `configure/1`)
   2. Auto-discovered via libcluster (node named `coordinator@...`)
-  3. No forwarding (events stay local)
-
-  ## Example
-
-      # Configure a specific coordinator
-      Sykli.Reporter.configure("coordinator@192.168.1.100")
-
-      # Check status
-      Sykli.Reporter.status()
-      # => %{coordinator: "coordinator@...", connected: true, buffered: 0}
+  3. No forwarding (occurrences stay local)
   """
 
   use GenServer
 
   require Logger
 
-  alias Sykli.Events.Event
+  alias Sykli.Occurrence
 
   @default_buffer_limit 1000
 
@@ -48,9 +32,7 @@ defmodule Sykli.Reporter do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
-  @doc """
-  Configure the coordinator node to report to.
-  """
+  @doc "Configure the coordinator node to report to."
   def configure(coordinator_node) when is_binary(coordinator_node) do
     configure(String.to_atom(coordinator_node))
   end
@@ -59,16 +41,12 @@ defmodule Sykli.Reporter do
     GenServer.call(__MODULE__, {:configure, coordinator_node})
   end
 
-  @doc """
-  Get current reporter status.
-  """
+  @doc "Get current reporter status."
   def status do
     GenServer.call(__MODULE__, :status)
   end
 
-  @doc """
-  Check if we're connected to a coordinator.
-  """
+  @doc "Check if we're connected to a coordinator."
   def connected? do
     case status() do
       %{connected: true} -> true
@@ -80,10 +58,9 @@ defmodule Sykli.Reporter do
 
   @impl true
   def init(_opts) do
-    # Subscribe to Event structs (v2 format with ULIDs)
-    Sykli.Events.subscribe(:all)
+    # Subscribe to all occurrences
+    Sykli.Occurrence.PubSub.subscribe(:all)
 
-    # Try to discover coordinator on startup
     coordinator = discover_coordinator()
 
     state = %{
@@ -93,7 +70,6 @@ defmodule Sykli.Reporter do
       buffer_size: 0
     }
 
-    # Monitor node connections
     :net_kernel.monitor_nodes(true)
 
     {:ok, state}
@@ -103,10 +79,7 @@ defmodule Sykli.Reporter do
   def handle_call({:configure, coordinator_node}, _from, state) do
     connected = Node.ping(coordinator_node) == :pong
     new_state = %{state | coordinator: coordinator_node, connected: connected}
-
-    # If we just connected, flush buffer
     new_state = if connected, do: flush_buffer(new_state), else: new_state
-
     {:reply, :ok, new_state}
   end
 
@@ -121,19 +94,34 @@ defmodule Sykli.Reporter do
     {:reply, status, state}
   end
 
-  # Handle Event struct format (v2 with ULIDs)
+  # Handle Occurrence structs — forward important ones, skip output
   @impl true
-  def handle_info(%Event{type: type} = event, state)
-      when type in [:run_started, :task_started, :task_completed, :run_completed] do
-    {:noreply, forward_event(event, state)}
+  def handle_info(%Occurrence{type: "ci.task.output"} = occ, state) do
+    # Don't buffer output occurrences — too much data
+    if state.connected && state.coordinator do
+      send_to_coordinator(state.coordinator, occ)
+    end
+
+    {:noreply, state}
   end
 
   @impl true
-  def handle_info(%Event{type: :task_output} = event, state) do
-    # Don't buffer output events - too much data
-    # Only forward if connected
+  def handle_info(%Occurrence{type: type} = occ, state)
+      when type in [
+             "ci.run.started",
+             "ci.task.started",
+             "ci.task.completed",
+             "ci.run.passed",
+             "ci.run.failed"
+           ] do
+    {:noreply, forward_occurrence(occ, state)}
+  end
+
+  # Gate events — forward without buffering
+  @impl true
+  def handle_info(%Occurrence{type: "ci.gate." <> _} = occ, state) do
     if state.connected && state.coordinator do
-      send_to_coordinator(state.coordinator, event)
+      send_to_coordinator(state.coordinator, occ)
     end
 
     {:noreply, state}
@@ -147,7 +135,6 @@ defmodule Sykli.Reporter do
       new_state = %{state | connected: true}
       {:noreply, flush_buffer(new_state)}
     else
-      # Check if this might be a coordinator
       if coordinator_node?(node) && state.coordinator == nil do
         Logger.info("[Sykli.Reporter] Discovered coordinator #{node}")
         new_state = %{state | coordinator: node, connected: true}
@@ -173,39 +160,34 @@ defmodule Sykli.Reporter do
 
   ## Private Functions
 
-  defp forward_event(event, %{connected: true, coordinator: coord} = state) when coord != nil do
-    send_to_coordinator(coord, event)
+  defp forward_occurrence(occ, %{connected: true, coordinator: coord} = state)
+       when coord != nil do
+    send_to_coordinator(coord, occ)
     state
   end
 
-  defp forward_event(event, state) do
-    # Buffer event if not connected
-    buffer_event(event, state)
+  defp forward_occurrence(occ, state) do
+    buffer_occurrence(occ, state)
   end
 
-  defp send_to_coordinator(coordinator, %Event{} = event) do
-    # Event struct already contains node info, send directly
-    GenServer.cast({Sykli.Coordinator, coordinator}, {:event, event})
+  defp send_to_coordinator(coordinator, %Occurrence{} = occ) do
+    GenServer.cast({Sykli.Coordinator, coordinator}, {:occurrence, occ})
   end
 
-  defp buffer_event(event, %{buffer_size: size} = state) do
+  defp buffer_occurrence(occ, %{buffer_size: size} = state) do
     limit = buffer_limit()
 
     if size >= limit do
-      # Buffer is stored as [newest, ..., oldest] (prepend order)
-      # Drop oldest (last element) by taking first N-1, then prepend new event
       buffer = Enum.take(state.buffer, limit - 1)
-      %{state | buffer: [event | buffer], buffer_size: limit}
+      %{state | buffer: [occ | buffer], buffer_size: limit}
     else
-      # Prepend new event (buffer stores newest first)
-      %{state | buffer: [event | state.buffer], buffer_size: size + 1}
+      %{state | buffer: [occ | state.buffer], buffer_size: size + 1}
     end
   end
 
   defp flush_buffer(%{buffer: [], coordinator: _} = state), do: state
 
   defp flush_buffer(%{buffer: buffer, coordinator: coord} = state) when coord != nil do
-    # Buffer is [newest, ..., oldest], reverse to send oldest first
     buffer
     |> Enum.reverse()
     |> Enum.each(&send_to_coordinator(coord, &1))
@@ -216,7 +198,6 @@ defmodule Sykli.Reporter do
   defp flush_buffer(state), do: state
 
   defp discover_coordinator do
-    # Look for a node named "coordinator@..."
     Node.list()
     |> Enum.find(&coordinator_node?/1)
   end

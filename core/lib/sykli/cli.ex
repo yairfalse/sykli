@@ -1519,17 +1519,18 @@ defmodule Sykli.CLI do
   end
 
   defp output_explain_summary(data) do
-    ci_data = data["ci_data"] || %{}
-    summary = ci_data["summary"] || %{}
-    git = ci_data["git"] || %{}
-    tasks = ci_data["tasks"] || []
+    # Support both new format (data) and old format (ci_data)
+    domain_data = data["data"] || data["ci_data"] || %{}
+    summary = domain_data["summary"] || %{}
+    git = domain_data["git"] || %{}
+    tasks = domain_data["tasks"] || []
     error_block = data["error"]
     reasoning = data["reasoning"]
 
     # Header
     outcome = data["outcome"] || "unknown"
-    outcome_color = if outcome == "passed", do: IO.ANSI.green(), else: IO.ANSI.red()
-    outcome_icon = if outcome == "passed", do: "\u2713", else: "\u2717"
+    outcome_color = if outcome == "success", do: IO.ANSI.green(), else: IO.ANSI.red()
+    outcome_icon = if outcome == "success", do: "\u2713", else: "\u2717"
 
     IO.puts("")
 

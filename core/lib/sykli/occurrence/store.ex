@@ -57,7 +57,7 @@ defmodule Sykli.Occurrence.Store do
   ## Options
 
     * `:limit` — max entries to return (default: 20)
-    * `:status` — filter by outcome: `"passed"` or `"failed"`
+    * `:status` — filter by outcome: `"success"` or `"failure"`
   """
   @spec list(keyword()) :: [map()]
   def list(opts \\ []) do
@@ -245,7 +245,11 @@ defmodule Sykli.Occurrence.Store do
   end
 
   defp find_task_outcome(occurrence, task_name) do
-    tasks = get_in(occurrence, ["ci_data", "tasks"]) || []
+    # Support both new format (data.tasks) and old format (ci_data.tasks)
+    tasks =
+      get_in(occurrence, ["data", "tasks"]) ||
+        get_in(occurrence, ["ci_data", "tasks"]) ||
+        []
 
     case Enum.find(tasks, &(&1["name"] == task_name)) do
       %{"status" => status} -> normalize_outcome(status)
