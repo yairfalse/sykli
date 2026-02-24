@@ -24,28 +24,50 @@ defmodule Sykli.Context do
       {
         "version": "1.0",
         "generated_at": "2024-01-15T10:30:00Z",
+        "project": {
+          "name": "my-app",
+          "path": "/home/user/my-app",
+          "languages": ["elixir", "typescript"],
+          "sdk": "elixir"
+        },
         "pipeline": {
           "task_count": 5,
           "tasks": [...],
-          "dependencies": {...}
+          "dependencies": {...},
+          "critical_tasks": ["test"],
+          "parallelism": 3,
+          "estimated_duration_ms": 45000
         },
         "coverage": {
           "file_to_tasks": {...}
         },
+        "health": {
+          "last_success": "2024-01-15T10:30:00Z",
+          "success_rate": 0.85,
+          "recent_runs": 20,
+          "avg_duration_ms": 42000,
+          "flaky_tasks": ["test:e2e"]
+        },
         "last_run": {...}
       }
+
+  Optional sections (`health`, `last_run`) are omitted when no data is
+  available, rather than included as `null`.
   """
 
   alias Sykli.Graph.Task
   alias Sykli.Graph.Task.{Semantic, AiHooks, HistoryHint, Capability}
+  alias Sykli.{Explain, RunHistory}
   alias Sykli.Services.MergeQueueDetector
 
   @context_version "1.0"
+  @default_task_duration_ms 1000
 
   @doc """
   Generates the full context.json file.
 
-  This includes pipeline structure, coverage mapping, and last run results.
+  This includes project metadata, pipeline structure, coverage mapping,
+  health aggregates from run history, and last run results.
   """
   @spec generate(map(), map() | nil, String.t()) :: :ok | {:error, term()}
   def generate(graph, run_result \\ nil, workdir) do
@@ -53,10 +75,13 @@ defmodule Sykli.Context do
       %{
         "version" => @context_version,
         "generated_at" => DateTime.utc_now() |> DateTime.to_iso8601(),
+        "project" => build_project_context(workdir),
         "pipeline" => build_pipeline_context(graph),
         "coverage" => build_coverage_context(graph),
+        "health" => build_health_context(workdir),
         "last_run" => build_run_context(run_result)
       }
+      |> reject_nil_values()
       |> maybe_add_merge_queue_context()
 
     write_context_file(context, workdir, "context.json")
@@ -135,11 +160,35 @@ defmodule Sykli.Context do
       |> Enum.filter(fn {_name, task} -> Task.critical?(task) end)
       |> Enum.map(fn {name, _task} -> name end)
 
+    levels = Explain.compute_levels(graph)
+
+    max_parallelism =
+      levels
+      |> Enum.map(fn {_level, names} -> length(names) end)
+      |> Enum.max(fn -> 0 end)
+
+    # Build duration map from history hints declared on tasks
+    duration_map =
+      graph
+      |> Enum.reduce(%{}, fn {name, task}, acc ->
+        hint = Task.history_hint(task)
+
+        if hint.avg_duration_ms do
+          Map.put(acc, name, hint.avg_duration_ms)
+        else
+          acc
+        end
+      end)
+
+    estimated_duration_ms = estimate_pipeline_duration(levels, duration_map)
+
     %{
       "task_count" => map_size(graph),
       "tasks" => tasks,
       "dependencies" => dependencies,
-      "critical_tasks" => critical_tasks
+      "critical_tasks" => critical_tasks,
+      "parallelism" => max_parallelism,
+      "estimated_duration_ms" => estimated_duration_ms
     }
   end
 
@@ -258,6 +307,143 @@ defmodule Sykli.Context do
       :not_in_merge_queue ->
         context
     end
+  end
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # PROJECT CONTEXT
+  # ─────────────────────────────────────────────────────────────────────────────
+
+  defp build_project_context(workdir) do
+    abs_workdir = Path.expand(workdir)
+
+    %{
+      "name" => Path.basename(abs_workdir),
+      "path" => abs_workdir,
+      "languages" => detect_languages(abs_workdir),
+      "sdk" => detect_sdk_type(abs_workdir)
+    }
+    |> reject_nil_values()
+  end
+
+  @language_markers %{
+    "mix.exs" => "elixir",
+    "go.mod" => "go",
+    "Cargo.toml" => "rust",
+    "package.json" => "javascript",
+    "tsconfig.json" => "typescript",
+    "pyproject.toml" => "python",
+    "setup.py" => "python",
+    "requirements.txt" => "python"
+  }
+
+  defp detect_languages(workdir) do
+    @language_markers
+    |> Enum.reduce([], fn {file, lang}, acc ->
+      if File.exists?(Path.join(workdir, file)) do
+        [lang | acc]
+      else
+        acc
+      end
+    end)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  # Ordered to match Detector.@sdk_files priority
+  @sdk_type_list [
+    {"sykli.go", "go"},
+    {"sykli.rs", "rust"},
+    {"sykli.exs", "elixir"},
+    {"sykli.ts", "typescript"},
+    {"sykli.py", "python"}
+  ]
+
+  defp detect_sdk_type(workdir) do
+    @sdk_type_list
+    |> Enum.find_value(fn {file, sdk_type} ->
+      if File.exists?(Path.join(workdir, file)), do: sdk_type
+    end)
+  end
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # HEALTH CONTEXT
+  # ─────────────────────────────────────────────────────────────────────────────
+
+  defp build_health_context(workdir) do
+    case RunHistory.list(path: workdir, limit: 50) do
+      {:ok, runs} when runs != [] -> compute_health(runs)
+      _ -> nil
+    end
+  end
+
+  defp compute_health(runs) do
+    total = length(runs)
+    passed = Enum.count(runs, &(&1.overall == :passed))
+
+    durations =
+      runs
+      |> Enum.map(fn run ->
+        Enum.reduce(run.tasks, 0, fn t, acc -> acc + (t.duration_ms || 0) end)
+      end)
+
+    avg_duration_ms =
+      if total > 0 do
+        div(Enum.sum(durations), total)
+      else
+        0
+      end
+
+    last_success =
+      runs
+      |> Enum.find(&(&1.overall == :passed))
+      |> case do
+        nil -> nil
+        run -> DateTime.to_iso8601(run.timestamp)
+      end
+
+    %{
+      "last_success" => last_success,
+      "success_rate" => Float.round(passed / total, 2),
+      "recent_runs" => total,
+      "avg_duration_ms" => avg_duration_ms,
+      "flaky_tasks" => detect_flaky_tasks(runs)
+    }
+    |> reject_nil_values()
+  end
+
+  defp detect_flaky_tasks(runs) do
+    # A task is "flaky" if it has both passes and failures in recent history
+    runs
+    |> Enum.flat_map(& &1.tasks)
+    |> Enum.group_by(& &1.name)
+    |> Enum.filter(fn {_name, results} ->
+      statuses = Enum.map(results, & &1.status) |> MapSet.new()
+      MapSet.member?(statuses, :passed) and MapSet.member?(statuses, :failed)
+    end)
+    |> Enum.map(fn {name, _} -> name end)
+    |> Enum.sort()
+  end
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # PIPELINE DURATION ESTIMATION
+  # ─────────────────────────────────────────────────────────────────────────────
+
+  defp estimate_pipeline_duration(levels, duration_map) do
+    # Per-level duration = max of task durations in that level
+    # Total = sum of per-level durations (levels run sequentially)
+    levels
+    |> Enum.map(fn {_level, names} ->
+      names
+      |> Enum.map(fn name -> Map.get(duration_map, name, @default_task_duration_ms) end)
+      |> Enum.max(fn -> 0 end)
+    end)
+    |> Enum.sum()
+  end
+
+  defp reject_nil_values(map) when is_map(map) do
+    map
+    |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+    |> Map.new()
   end
 
   defp write_context_file(content, workdir, filename) do
