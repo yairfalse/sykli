@@ -309,6 +309,23 @@ defmodule Sykli.ContextTest do
       assert context["project"]["languages"] == []
     end
 
+    test "detects languages in subdirectories", %{workdir: workdir} do
+      # Monorepo layout: core/mix.exs, sdk/go/go.mod
+      File.mkdir_p!(Path.join(workdir, "core"))
+      File.write!(Path.join([workdir, "core", "mix.exs"]), "")
+      File.mkdir_p!(Path.join([workdir, "sdk", "go"]))
+      File.write!(Path.join([workdir, "sdk", "go", "go.mod"]), "")
+
+      {:ok, graph} = parse_graph([%{"name" => "test", "command" => "echo ok"}])
+
+      :ok = Context.generate(graph, nil, workdir)
+      context = read_context(workdir)
+
+      assert "elixir" in context["project"]["languages"]
+      assert "go" in context["project"]["languages"]
+      assert context["project"]["languages"] == Enum.sort(context["project"]["languages"])
+    end
+
     test "deduplicates languages from multiple Python markers", %{workdir: workdir} do
       File.write!(Path.join(workdir, "pyproject.toml"), "")
       File.write!(Path.join(workdir, "setup.py"), "")

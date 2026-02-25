@@ -337,9 +337,17 @@ defmodule Sykli.Context do
   }
 
   defp detect_languages(workdir) do
+    # Check root, 1 level deep, and 2 levels deep for marker files.
+    # Covers monorepo layouts like core/mix.exs and sdk/go/go.mod.
     @language_markers
-    |> Enum.reduce([], fn {file, lang}, acc ->
-      if File.exists?(Path.join(workdir, file)) do
+    |> Enum.reduce([], fn {marker, lang}, acc ->
+      patterns = [
+        Path.join(workdir, marker),
+        Path.join([workdir, "*", marker]),
+        Path.join([workdir, "*", "*", marker])
+      ]
+
+      if Enum.any?(patterns, fn p -> Path.wildcard(p, match_dot: false) != [] end) do
         [lang | acc]
       else
         acc
