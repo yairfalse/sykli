@@ -323,6 +323,7 @@ defmodule Sykli.ContextTest do
 
       assert "elixir" in context["project"]["languages"]
       assert "go" in context["project"]["languages"]
+      assert context["project"]["languages"] == Enum.sort(context["project"]["languages"])
     end
 
     test "deduplicates languages from multiple Python markers", %{workdir: workdir} do
