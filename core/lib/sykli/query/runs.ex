@@ -10,8 +10,8 @@ defmodule Sykli.Query.Runs do
     case timeframe do
       :latest -> last_run(path)
       :last_good -> last_good_run(path)
-      :today -> runs_in_range(path, -1, "runs today")
-      :recent -> runs_in_range(path, -7, "recent runs")
+      :today -> runs_in_range(path, :today, -1)
+      :recent -> runs_in_range(path, :recent, -7)
     end
   end
 
@@ -43,7 +43,7 @@ defmodule Sykli.Query.Runs do
     end
   end
 
-  defp runs_in_range(path, days_offset, label) do
+  defp runs_in_range(path, query_atom, days_offset) do
     cutoff = DateTime.utc_now() |> DateTime.add(days_offset, :day)
 
     with {:ok, runs} <- RunHistory.list(path: path, limit: 50) do
@@ -52,11 +52,11 @@ defmodule Sykli.Query.Runs do
       {:ok, %{
         type: :runs,
         data: %{
-          query: String.to_atom(String.replace(label, " ", "_")),
+          query: query_atom,
           count: length(recent),
           runs: Enum.map(recent, &serialize_run_summary/1)
         },
-        metadata: metadata(label)
+        metadata: metadata(Atom.to_string(query_atom) |> String.replace("_", " "))
       }}
     end
   end

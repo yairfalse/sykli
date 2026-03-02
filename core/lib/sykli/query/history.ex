@@ -76,8 +76,11 @@ defmodule Sykli.Query.History do
   defp filter_by_timeframe(runs, :latest), do: runs
 
   defp filter_by_timeframe(runs, :yesterday) do
-    yesterday = DateTime.utc_now() |> DateTime.add(-1, :day)
-    Enum.filter(runs, &(DateTime.compare(&1.timestamp, yesterday) == :gt))
+    yesterday = Date.add(Date.utc_today(), -1)
+
+    Enum.filter(runs, fn run ->
+      DateTime.to_date(run.timestamp) == yesterday
+    end)
   end
 
   defp filter_by_timeframe(runs, :today) do

@@ -8,11 +8,11 @@ defmodule Sykli.Query do
 
   ## Query Categories
 
-      "what tests cover auth"       → Coverage.query/2
-      "why did build fail"          → History.query/3
-      "what's flaky"                → Health.query/2
-      "critical tasks"              → Tasks.query/3
-      "last run"                    → Runs.query/2
+      "what tests cover auth"       → Coverage.execute/2
+      "why did build fail"          → History.why_failed/3
+      "what's flaky"                → Health.execute/2
+      "critical tasks"              → Tasks.execute/3
+      "last run"                    → Runs.execute/2
 
   ## Extensibility
 

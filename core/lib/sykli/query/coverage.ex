@@ -23,11 +23,17 @@ defmodule Sykli.Query.Coverage do
   end
 
   defp find_covering_tasks(pattern, graph) do
+    # Pre-compile all unique cover globs to avoid repeated regex compilation
+    compiled_globs =
+      graph
+      |> Enum.flat_map(fn {_name, task} -> (Task.semantic(task).covers || []) end)
+      |> Enum.uniq()
+      |> Map.new(fn glob -> {glob, compile_glob(glob)} end)
+
     graph
     |> Enum.filter(fn {_name, task} ->
-      semantic = Task.semantic(task)
-      covers = semantic.covers || []
-      Enum.any?(covers, &pattern_match?(pattern, &1))
+      covers = Task.semantic(task).covers || []
+      Enum.any?(covers, &pattern_match?(pattern, &1, compiled_globs))
     end)
     |> Enum.map(fn {name, task} ->
       semantic = Task.semantic(task)
@@ -45,11 +51,15 @@ defmodule Sykli.Query.Coverage do
   # Check if a user pattern matches a task's cover glob.
   # "auth" matches "src/auth/*" (substring)
   # "src/auth/login.ts" matches "src/auth/*" (glob)
-  defp pattern_match?(user_pattern, cover_glob) do
-    String.contains?(cover_glob, user_pattern) or glob_match?(user_pattern, cover_glob)
+  defp pattern_match?(user_pattern, cover_glob, compiled_globs) do
+    String.contains?(cover_glob, user_pattern) or
+      case Map.get(compiled_globs, cover_glob) do
+        {:ok, regex} -> Regex.match?(regex, user_pattern)
+        :error -> false
+      end
   end
 
-  defp glob_match?(path, glob) do
+  defp compile_glob(glob) do
     regex_str =
       glob
       |> Regex.escape()
@@ -58,8 +68,8 @@ defmodule Sykli.Query.Coverage do
       |> String.replace("\\*", "[^/]*")
 
     case Regex.compile("^#{regex_str}$") do
-      {:ok, regex} -> Regex.match?(regex, path)
-      _ -> false
+      {:ok, regex} -> {:ok, regex}
+      _ -> :error
     end
   end
 
