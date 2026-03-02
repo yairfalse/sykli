@@ -59,6 +59,9 @@ defmodule Sykli.CLI do
       ["context" | context_args] ->
         handle_context(context_args)
 
+      ["query" | query_args] ->
+        handle_query(query_args)
+
       ["mcp" | _mcp_args] ->
         Sykli.MCP.Server.start()
         halt(0)
@@ -101,6 +104,7 @@ defmodule Sykli.CLI do
       sykli explain --pipeline  Show pipeline structure (for AI)
       sykli plan       Dry-run: show what would run based on git changes
       sykli context    Generate AI context file (.sykli/context.json)
+      sykli query      Query pipeline, history, and health data
       sykli verify     Cross-platform verification via mesh nodes
       sykli delta      Run only tasks affected by git changes
       sykli watch      Watch files and re-run affected tasks
@@ -1718,6 +1722,94 @@ defmodule Sykli.CLI do
       expanded_graph = Graph.expand_matrix(graph)
       Context.generate(expanded_graph, run_result, path)
     end
+  end
+
+  # ----- QUERY SUBCOMMAND -----
+
+  defp handle_query(["--help"]) do
+    IO.puts("""
+    Usage: sykli query [options] "<query>"
+
+    Query pipeline, history, and health data.
+
+    Options:
+      --json       Output as JSON
+      --help       Show this help
+
+    Coverage:
+      "what tests cover <pattern>"     Tasks covering a file/module
+      "coverage for <pattern>"         Same as above
+
+    History:
+      "why did <task> fail"            Last failure analysis
+      "when did <task> last pass"      Last successful run of task
+
+    Health:
+      "flaky tasks"                    Tasks with inconsistent results
+      "failure rate"                   Overall pipeline health
+      "slowest tasks"                  Tasks ranked by duration
+      "health"                         Full health summary
+
+    Tasks:
+      "critical tasks"                 Tasks marked as high criticality
+      "dependencies of <task>"         What a task depends on
+      "dependents of <task>"           What depends on a task
+      "task <name>"                    Full task details
+
+    Runs:
+      "last run"                       Most recent run
+      "last good run"                  Most recent passing run
+      "runs today"                     Runs from last 24h
+      "recent runs"                    Runs from last 7 days
+
+    Examples:
+      sykli query "what tests cover auth"
+      sykli query "flaky tasks" --json
+      sykli query "why did build fail"
+      sykli query "last run"
+    """)
+
+    halt(0)
+  end
+
+  defp handle_query(args) do
+    {opts, query_parts} = parse_query_args(args)
+    json_output = Keyword.get(opts, :json, false)
+    query_str = Enum.join(query_parts, " ")
+
+    if query_str == "" do
+      handle_query(["--help"])
+    else
+      case Sykli.Query.execute(query_str, path: ".") do
+        {:ok, result} ->
+          if json_output do
+            IO.puts(Jason.encode!(result, pretty: true))
+          else
+            Sykli.Query.Output.format(result)
+          end
+
+          halt(0)
+
+        {:error, reason} ->
+          if json_output do
+            IO.puts(Jason.encode!(%{error: Sykli.Query.format_error(reason)}))
+          else
+            IO.puts("#{IO.ANSI.red()}#{Sykli.Query.format_error(reason)}#{IO.ANSI.reset()}")
+          end
+
+          halt(1)
+      end
+    end
+  end
+
+  defp parse_query_args(args) do
+    Enum.reduce(args, {[], []}, fn arg, {opts, rest} ->
+      cond do
+        arg == "--json" -> {[{:json, true} | opts], rest}
+        String.starts_with?(arg, "--") -> {opts, rest}
+        true -> {opts, rest ++ [arg]}
+      end
+    end)
   end
 
   # ----- REPORT SUBCOMMAND -----
