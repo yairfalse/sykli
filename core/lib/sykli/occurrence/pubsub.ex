@@ -14,14 +14,18 @@ defmodule Sykli.Occurrence.PubSub do
           IO.puts("Task \#{occ.data.task_name} completed!")
       end
 
-  ## Event Types
+  ## Occurrence Types
 
       "ci.run.started"     — pipeline run begins
       "ci.run.passed"      — all tasks succeeded
       "ci.run.failed"      — one or more tasks failed
       "ci.task.started"    — task begins execution
       "ci.task.completed"  — task finished
+      "ci.task.cached"     — task skipped due to cache hit
+      "ci.task.skipped"    — task skipped (condition/dependency)
+      "ci.task.retrying"   — task failed, retrying
       "ci.task.output"     — task produced output
+      "ci.cache.miss"      — cache miss with reason
       "ci.gate.waiting"    — gate awaiting approval
       "ci.gate.resolved"   — gate approved/denied/timed out
   """
@@ -75,6 +79,34 @@ defmodule Sykli.Occurrence.PubSub do
     occ
   end
 
+  @doc "Broadcast a ci.task.cached occurrence. Returns the Occurrence."
+  def task_cached(run_id, task_name, cache_key \\ nil) do
+    occ = Occurrence.task_cached(run_id, task_name, cache_key)
+    broadcast(occ)
+    occ
+  end
+
+  @doc "Broadcast a ci.task.skipped occurrence. Returns the Occurrence."
+  def task_skipped(run_id, task_name, reason) do
+    occ = Occurrence.task_skipped(run_id, task_name, reason)
+    broadcast(occ)
+    occ
+  end
+
+  @doc "Broadcast a ci.task.retrying occurrence. Returns the Occurrence."
+  def task_retrying(run_id, task_name, attempt, max_attempts) do
+    occ = Occurrence.task_retrying(run_id, task_name, attempt, max_attempts)
+    broadcast(occ)
+    occ
+  end
+
+  @doc "Broadcast a ci.cache.miss occurrence. Returns the Occurrence."
+  def cache_miss(run_id, task_name, cache_key, reason) do
+    occ = Occurrence.cache_miss(run_id, task_name, cache_key, reason)
+    broadcast(occ)
+    occ
+  end
+
   @doc "Broadcast a ci.gate.waiting occurrence. Returns the Occurrence."
   def gate_waiting(run_id, gate_name, strategy, message, timeout) do
     occ = Occurrence.gate_waiting(run_id, gate_name, strategy, message, timeout)
@@ -95,6 +127,6 @@ defmodule Sykli.Occurrence.PubSub do
     Phoenix.PubSub.broadcast(@pubsub, topic(:all), occ)
   end
 
-  defp topic(:all), do: "sykli:events:all"
-  defp topic(run_id), do: "sykli:events:#{run_id}"
+  defp topic(:all), do: "sykli:occurrences:all"
+  defp topic(run_id), do: "sykli:occurrences:#{run_id}"
 end

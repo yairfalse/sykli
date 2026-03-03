@@ -168,7 +168,10 @@ defmodule Sykli.Query.Output do
     if task["semantic"] do
       s = task["semantic"]
       if s["intent"], do: IO.puts("  Intent:    #{s["intent"]}")
-      if s["covers"] && s["covers"] != [], do: IO.puts("  Covers:    #{Enum.join(s["covers"], ", ")}")
+
+      if s["covers"] && s["covers"] != [],
+        do: IO.puts("  Covers:    #{Enum.join(s["covers"], ", ")}")
+
       if s["criticality"], do: IO.puts("  Critical:  #{s["criticality"]}")
     end
 

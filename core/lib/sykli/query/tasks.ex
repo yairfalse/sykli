@@ -33,11 +33,12 @@ defmodule Sykli.Query.Tasks do
       end)
       |> Enum.sort_by(& &1.name)
 
-    {:ok, %{
-      type: :tasks,
-      data: %{query: :critical, tasks: tasks, total: length(tasks)},
-      metadata: metadata("critical tasks")
-    }}
+    {:ok,
+     %{
+       type: :tasks,
+       data: %{query: :critical, tasks: tasks, total: length(tasks)},
+       metadata: metadata("critical tasks")
+     }}
   end
 
   defp dependencies_of(task_name, graph) do
@@ -48,11 +49,12 @@ defmodule Sykli.Query.Tasks do
       task ->
         deps = Task.depends_on(task)
 
-        {:ok, %{
-          type: :tasks,
-          data: %{query: :deps, task: task_name, dependencies: deps},
-          metadata: metadata("dependencies of #{task_name}")
-        }}
+        {:ok,
+         %{
+           type: :tasks,
+           data: %{query: :deps, task: task_name, dependencies: deps},
+           metadata: metadata("dependencies of #{task_name}")
+         }}
     end
   end
 
@@ -63,11 +65,12 @@ defmodule Sykli.Query.Tasks do
       blocks = Explain.compute_blocks(graph)
       dependents = Map.get(blocks, task_name, []) |> Enum.sort()
 
-      {:ok, %{
-        type: :tasks,
-        data: %{query: :dependents, task: task_name, dependents: dependents},
-        metadata: metadata("dependents of #{task_name}")
-      }}
+      {:ok,
+       %{
+         type: :tasks,
+         data: %{query: :dependents, task: task_name, dependents: dependents},
+         metadata: metadata("dependents of #{task_name}")
+       }}
     end
   end
 
@@ -77,11 +80,12 @@ defmodule Sykli.Query.Tasks do
         {:error, {:task_not_found, task_name}}
 
       task ->
-        {:ok, %{
-          type: :tasks,
-          data: %{query: :details, task: Context.task_to_map(task)},
-          metadata: metadata("task #{task_name}")
-        }}
+        {:ok,
+         %{
+           type: :tasks,
+           data: %{query: :details, task: Context.task_to_map(task)},
+           metadata: metadata("task #{task_name}")
+         }}
     end
   end
 

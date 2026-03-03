@@ -24,19 +24,20 @@ defmodule Sykli.Query.History do
 
       case result do
         {run, task} ->
-          {:ok, %{
-            type: :history,
-            data: %{
-              task: task_name,
-              status: :passed,
-              duration_ms: task.duration_ms,
-              run_id: run.id,
-              timestamp: DateTime.to_iso8601(run.timestamp),
-              git_ref: run.git_ref,
-              git_branch: run.git_branch
-            },
-            metadata: metadata("when did #{task_name} last pass")
-          }}
+          {:ok,
+           %{
+             type: :history,
+             data: %{
+               task: task_name,
+               status: :passed,
+               duration_ms: task.duration_ms,
+               run_id: run.id,
+               timestamp: DateTime.to_iso8601(run.timestamp),
+               git_ref: run.git_ref,
+               git_branch: run.git_branch
+             },
+             metadata: metadata("when did #{task_name} last pass")
+           }}
 
         nil ->
           {:error, {:no_pass_found, task_name}}
@@ -53,20 +54,21 @@ defmodule Sykli.Query.History do
 
     case result do
       {run, task} ->
-        {:ok, %{
-          type: :history,
-          data: %{
-            task: task_name,
-            status: :failed,
-            error: task.error,
-            duration_ms: task.duration_ms,
-            run_id: run.id,
-            timestamp: DateTime.to_iso8601(run.timestamp),
-            git_ref: run.git_ref,
-            git_branch: run.git_branch
-          },
-          metadata: metadata("why did #{task_name} fail")
-        }}
+        {:ok,
+         %{
+           type: :history,
+           data: %{
+             task: task_name,
+             status: :failed,
+             error: task.error,
+             duration_ms: task.duration_ms,
+             run_id: run.id,
+             timestamp: DateTime.to_iso8601(run.timestamp),
+             git_ref: run.git_ref,
+             git_branch: run.git_branch
+           },
+           metadata: metadata("why did #{task_name} fail")
+         }}
 
       nil ->
         {:error, {:no_failure_found, task_name}}

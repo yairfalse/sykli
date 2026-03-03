@@ -73,7 +73,7 @@ defmodule Sykli.Occurrence.Enrichment do
       occ
       | error: build_error_block(results, graph, likely_causes, workdir),
         reasoning: reasoning,
-        history: build_history_block(results, occ.timestamp),
+        history: build_history_block(results, occ.timestamp, graph),
         data: merged_data
     }
   end
@@ -309,7 +309,7 @@ defmodule Sykli.Occurrence.Enrichment do
   # FALSE PROTOCOL: HISTORY BLOCK
   # ─────────────────────────────────────────────────────────────────────────────
 
-  defp build_history_block(results, base_timestamp) do
+  defp build_history_block(results, base_timestamp, graph) do
     # Build steps with computed timestamps offset from the occurrence timestamp
     {steps, _} =
       Enum.map_reduce(results, 0, fn %TaskResult{} = r, offset_ms ->
@@ -321,7 +321,7 @@ defmodule Sykli.Occurrence.Enrichment do
         step = %{
           "timestamp" => step_ts,
           "action" => r.name,
-          "description" => step_command_description(r),
+          "description" => step_command_description(r, graph),
           "outcome" => map_step_outcome(r.status),
           "duration_ms" => r.duration_ms
         }
@@ -355,13 +355,18 @@ defmodule Sykli.Occurrence.Enrichment do
     %{"steps" => steps, "duration_ms" => duration_ms}
   end
 
-  defp step_command_description(%TaskResult{name: _name, output: _output}), do: nil
+  defp step_command_description(%TaskResult{name: name}, graph) do
+    case Map.get(graph, name) do
+      nil -> nil
+      task -> get_field(task, :command)
+    end
+  end
 
   defp map_step_outcome(:passed), do: "success"
   defp map_step_outcome(:cached), do: "success"
   defp map_step_outcome(:failed), do: "failure"
   defp map_step_outcome(:blocked), do: "failure"
-  defp map_step_outcome(:skipped), do: "in_progress"
+  defp map_step_outcome(:skipped), do: "skipped"
 
   defp build_cross_run_data(results) do
     case safe_store_list(20) do
@@ -620,15 +625,26 @@ defmodule Sykli.Occurrence.Enrichment do
   # PERSISTENCE
   # ─────────────────────────────────────────────────────────────────────────────
 
+  @max_json_occurrences 20
+
   defp persist(%Occurrence{} = occ, workdir) do
     occurrence_map = to_persistence_map(occ)
     dir = Path.join(workdir, ".sykli")
 
     with :ok <- File.mkdir_p(dir) do
-      # 1. JSON — cold path for AI/external consumers
-      json_path = Path.join(dir, "occurrence.json")
+      # 1. JSON — per-run files for AI/external consumers (keep last N)
+      json_dir = Path.join(dir, "occurrences_json")
+      File.mkdir_p!(json_dir)
+      json_path = Path.join(json_dir, "#{occ.run_id}.json")
       json = Jason.encode!(occurrence_map, pretty: true)
       :ok = File.write(json_path, json)
+
+      # Also write latest as occurrence.json for quick access
+      latest_path = Path.join(dir, "occurrence.json")
+      :ok = File.write(latest_path, json)
+
+      # Evict old JSON files (keep last N)
+      evict_old_files(json_dir, @max_json_occurrences, ".json")
 
       # 2. ETF — warm path for fast sykli reload
       etf_dir = Path.join(dir, "occurrences")
@@ -641,7 +657,7 @@ defmodule Sykli.Occurrence.Enrichment do
       safe_store_put(occurrence_map)
 
       # 4. Evict old .etf files (keep last 50)
-      evict_old_etf(etf_dir, 50)
+      evict_old_files(etf_dir, 50, ".etf")
 
       :ok
     end
@@ -689,25 +705,19 @@ defmodule Sykli.Occurrence.Enrichment do
     :error, _ -> :ok
   end
 
-  defp evict_old_etf(etf_dir, max) do
-    case File.ls(etf_dir) do
+  # Evict oldest files by name (ULID filenames are lexicographically time-sorted)
+  defp evict_old_files(dir, max, extension) do
+    case File.ls(dir) do
       {:ok, files} ->
-        etf_files =
+        matching =
           files
-          |> Enum.filter(&String.ends_with?(&1, ".etf"))
-          |> Enum.sort_by(fn file ->
-            path = Path.join(etf_dir, file)
+          |> Enum.filter(&String.ends_with?(&1, extension))
+          |> Enum.sort()
 
-            case File.stat(path) do
-              {:ok, %File.Stat{mtime: mtime}} -> mtime
-              _ -> {{1970, 1, 1}, {0, 0, 0}}
-            end
-          end)
-
-        if length(etf_files) > max do
-          etf_files
-          |> Enum.take(length(etf_files) - max)
-          |> Enum.each(fn file -> File.rm(Path.join(etf_dir, file)) end)
+        if length(matching) > max do
+          matching
+          |> Enum.take(length(matching) - max)
+          |> Enum.each(fn file -> File.rm(Path.join(dir, file)) end)
         end
 
       {:error, _} ->

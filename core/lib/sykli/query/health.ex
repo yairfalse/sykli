@@ -39,28 +39,30 @@ defmodule Sykli.Query.Health do
       end)
       |> Enum.sort_by(& &1.flake_rate, :desc)
 
-    {:ok, %{
-      type: :health,
-      data: %{metric: :flaky, tasks: flaky, total: length(flaky)},
-      metadata: metadata("flaky tasks")
-    }}
+    {:ok,
+     %{
+       type: :health,
+       data: %{metric: :flaky, tasks: flaky, total: length(flaky)},
+       metadata: metadata("flaky tasks")
+     }}
   end
 
   defp failure_rate(runs) do
     total = length(runs)
     passed = Enum.count(runs, &(&1.overall == :passed))
 
-    {:ok, %{
-      type: :health,
-      data: %{
-        metric: :failure_rate,
-        total_runs: total,
-        passed: passed,
-        failed: total - passed,
-        success_rate: if(total > 0, do: Float.round(passed / total, 2), else: 0.0)
-      },
-      metadata: metadata("failure rate")
-    }}
+    {:ok,
+     %{
+       type: :health,
+       data: %{
+         metric: :failure_rate,
+         total_runs: total,
+         passed: passed,
+         failed: total - passed,
+         success_rate: if(total > 0, do: Float.round(passed / total, 2), else: 0.0)
+       },
+       metadata: metadata("failure rate")
+     }}
   end
 
   defp slowest_tasks(runs) do
@@ -82,11 +84,12 @@ defmodule Sykli.Query.Health do
       |> Enum.sort_by(& &1.avg_ms, :desc)
       |> Enum.take(10)
 
-    {:ok, %{
-      type: :health,
-      data: %{metric: :slowest, tasks: stats},
-      metadata: metadata("slowest tasks")
-    }}
+    {:ok,
+     %{
+       type: :health,
+       data: %{metric: :slowest, tasks: stats},
+       metadata: metadata("slowest tasks")
+     }}
   end
 
   defp health_summary(runs) do
@@ -117,18 +120,19 @@ defmodule Sykli.Query.Health do
         MapSet.member?(statuses, :passed) and MapSet.member?(statuses, :failed)
       end)
 
-    {:ok, %{
-      type: :health,
-      data: %{
-        metric: :summary,
-        recent_runs: total,
-        success_rate: if(total > 0, do: Float.round(passed / total, 2), else: 0.0),
-        avg_duration_ms: avg_duration,
-        last_success: last_success,
-        flaky_task_count: flaky_count
-      },
-      metadata: metadata("health")
-    }}
+    {:ok,
+     %{
+       type: :health,
+       data: %{
+         metric: :summary,
+         recent_runs: total,
+         success_rate: if(total > 0, do: Float.round(passed / total, 2), else: 0.0),
+         avg_duration_ms: avg_duration,
+         last_success: last_success,
+         flaky_task_count: flaky_count
+       },
+       metadata: metadata("health")
+     }}
   end
 
   defp load_runs(path) do

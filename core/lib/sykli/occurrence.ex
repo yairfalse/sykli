@@ -14,7 +14,11 @@ defmodule Sykli.Occurrence do
       ci.run.failed        — one or more tasks failed
       ci.task.started      — task begins execution
       ci.task.completed    — task finished (success or failure)
+      ci.task.cached       — task skipped due to cache hit
+      ci.task.skipped      — task skipped (condition not met or dependency failed)
+      ci.task.retrying     — task failed, retrying
       ci.task.output       — task produced output
+      ci.cache.miss        — cache miss with reason
       ci.gate.waiting      — gate awaiting approval
       ci.gate.resolved     — gate approved/denied/timed out
 
@@ -33,6 +37,10 @@ defmodule Sykli.Occurrence do
     TaskStarted,
     TaskCompleted,
     TaskOutput,
+    TaskCached,
+    TaskSkipped,
+    TaskRetrying,
+    CacheMiss,
     GateWaiting,
     GateResolved
   }
@@ -130,6 +138,42 @@ defmodule Sykli.Occurrence do
     new(type, run_id, data,
       severity: severity,
       outcome: outcome,
+      opts: opts
+    )
+  end
+
+  @doc "Create a ci.task.cached occurrence."
+  @spec task_cached(String.t(), String.t(), String.t() | nil, keyword()) :: t()
+  def task_cached(run_id, task_name, cache_key \\ nil, opts \\ []) do
+    new("ci.task.cached", run_id, TaskCached.new(task_name, cache_key),
+      severity: :info,
+      opts: opts
+    )
+  end
+
+  @doc "Create a ci.task.skipped occurrence."
+  @spec task_skipped(String.t(), String.t(), TaskSkipped.reason(), keyword()) :: t()
+  def task_skipped(run_id, task_name, reason, opts \\ []) do
+    new("ci.task.skipped", run_id, TaskSkipped.new(task_name, reason),
+      severity: :info,
+      opts: opts
+    )
+  end
+
+  @doc "Create a ci.task.retrying occurrence."
+  @spec task_retrying(String.t(), String.t(), pos_integer(), pos_integer(), keyword()) :: t()
+  def task_retrying(run_id, task_name, attempt, max_attempts, opts \\ []) do
+    new("ci.task.retrying", run_id, TaskRetrying.new(task_name, attempt, max_attempts),
+      severity: :warning,
+      opts: opts
+    )
+  end
+
+  @doc "Create a ci.cache.miss occurrence."
+  @spec cache_miss(String.t(), String.t(), String.t() | nil, String.t() | nil, keyword()) :: t()
+  def cache_miss(run_id, task_name, cache_key \\ nil, reason \\ nil, opts \\ []) do
+    new("ci.cache.miss", run_id, CacheMiss.new(task_name, cache_key, reason),
+      severity: :info,
       opts: opts
     )
   end

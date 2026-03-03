@@ -448,12 +448,23 @@ defmodule Sykli do
         status: history_status,
         duration_ms: result.duration_ms,
         cached: result.status == :cached,
-        error: if(result.error, do: inspect(result.error)),
+        error: format_error_for_history(result.error),
         inputs: inputs,
         streak: streak
       }
     end)
   end
+
+  # Preserve structured error info for history instead of inspect-stringifying
+  defp format_error_for_history(nil), do: nil
+  defp format_error_for_history(:dependency_failed), do: "dependency_failed"
+
+  defp format_error_for_history(%Sykli.Error{} = e) do
+    parts = [e.code, e.message] |> Enum.reject(&is_nil/1) |> Enum.join(": ")
+    if parts == "", do: inspect(e), else: parts
+  end
+
+  defp format_error_for_history(other), do: inspect(other)
 
   defp get_previous_streaks(path) do
     case RunHistory.load_latest(path: path) do

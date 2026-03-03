@@ -10,15 +10,16 @@ defmodule Sykli.Query.Coverage do
     with {:ok, graph} <- load_graph(path) do
       tasks = find_covering_tasks(pattern, graph)
 
-      {:ok, %{
-        type: :coverage,
-        data: %{
-          pattern: pattern,
-          tasks: tasks,
-          total: length(tasks)
-        },
-        metadata: metadata("coverage for #{pattern}")
-      }}
+      {:ok,
+       %{
+         type: :coverage,
+         data: %{
+           pattern: pattern,
+           tasks: tasks,
+           total: length(tasks)
+         },
+         metadata: metadata("coverage for #{pattern}")
+       }}
     end
   end
 
@@ -26,7 +27,7 @@ defmodule Sykli.Query.Coverage do
     # Pre-compile all unique cover globs to avoid repeated regex compilation
     compiled_globs =
       graph
-      |> Enum.flat_map(fn {_name, task} -> (Task.semantic(task).covers || []) end)
+      |> Enum.flat_map(fn {_name, task} -> Task.semantic(task).covers || [] end)
       |> Enum.uniq()
       |> Map.new(fn glob -> {glob, compile_glob(glob)} end)
 

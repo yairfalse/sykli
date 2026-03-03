@@ -7,7 +7,6 @@ defmodule Sykli.Application do
   - Phoenix.PubSub for event distribution
   - RunRegistry for tracking runs
   - Executor.Server for stateful execution
-  - Reporter for forwarding events to coordinator (when connected)
   """
 
   use Application
@@ -25,10 +24,7 @@ defmodule Sykli.Application do
       Sykli.RunRegistry,
 
       # Executor server - stateful execution with events
-      Sykli.Executor.Server,
-
-      # Reporter - forwards events to coordinator (if connected)
-      Sykli.Reporter
+      Sykli.Executor.Server
     ]
 
     opts = [strategy: :one_for_one, name: Sykli.Supervisor]

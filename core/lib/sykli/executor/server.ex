@@ -106,10 +106,10 @@ defmodule Sykli.Executor.Server do
     # Update status to running
     RunRegistry.update_status(run_id, :running)
 
-    # Spawn execution in a separate process
+    # Spawn execution as a linked Task so crashes propagate to the GenServer
     parent = self()
 
-    spawn(fn ->
+    Task.start_link(fn ->
       result =
         try do
           execute_with_events(run_id, tasks, graph, opts)
@@ -156,7 +156,6 @@ defmodule Sykli.Executor.Server do
   ## Private Functions
 
   defp execute_with_events(run_id, tasks, graph, opts) do
-    Process.put(:sykli_run_id, run_id)
     workdir = Keyword.get(opts, :workdir, ".")
     timeout = Keyword.get(opts, :timeout, task_timeout())
     execute_level_by_level(run_id, tasks, graph, workdir, timeout)

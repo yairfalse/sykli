@@ -18,11 +18,12 @@ defmodule Sykli.Query.Runs do
   defp last_run(path) do
     case RunHistory.load_latest(path: path) do
       {:ok, run} ->
-        {:ok, %{
-          type: :runs,
-          data: %{query: :latest, run: serialize_run(run)},
-          metadata: metadata("last run")
-        }}
+        {:ok,
+         %{
+           type: :runs,
+           data: %{query: :latest, run: serialize_run(run)},
+           metadata: metadata("last run")
+         }}
 
       {:error, _} ->
         {:error, :no_runs}
@@ -32,11 +33,12 @@ defmodule Sykli.Query.Runs do
   defp last_good_run(path) do
     case RunHistory.load_last_good(path: path) do
       {:ok, run} ->
-        {:ok, %{
-          type: :runs,
-          data: %{query: :last_good, run: serialize_run(run)},
-          metadata: metadata("last good run")
-        }}
+        {:ok,
+         %{
+           type: :runs,
+           data: %{query: :last_good, run: serialize_run(run)},
+           metadata: metadata("last good run")
+         }}
 
       {:error, _} ->
         {:error, :no_runs}
@@ -49,15 +51,16 @@ defmodule Sykli.Query.Runs do
     with {:ok, runs} <- RunHistory.list(path: path, limit: 50) do
       recent = Enum.filter(runs, &(DateTime.compare(&1.timestamp, cutoff) == :gt))
 
-      {:ok, %{
-        type: :runs,
-        data: %{
-          query: query_atom,
-          count: length(recent),
-          runs: Enum.map(recent, &serialize_run_summary/1)
-        },
-        metadata: metadata(Atom.to_string(query_atom) |> String.replace("_", " "))
-      }}
+      {:ok,
+       %{
+         type: :runs,
+         data: %{
+           query: query_atom,
+           count: length(recent),
+           runs: Enum.map(recent, &serialize_run_summary/1)
+         },
+         metadata: metadata(Atom.to_string(query_atom) |> String.replace("_", " "))
+       }}
     end
   end
 

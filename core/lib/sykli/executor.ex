@@ -27,6 +27,7 @@ defmodule Sykli.Executor do
   alias Sykli.Services.CacheService
   alias Sykli.Services.ConditionService
   alias Sykli.Services.OIDCService
+  alias Sykli.Services.ProgressTracker
   alias Sykli.Services.SecretValidator
 
   # Note: we DON'T alias Sykli.Graph.Task because it shadows Elixir's Task module
@@ -66,6 +67,7 @@ defmodule Sykli.Executor do
     # Support both :target (new) and :executor (legacy for Mesh)
     target = Keyword.get(opts, :target) || Keyword.get(opts, :executor, @default_target)
     timeout = Keyword.get(opts, :timeout, @default_timeout)
+    run_id = Keyword.get(opts, :run_id)
     start_time = System.monotonic_time(:millisecond)
     total_tasks = length(tasks)
 
@@ -79,11 +81,11 @@ defmodule Sykli.Executor do
 
       :ok ->
         # Setup target with all options
-        do_run(tasks, graph, target, opts, timeout, start_time, total_tasks)
+        do_run(tasks, graph, target, opts, timeout, start_time, total_tasks, run_id)
     end
   end
 
-  defp do_run(tasks, graph, target, opts, timeout, start_time, total_tasks) do
+  defp do_run(tasks, graph, target, opts, timeout, start_time, total_tasks, run_id) do
     case target.setup(opts) do
       {:ok, state} ->
         try do
@@ -93,7 +95,7 @@ defmodule Sykli.Executor do
           # Execute level by level, collecting results with timing
           # Pass progress state: {completed_count, total_count}
           # Also pass graph for resolving task_inputs
-          result = run_levels(levels, state, [], {0, total_tasks}, graph, target, timeout)
+          result = run_levels(levels, state, [], {0, total_tasks}, graph, target, timeout, run_id)
 
           # Print summary with status graph
           total_time = System.monotonic_time(:millisecond) - start_time
@@ -168,10 +170,10 @@ defmodule Sykli.Executor do
 
   # ----- EXECUTING LEVELS -----
 
-  defp run_levels([], _state, acc, _progress, _graph, _target, _timeout),
+  defp run_levels([], _state, acc, _progress, _graph, _target, _timeout, _run_id),
     do: {:ok, Enum.reverse(acc)}
 
-  defp run_levels([level | rest], state, acc, {completed, total}, graph, target, timeout) do
+  defp run_levels([level | rest], state, acc, {completed, total}, graph, target, timeout, run_id) do
     level_size = length(level)
     next_tasks = rest |> List.flatten() |> Enum.map(& &1.name)
 
@@ -190,21 +192,19 @@ defmodule Sykli.Executor do
     # Task.async spawns a new process for each task
     # Task.await_many waits for all to complete
 
-    # Create a counter agent for progress tracking
-    {:ok, counter} = Agent.start_link(fn -> completed end)
+    {:ok, tracker} = ProgressTracker.start_link(initial: completed, total: total)
 
     async_tasks =
       level
       |> Enum.map(fn task ->
         Task.async(fn ->
-          # Get and increment counter
-          task_num = Agent.get_and_update(counter, fn n -> {n + 1, n + 1} end)
+          task_num = ProgressTracker.increment(tracker)
           start_time = System.monotonic_time(:millisecond)
 
           # Resolve task_inputs before running the task
           case resolve_task_inputs(task, graph, state, target) do
             :ok ->
-              %TaskResult{} = result = run_single(task, state, {task_num, total}, target)
+              %TaskResult{} = result = run_single(task, state, {task_num, total}, target, run_id)
               duration = System.monotonic_time(:millisecond) - start_time
               %TaskResult{result | duration_ms: duration}
 
@@ -226,7 +226,7 @@ defmodule Sykli.Executor do
     # We use :infinity here so Task.await_many doesn't race with the runtime timeout
     # and orphan OS processes.
     results = Task.await_many(async_tasks, :infinity)
-    Agent.stop(counter)
+    ProgressTracker.stop(tracker)
 
     new_completed = completed + level_size
 
@@ -237,7 +237,7 @@ defmodule Sykli.Executor do
       IO.puts("#{IO.ANSI.red()}✗ #{failed.name} failed, stopping#{IO.ANSI.reset()}")
 
       # Mark remaining tasks as blocked
-      blocked_results = mark_remaining_as_blocked(rest)
+      blocked_results = mark_remaining_as_blocked(rest, run_id)
 
       {:error, Enum.reverse(acc) ++ results ++ blocked_results}
     else
@@ -249,15 +249,18 @@ defmodule Sykli.Executor do
         {new_completed, total},
         graph,
         target,
-        timeout
+        timeout,
+        run_id
       )
     end
   end
 
-  defp mark_remaining_as_blocked(remaining_levels) do
+  defp mark_remaining_as_blocked(remaining_levels, run_id) do
     remaining_levels
     |> List.flatten()
     |> Enum.map(fn task ->
+      maybe_emit_task_skipped(task.name, :dependency_failed, run_id)
+
       %TaskResult{
         name: task.name,
         status: :blocked,
@@ -269,14 +272,20 @@ defmodule Sykli.Executor do
 
   # ----- RUNNING A SINGLE TASK -----
 
-  @spec run_single(Sykli.Graph.Task.t(), map(), {pos_integer(), pos_integer()}, module()) ::
+  @spec run_single(
+          Sykli.Graph.Task.t(),
+          map(),
+          {pos_integer(), pos_integer()},
+          module(),
+          String.t() | nil
+        ) ::
           TaskResult.t()
-  defp run_single(%Sykli.Graph.Task{} = task, state, progress, target) do
+  defp run_single(%Sykli.Graph.Task{} = task, state, progress, target, run_id) do
     start_time = System.monotonic_time(:millisecond)
 
     # Handle gates (approval points)
     if Sykli.Graph.Task.gate?(task) do
-      run_gate(task, state, progress)
+      run_gate(task, state, progress, run_id)
     else
       # Check condition first
       if should_run?(task) do
@@ -295,7 +304,7 @@ defmodule Sykli.Executor do
               # Validate required secrets are present (via target)
               case validate_secrets(task, state, target) do
                 :ok ->
-                  run_task_with_cache(task, state, progress, target, start_time)
+                  run_task_with_cache(task, state, progress, target, start_time, run_id)
 
                 {:error, missing} ->
                   IO.puts(
@@ -336,6 +345,7 @@ defmodule Sykli.Executor do
           "#{IO.ANSI.faint()}○ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(skipped: condition not met)#{IO.ANSI.reset()}"
         )
 
+        maybe_emit_task_skipped(task.name, :condition_not_met, run_id)
         duration = System.monotonic_time(:millisecond) - start_time
 
         %TaskResult{
@@ -348,7 +358,7 @@ defmodule Sykli.Executor do
     end
   end
 
-  defp run_gate(%Sykli.Graph.Task{} = task, _state, progress) do
+  defp run_gate(%Sykli.Graph.Task{} = task, _state, progress, run_id) do
     prefix = progress_prefix(progress)
     gate = Sykli.Graph.Task.gate(task)
 
@@ -357,7 +367,6 @@ defmodule Sykli.Executor do
     )
 
     # Emit gate waiting event (run_id may be nil for CLI runs)
-    run_id = Process.get(:sykli_run_id)
     maybe_emit_gate_waiting(run_id, task.name, gate)
 
     start_time = System.monotonic_time(:millisecond)
@@ -409,19 +418,28 @@ defmodule Sykli.Executor do
           map(),
           {pos_integer(), pos_integer()} | nil,
           module(),
-          integer()
+          integer(),
+          String.t() | nil
         ) :: TaskResult.t()
-  defp run_task_with_cache(%Sykli.Graph.Task{} = task, state, progress, target, start_time) do
+  defp run_task_with_cache(
+         %Sykli.Graph.Task{} = task,
+         state,
+         progress,
+         target,
+         start_time,
+         run_id
+       ) do
     prefix = progress_prefix(progress)
     workdir = state.workdir
 
     # Check cache first using CacheService
     case CacheService.check_and_restore(task, workdir) do
-      {:hit, _key} ->
+      {:hit, cache_key} ->
         IO.puts(
           "#{prefix}#{IO.ANSI.yellow()}⊙ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}CACHED#{IO.ANSI.reset()}"
         )
 
+        maybe_emit_task_cached(task.name, cache_key, run_id)
         maybe_github_status(task.name, "success")
         duration = System.monotonic_time(:millisecond) - start_time
 
@@ -440,7 +458,8 @@ defmodule Sykli.Executor do
           "#{prefix}#{IO.ANSI.cyan()}▶ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}(#{reason_str})#{IO.ANSI.reset()}"
         )
 
-        run_with_retry(task, state, cache_key, progress, target, start_time)
+        maybe_emit_cache_miss(task.name, cache_key, reason_str, run_id)
+        run_with_retry(task, state, cache_key, progress, target, start_time, run_id)
     end
   end
 
@@ -451,11 +470,23 @@ defmodule Sykli.Executor do
           binary() | nil,
           {pos_integer(), pos_integer()} | nil,
           module(),
-          integer()
+          integer(),
+          String.t() | nil
         ) :: TaskResult.t()
-  defp run_with_retry(task, state, cache_key, progress, target, start_time) do
+  defp run_with_retry(task, state, cache_key, progress, target, start_time, run_id) do
     max_attempts = (task.retry || 0) + 1
-    do_run_with_retry(task, state, cache_key, 1, max_attempts, progress, target, start_time)
+
+    do_run_with_retry(
+      task,
+      state,
+      cache_key,
+      1,
+      max_attempts,
+      progress,
+      target,
+      start_time,
+      run_id
+    )
   end
 
   @spec do_run_with_retry(
@@ -466,7 +497,8 @@ defmodule Sykli.Executor do
           pos_integer(),
           {pos_integer(), pos_integer()} | nil,
           module(),
-          integer()
+          integer(),
+          String.t() | nil
         ) :: TaskResult.t()
   defp do_run_with_retry(
          task,
@@ -476,7 +508,8 @@ defmodule Sykli.Executor do
          max_attempts,
          progress,
          target,
-         start_time
+         start_time,
+         run_id
        ) do
     case run_and_cache(task, state, cache_key, progress, target) do
       result when result == :ok or (is_tuple(result) and elem(result, 0) == :ok) ->
@@ -496,11 +529,13 @@ defmodule Sykli.Executor do
           output: output
         }
 
-      {:error, _reason} when attempt < max_attempts ->
+      {:error, reason} when attempt < max_attempts ->
         IO.puts(
           "#{IO.ANSI.yellow()}↻ #{task.name}#{IO.ANSI.reset()} " <>
             "#{IO.ANSI.faint()}(retry #{attempt}/#{max_attempts - 1})#{IO.ANSI.reset()}"
         )
+
+        maybe_emit_task_retrying(task.name, attempt, max_attempts, reason, run_id)
 
         do_run_with_retry(
           task,
@@ -510,7 +545,8 @@ defmodule Sykli.Executor do
           max_attempts,
           progress,
           target,
-          start_time
+          start_time,
+          run_id
         )
 
       {:error, reason} ->
@@ -721,6 +757,32 @@ defmodule Sykli.Executor do
 
   defp maybe_emit_gate_resolved(run_id, name, outcome, approver, duration) do
     OccPubSub.gate_resolved(run_id, name, outcome, approver, duration)
+  end
+
+  # ----- OCCURRENCE EMISSION (cache, skip, retry) -----
+
+  defp maybe_emit_task_cached(_task_name, _cache_key, nil), do: :ok
+
+  defp maybe_emit_task_cached(task_name, cache_key, run_id) do
+    OccPubSub.task_cached(run_id, task_name, cache_key)
+  end
+
+  defp maybe_emit_cache_miss(_task_name, _cache_key, _reason, nil), do: :ok
+
+  defp maybe_emit_cache_miss(task_name, cache_key, reason, run_id) do
+    OccPubSub.cache_miss(run_id, task_name, cache_key, reason)
+  end
+
+  defp maybe_emit_task_skipped(_task_name, _reason, nil), do: :ok
+
+  defp maybe_emit_task_skipped(task_name, reason, run_id) do
+    OccPubSub.task_skipped(run_id, task_name, reason)
+  end
+
+  defp maybe_emit_task_retrying(_task_name, _attempt, _max_attempts, _reason, nil), do: :ok
+
+  defp maybe_emit_task_retrying(task_name, attempt, max_attempts, _reason, run_id) do
+    OccPubSub.task_retrying(run_id, task_name, attempt, max_attempts)
   end
 
   # Build a map of task_name => status for the graph visualization
