@@ -1339,9 +1339,9 @@ defmodule Sykli.CLI do
       |> maybe_add_opt(:context, opts[:context])
 
     case Sykli.Fix.analyze(path, analyze_opts) do
-      {:ok, %{status: :nothing_to_fix}} ->
+      {:ok, %{status: :nothing_to_fix} = result} ->
         if json_output do
-          IO.puts(Jason.encode!(Sykli.Fix.to_json(%{status: :nothing_to_fix})))
+          IO.puts(Jason.encode!(Sykli.Fix.to_json(result)))
         else
           IO.puts("#{IO.ANSI.green()}Nothing to fix — last run passed.#{IO.ANSI.reset()}")
         end

@@ -54,7 +54,7 @@ sykli.go ──emit──▶ JSON task graph (stdout) ──▶ Elixir engine �
 
 | Module | File | Role |
 |--------|------|------|
-| `CLI` | `cli.ex` | Command dispatch (16 commands) |
+| `CLI` | `cli.ex` | Command dispatch (17 commands) |
 | `Graph` | `graph.ex` | JSON → Task DAG, validation, matrix expansion |
 | `Graph.Task` | `graph.ex` + `graph/task/*.ex` | Task struct with semantic/ai_hooks/history fields |
 | `Executor` | `executor.ex` | DAG execution, `run_id` threaded through entire chain |

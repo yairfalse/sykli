@@ -145,9 +145,7 @@ defmodule Sykli.FixTest do
 
   describe "read_source_lines/3" do
     test "reads source with context around target line" do
-      dir = System.tmp_dir!()
-      file = Path.join(dir, "fix_test_source_#{:rand.uniform(100_000)}.ex")
-
+      file = tmp_file("fix_test_source", ".ex")
       content = Enum.map_join(1..20, "\n", fn n -> "line #{n}" end)
       File.write!(file, content)
 
@@ -158,8 +156,6 @@ defmodule Sykli.FixTest do
       assert Enum.any?(lines, &String.contains?(&1, "line 10"))
       assert Enum.any?(lines, &String.contains?(&1, "line 8"))
       assert Enum.any?(lines, &String.contains?(&1, "line 12"))
-
-      File.rm!(file)
     end
 
     test "handles file not found" do
@@ -167,17 +163,13 @@ defmodule Sykli.FixTest do
     end
 
     test "handles edge lines (line 1)" do
-      dir = System.tmp_dir!()
-      file = Path.join(dir, "fix_test_edge_#{:rand.uniform(100_000)}.ex")
-
+      file = tmp_file("fix_test_edge", ".ex")
       content = Enum.map_join(1..5, "\n", fn n -> "line #{n}" end)
       File.write!(file, content)
 
       lines = Fix.read_source_lines(file, 1, 3)
       assert hd(lines) =~ ">>"
       assert length(lines) == 4
-
-      File.rm!(file)
     end
   end
 
@@ -214,6 +206,15 @@ defmodule Sykli.FixTest do
     json = Jason.encode!(occurrence)
     File.write!(Path.join(sykli_dir, "occurrence.json"), json)
 
+    on_exit(fn -> File.rm_rf!(dir) end)
+
     dir
+  end
+
+  defp tmp_file(prefix, ext) do
+    dir = System.tmp_dir!()
+    file = Path.join(dir, "#{prefix}_#{:rand.uniform(100_000)}#{ext}")
+    on_exit(fn -> File.rm(file) end)
+    file
   end
 end

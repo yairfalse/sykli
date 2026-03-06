@@ -105,7 +105,7 @@ defmodule Sykli.Fix.Output do
       []
       |> maybe_append(history["pass_rate"], fn r -> "#{round(r * 100)}% pass rate" end)
       |> maybe_append(history["streak"], fn s -> "streak: #{s}" end)
-      |> maybe_append(history["flaky"] && history["flaky"], fn _ -> "flaky" end)
+      |> maybe_append(history["flaky"], fn _ -> "flaky" end)
       |> maybe_append(history["last_failed"], fn d ->
         "last failed #{format_blame_date(d)}"
       end)
