@@ -59,6 +59,9 @@ defmodule Sykli.CLI do
       ["context" | context_args] ->
         handle_context(context_args)
 
+      ["fix" | fix_args] ->
+        handle_fix(fix_args)
+
       ["query" | query_args] ->
         handle_query(query_args)
 
@@ -102,6 +105,7 @@ defmodule Sykli.CLI do
       sykli validate   Check sykli file for errors without running
       sykli explain    Show last run occurrence (AI-readable report)
       sykli explain --pipeline  Show pipeline structure (for AI)
+      sykli fix        Analyze failures and show how to fix them
       sykli plan       Dry-run: show what would run based on git changes
       sykli context    Generate AI context file (.sykli/context.json)
       sykli query      Query pipeline, history, and health data
@@ -1296,6 +1300,120 @@ defmodule Sykli.CLI do
       {:ok, Graph.expand_matrix(graph)}
     end
   end
+
+  # ----- FIX SUBCOMMAND -----
+
+  defp handle_fix(["--help"]) do
+    IO.puts("""
+    Usage: sykli fix [options] [path]
+
+    Analyze the latest failure and show how to fix it.
+
+    Loads the enriched occurrence, reads source code at error locations,
+    and shows git changes since the last passing run.
+
+    Options:
+      --json           Output as JSON (for AI assistants)
+      --task=NAME      Focus on one failed task
+      --context=N      Source lines around errors (default: 5)
+      --help           Show this help
+
+    Examples:
+      sykli fix                      Analyze latest failure
+      sykli fix --json               JSON for AI assistants
+      sykli fix --task=test:auth     Focus on one failed task
+      sykli fix --context=10         More source context
+    """)
+
+    halt(0)
+  end
+
+  defp handle_fix(args) do
+    {opts, path} = parse_fix_args(args)
+    path = path || "."
+    json_output = Keyword.get(opts, :json, false)
+
+    analyze_opts =
+      []
+      |> maybe_add_opt(:task, opts[:task])
+      |> maybe_add_opt(:context, opts[:context])
+
+    case Sykli.Fix.analyze(path, analyze_opts) do
+      {:ok, %{status: :nothing_to_fix}} ->
+        if json_output do
+          IO.puts(Jason.encode!(Sykli.Fix.to_json(%{status: :nothing_to_fix})))
+        else
+          IO.puts("#{IO.ANSI.green()}Nothing to fix — last run passed.#{IO.ANSI.reset()}")
+        end
+
+        halt(0)
+
+      {:ok, result} ->
+        if json_output do
+          IO.puts(Jason.encode!(Sykli.Fix.to_json(result), pretty: true))
+        else
+          IO.puts("")
+          IO.puts(Sykli.Fix.Output.format(result))
+          IO.puts("")
+        end
+
+        halt(1)
+
+      {:error, :no_occurrence} ->
+        if json_output do
+          IO.puts(Jason.encode!(%{error: "no occurrence data found"}))
+        else
+          IO.puts("#{IO.ANSI.yellow()}No occurrence data found#{IO.ANSI.reset()}")
+
+          IO.puts(
+            "#{IO.ANSI.faint()}Run 'sykli' first to generate occurrence data#{IO.ANSI.reset()}"
+          )
+        end
+
+        halt(1)
+
+      {:error, :no_failures} ->
+        if json_output do
+          IO.puts(Jason.encode!(%{status: "no_failures", message: "no matching failed tasks"}))
+        else
+          IO.puts("#{IO.ANSI.yellow()}No matching failed tasks found#{IO.ANSI.reset()}")
+        end
+
+        halt(0)
+    end
+  end
+
+  defp parse_fix_args(args) do
+    {opts, rest} =
+      Enum.reduce(args, {[], []}, fn arg, {opts, rest} ->
+        cond do
+          arg == "--json" ->
+            {[{:json, true} | opts], rest}
+
+          String.starts_with?(arg, "--task=") ->
+            {[{:task, String.trim_leading(arg, "--task=")} | opts], rest}
+
+          String.starts_with?(arg, "--context=") ->
+            val = String.trim_leading(arg, "--context=")
+
+            case Integer.parse(val) do
+              {n, ""} when n > 0 -> {[{:context, n} | opts], rest}
+              _ -> {opts, rest}
+            end
+
+          String.starts_with?(arg, "--") ->
+            {opts, rest}
+
+          true ->
+            {opts, rest ++ [arg]}
+        end
+      end)
+
+    {opts, List.first(rest)}
+  end
+
+  defp maybe_add_opt(opts, _key, nil), do: opts
+  defp maybe_add_opt(opts, key, value), do: [{key, value} | opts]
 
   # ----- EXPLAIN SUBCOMMAND -----
 

@@ -1,403 +1,138 @@
-# SYKLI: AI-Native CI
+# CLAUDE.md
 
-**CI built for the AI era. Pipelines in your language. Context for AI assistants.**
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
----
+## What is Sykli?
 
-## VISION: CONTEXT, NOT LOGS
+AI-native CI engine. Pipelines are written as real code (Go/Rust/TypeScript/Elixir/Python SDKs), emitted as JSON task graphs, and executed by an Elixir/BEAM engine. Every run produces structured context (FALSE Protocol occurrences) that AI assistants can read directly — no log parsing.
 
-Traditional CI outputs logs for humans. Sykli outputs **structured context** for AI.
+## Build & Test Commands
 
-```
-Traditional CI: "here's a log, good luck"
-Sykli:          "here's everything you need to understand and fix this"
-```
-
-Every feature is a **context generator**:
-- Run pipeline → history context (patterns, durations, pass/fail)
-- Task fails → error context (code location, recent changes, suggested fix)
-- Cache miss → change context (what changed and why)
-- Test runs → coverage context (which code is tested by what)
-
-The `.sykli/` directory is the **AI's memory** of your project.
-
----
-
-## AI-NATIVE TASK SCHEMA
-
-Tasks carry semantic metadata that AI understands:
-
-```json
-{
-  "name": "test",
-  "command": "npm test",
-  "after": ["lint"],
-  "inputs": ["**/*.ts"],
-
-  "semantic": {
-    "covers": ["src/auth/*", "src/api/*"],
-    "intent": "unit tests for auth and api modules",
-    "criticality": "high"
-  },
-
-  "ai_hooks": {
-    "on_fail": "analyze",
-    "select": "smart"
-  },
-
-  "history_hint": {
-    "flaky": false,
-    "avg_duration_ms": 3200,
-    "last_failure": "2024-01-10",
-    "failure_rate": 0.02,
-    "common_errors": ["timeout", "connection refused"]
-  }
-}
-```
-
-### Three Layers
-
-**Static** (user declares in SDK):
-```go
-s.Task("test").
-  Run("npm test").
-  Covers("src/auth/*", "src/api/*").
-  Intent("unit tests for auth and api").
-  Criticality("high")
-```
-
-**Behavioral** (user configures):
-```go
-s.Task("test").
-  OnFail("analyze").   // or "fix", "notify", "ignore"
-  Select("smart")      // AI decides if this needs to run
-```
-
-**Learned** (Sykli populates from runs):
-- Flakiness detection
-- Average duration
-- Failure patterns
-- Common error types
-
----
-
-## PLANNED AI FEATURES
-
-### Phase 1: Context Generation (Foundation)
-
-**`.sykli/context.json`** - Project understanding
-```json
-{
-  "project": {
-    "name": "my-app",
-    "languages": ["typescript", "go"],
-    "frameworks": ["express", "react"]
-  },
-  "pipeline": {
-    "tasks": 5,
-    "avg_duration_ms": 45000,
-    "parallelism": 2
-  },
-  "health": {
-    "last_success": "2024-01-15T10:30:00Z",
-    "success_rate_7d": 0.94,
-    "flaky_tasks": []
-  }
-}
-```
-
-**`.sykli/test-map.json`** - Coverage mapping
-```json
-{
-  "src/auth/login.ts": ["test:auth", "test:e2e"],
-  "src/api/users.ts": ["test:api", "test:integration"]
-}
-```
-
-### Phase 2: CLI Commands
-
-**`sykli explain`** - AI-readable pipeline description
-```bash
-$ sykli explain --json
-{
-  "tasks": [...],
-  "dependencies": {...},
-  "estimated_duration_ms": 45000,
-  "critical_path": ["lint", "test", "build"]
-}
-```
-
-**`sykli plan`** - Dry run based on current diff
-```bash
-$ sykli plan
-Based on changes to src/auth/*, would run:
-  ✓ lint (always)
-  ✓ test:auth (covers changed files)
-  ○ test:api (skipped - no relevant changes)
-  ✓ build (depends on test:auth)
-```
-
-**`sykli query`** - Natural language queries
-```bash
-$ sykli query "what tests cover the auth module?"
-$ sykli query "why did build fail yesterday?"
-$ sykli query "what's flaky?"
-```
-
-### Phase 3: AI-Assisted Repair
-
-**`sykli fix`** - Analyze and suggest fixes
-```bash
-$ sykli fix
-Analyzing last failure...
-
-Task: test:auth
-Error: expected 200 got 401
-Location: src/auth/login.test.ts:42
-Recent changes: src/auth/login.ts:15-20
-
-Suggested fix:
-  The token validation was changed but tests weren't updated.
-  Update line 42 to use the new token format.
-
-Apply fix? [y/n]
-```
-
-### Phase 4: Rich Structured Errors
-
-```json
-{
-  "task": "test",
-  "status": "failed",
-  "error": {
-    "type": "assertion",
-    "file": "src/auth/login.test.ts",
-    "line": 42,
-    "message": "expected 200 got 401",
-    "code_context": "expect(response.status).toBe(200)",
-    "recent_changes": [
-      {"file": "src/auth/login.ts", "lines": "15-20", "author": "alice"}
-    ],
-    "suggested_fix": "Check token validation in login.ts",
-    "similar_failures": ["2024-01-10", "2024-01-03"]
-  }
-}
-```
-
-### Phase 5: MCP Server (Optional Interface)
-
-```json
-{
-  "mcpServers": {
-    "sykli": { "command": "sykli", "args": ["mcp"] }
-  }
-}
-```
-
-Tools exposed:
-- `run_pipeline` - Execute with options
-- `explain_pipeline` - Get structured description
-- `get_failure` - Get last failure with context
-- `suggest_tests` - What tests to run for changes
-- `get_history` - Recent runs and patterns
-
----
-
-## THE KILLER WORKFLOW
-
-```
-User: "CI is failing, fix it"
-
-Claude Code:
-1. Reads .sykli/context.json     → understands the project
-2. Runs sykli explain --json     → sees pipeline structure
-3. Reads structured error        → knows exactly what failed
-4. Sees recent_changes           → knows what caused it
-5. Fixes the code                → applies the fix
-6. Runs sykli plan               → verifies fix will work
-7. Done
-```
-
----
-
-## IMPLEMENTATION ROADMAP
-
-### Milestone 1: Schema & Context (Current)
-- [ ] Extend Task struct with `semantic`, `ai_hooks` fields
-- [ ] Add `Sykli.Context` module for context.json generation
-- [ ] Add `--json` flag to existing commands
-- [ ] Update all SDKs with new API (Covers, Intent, Criticality, OnFail)
-
-### Milestone 2: Explain & Plan
-- [ ] `sykli explain` command
-- [ ] `sykli plan` command with diff analysis
-- [ ] Enhanced error output with code context
-
-### Milestone 3: Query & Fix
-- [ ] `sykli query` with structured data queries
-- [ ] `sykli fix` with failure analysis
-- [ ] test-map.json generation from coverage data
-
-### Milestone 4: MCP Integration
-- [ ] MCP server implementation
-- [ ] Tool definitions for AI assistants
-- [ ] Streaming output support
-
----
-
-## PROJECT STATUS
-
-**What's Implemented:**
-- Go SDK (~1000 lines) - full fluent API
-- Rust SDK (~1500 lines) - full fluent API
-- TypeScript SDK (~1300 lines) - full fluent API with validation
-- Elixir SDK - DSL macros
-- Parallel execution by dependency level
-- Content-addressed caching (SHA256)
-- Cycle detection (DFS)
-- Matrix build expansion
-- Retry with exponential backoff
-- Conditional execution
-- GitHub status API
-- DDD refactoring (services, protocols, typed events)
-
-**Code Stats:**
-- ~3500 lines Elixir (core)
-- ~3800 lines SDK code (Go + Rust + TypeScript + Elixir)
-- 25+ core modules
-
----
-
-## ARCHITECTURE OVERVIEW
-
-```
-sykli.go  ──run──▶  JSON task graph  ──▶  parallel execution
-   SDK                  stdout              Elixir engine
-                           │
-                           ▼
-                    .sykli/context.json  ◄── AI reads this
-```
-
-### Core Modules
-
-| Module | Purpose |
-|--------|---------|
-| `Detector` | Finds SDK file, runs `--emit` |
-| `Graph` | JSON parsing, topological sort, cycle detection |
-| `Executor` | Parallel execution by level |
-| `Cache` | Content-addressed caching (repository pattern) |
-| `Services.*` | CacheService, RetryService, ConditionService, etc. |
-| `Target.*` | Local (Docker/shell), K8s (Jobs) |
-| `Events.*` | Typed event structs for observability |
-| `Context` | (planned) AI context generation |
-| `Explain` | (planned) Pipeline description |
-| `Plan` | (planned) Dry run with diff analysis |
-
-### File Locations
-
-| What | Where |
-|------|-------|
-| CLI entry | `core/lib/sykli/cli.ex` |
-| Graph parsing | `core/lib/sykli/graph.ex` |
-| Executor | `core/lib/sykli/executor.ex` |
-| Services | `core/lib/sykli/services/` |
-| Cache | `core/lib/sykli/cache/` |
-| Target protocols | `core/lib/sykli/target/protocols/` |
-| Events | `core/lib/sykli/events/` |
-| Go SDK | `sdk/go/sykli.go` |
-| Rust SDK | `sdk/rust/src/lib.rs` |
-| TypeScript SDK | `sdk/typescript/src/index.ts` |
-
----
-
-## SDK API (Current + Planned)
-
-### Go
-
-```go
-package main
-
-import sykli "github.com/yairfalse/sykli/sdk/go"
-
-func main() {
-    s := sykli.New()
-
-    // Current API
-    s.Task("test").
-        Run("go test ./...").
-        Inputs("**/*.go").
-        After("lint")
-
-    // Planned: Semantic metadata
-    s.Task("test").
-        Run("go test ./...").
-        Inputs("**/*.go").
-        Covers("src/auth/*", "src/api/*").
-        Intent("unit tests for auth and api").
-        Criticality("high").
-        OnFail("analyze")
-
-    s.Emit()
-}
-```
-
-### TypeScript
-
-```typescript
-import { Pipeline } from 'sykli';
-
-const p = new Pipeline();
-
-// Current API
-p.task('test')
-  .run('npm test')
-  .inputs('**/*.ts')
-  .after('lint');
-
-// Planned: Semantic metadata
-p.task('test')
-  .run('npm test')
-  .inputs('**/*.ts')
-  .covers('src/auth/*', 'src/api/*')
-  .intent('unit tests for auth and api')
-  .criticality('high')
-  .onFail('analyze');
-
-p.emit();
-```
-
----
-
-## VERIFICATION CHECKLIST
-
-Before every commit:
+All core development happens in `core/`:
 
 ```bash
 cd core
-
-# Format
-mix format
-
-# Tests
-mix test
-
-# Build escript
-mix escript.build
-
-# Test the binary
-./sykli --help
+mix deps.get              # install dependencies (first time)
+mix test                  # run all tests (~960 tests)
+mix test test/sykli/executor_test.exs           # single test file
+mix test test/sykli/executor_test.exs:42        # single test at line
+mix test --only integration                      # tagged tests
+mix format                # format code
+mix escript.build         # build the sykli binary → core/sykli
+./sykli --help            # smoke test the binary
 ```
 
----
+Black-box tests (run against the built binary):
+```bash
+test/blackbox/run.sh              # all 64 cases, 7 categories
+test/blackbox/run.sh --verbose    # show failure details
+test/blackbox/run.sh --filter=POS # filter by category
+```
 
-## AGENT INSTRUCTIONS
+Before every commit: `mix format && mix test && mix escript.build`
 
-When working on this codebase:
+## Architecture
 
-1. **AI-native first** - Every feature should generate context for AI
-2. **Structured output** - Use `--json` flags, typed structs, not strings
-3. **SDK consistency** - Update all four SDKs together
-4. **Read first** - Understand existing patterns before changing
-5. **Run tests** - `cd core && mix test`
+```
+sykli.go ──emit──▶ JSON task graph (stdout) ──▶ Elixir engine ──▶ .sykli/ (AI context)
+  SDK                                              │
+                                          ┌────────┼────────┐
+                                          ▼        ▼        ▼
+                                       Target   Executor  Occurrence
+                                    (where)    (how)     (what happened)
+```
 
-The goal: make Sykli the CI that AI assistants understand natively.
+### Execution Flow
+
+1. **Detector** (`detector.ex`) finds `sykli.*` file, runs it with `--emit` flag
+2. **Graph** (`graph.ex`) parses JSON into Task structs, validates DAG (topological sort, cycle detection), expands matrix builds
+3. **Executor** (`executor.ex`) runs tasks level-by-level in parallel, handles caching/retry/conditions/gates
+4. **Target** executes commands — Local (Docker/Shell) or Kubernetes (Jobs)
+5. **Occurrence** pipeline emits FALSE Protocol events, enriches terminal events with error/reasoning/history blocks, persists to `.sykli/`
+
+### Key Modules
+
+| Module | File | Role |
+|--------|------|------|
+| `CLI` | `cli.ex` | Command dispatch (16 commands) |
+| `Graph` | `graph.ex` | JSON → Task DAG, validation, matrix expansion |
+| `Graph.Task` | `graph.ex` + `graph/task/*.ex` | Task struct with semantic/ai_hooks/history fields |
+| `Executor` | `executor.ex` | DAG execution, `run_id` threaded through entire chain |
+| `Target.Local` | `target/local.ex` | Local execution via Runtime (Docker or Shell) |
+| `Target.K8s` | `target/k8s.ex` | Kubernetes Job execution |
+| `Occurrence` | `occurrence.ex` | FALSE Protocol event factory (12 types) |
+| `Occurrence.PubSub` | `occurrence/pubsub.ex` | Phoenix.PubSub broadcast on `sykli:occurrences:*` topics |
+| `Occurrence.Enrichment` | `occurrence/enrichment.ex` | Terminal event enrichment + JSON/ETF persistence |
+| `Occurrence.Store` | `occurrence/store.ex` | Three-tier storage: ETS (hot) → ETF (warm) → JSON (cold) |
+| `Context` | `context.ex` | Generates `.sykli/context.json` and `test-map.json` |
+| `Explain` | `explain.ex` | Pipeline structure, levels, critical path |
+| `Fix` | `fix.ex` + `fix/output.ex` | Failure analysis with source context and git diff |
+| `Plan` | `plan.ex` | Dry-run with git diff analysis |
+| `Query` | `query.ex` + `query/*.ex` | Pattern-matched natural language queries (no LLM) |
+| `MCP.Server` | `mcp/server.ex` | MCP server (stdio, 5 tools) |
+| `Delta` | `delta.ex` | Git-change-based task selection |
+| `Services.*` | `services/*.ex` | CacheService, RetryService, ConditionService, GateService, ProgressTracker, etc. |
+| `Cache` | `cache.ex` + `cache/*.ex` | Content-addressed caching (SHA256), repository pattern |
+| `Error` | `error.ex` | Structured error types with formatter |
+
+### Task Schema (Three Layers)
+
+Tasks carry metadata at three levels, all implemented in all SDKs:
+
+- **Static** (user declares): `covers`, `intent`, `criticality` — semantic metadata
+- **Behavioral** (user configures): `on_fail` (analyze/retry/skip), `select` (smart/always/manual) — AI hooks
+- **Learned** (Sykli populates): flakiness, avg duration, failure patterns — history hints
+
+### FALSE Protocol Occurrences
+
+All internal events are `%Sykli.Occurrence{}` structs broadcast via Phoenix.PubSub. Types:
+
+`ci.run.started`, `ci.run.passed`, `ci.run.failed`, `ci.task.started`, `ci.task.completed`, `ci.task.cached`, `ci.task.skipped`, `ci.task.retrying`, `ci.task.output`, `ci.cache.miss`, `ci.gate.waiting`, `ci.gate.resolved`
+
+Terminal events get enriched with `error`, `reasoning`, `history` blocks by `Occurrence.Enrichment`.
+
+### .sykli/ Directory (AI's Memory)
+
+```
+.sykli/
+├── occurrence.json          # latest run (FALSE Protocol, always written)
+├── occurrences_json/        # per-run JSON archive (last 20)
+├── occurrences/             # ETF archive (last 50, fast BEAM reload)
+├── context.json             # pipeline structure + health (via `sykli context`)
+├── test-map.json            # file → tasks mapping (via `sykli context`)
+└── runs/                    # run history manifests
+```
+
+## SDKs
+
+Five SDKs in `sdk/` — Go, Rust, TypeScript, Elixir, Python. All support the full API including semantic metadata, containers, mounts, services, K8s options, caches, secrets, gates, matrix, capabilities.
+
+SDK detection order: `.go` → `.rs` → `.exs` → `.ts` → `.py`
+
+SDKs are run with `--emit`, must output valid JSON to stdout. When changing task schema fields, update all five SDKs.
+
+## CLI Commands
+
+`run`, `validate`, `init`, `explain`, `fix`, `plan`, `context`, `query`, `graph`, `report`, `history`, `verify`, `delta`, `watch`, `daemon`, `mcp`, `cache`
+
+## Patterns & Conventions
+
+- **Behaviours over protocols** for targets/runtimes — `Sykli.Target.Behaviour`, `Sykli.Runtime.Behaviour`
+- **`run_id` is threaded explicitly** through executor functions — never use Process dictionary
+- **Occurrence emission** uses `maybe_emit_*` helpers that pattern-match `nil` run_id to no-op
+- **Services** are stateless modules in `services/` — no GenServers, just functions
+- **Structured errors** via `Sykli.Error` — never bare strings. Use `Sykli.Error.task_failed/5`, etc.
+- **JSON output** — most commands support `--json` for machine-readable output
+- **Elixir heredoc gotcha** — `"""` embeds literal newlines that break JSON. Use `~s()` for single-line JSON in test fixtures
+
+## Git Workflow
+
+- Never push directly to main — use feature branches + PRs
+- Branch naming: `feature/<short-description>`
+- Push with `-u`, then `gh pr create` targeting main
+
+## Known Issues
+
+- `--timeout` flag doesn't enforce timeouts on local target (tasks run to completion)
+- Tasks without `command` field pass `validate` — only caught at runtime
+- 1 test requires Docker daemon running (skipped when unavailable)
