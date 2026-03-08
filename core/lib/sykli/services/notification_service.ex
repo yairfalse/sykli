@@ -47,7 +47,7 @@ defmodule Sykli.Services.NotificationService do
     url_charlist = String.to_charlist(url)
 
     headers = [{~c"content-type", ~c"application/json"}]
-    http_opts = [timeout: @timeout, connect_timeout: @timeout]
+    http_opts = [timeout: @timeout, connect_timeout: @timeout] ++ Sykli.HTTP.ssl_opts(url)
 
     case :httpc.request(
            :post,
@@ -86,6 +86,7 @@ defmodule Sykli.Services.NotificationService do
   end
 
   defp format_generic(event) do
-    Jason.encode!(Map.merge(event, %{"source" => "sykli", "version" => "0.5.3"}))
+    vsn = to_string(Application.spec(:sykli, :vsn) || "unknown")
+    Jason.encode!(Map.merge(event, %{"source" => "sykli", "version" => vsn}))
   end
 end

@@ -127,8 +127,14 @@ defmodule Sykli.RunHistory do
     max_runs =
       Keyword.get_lazy(opts, :max_runs, fn ->
         case System.get_env("SYKLI_MAX_RUNS") do
-          nil -> @default_max_runs
-          val -> String.to_integer(val)
+          nil ->
+            @default_max_runs
+
+          val ->
+            case Integer.parse(val) do
+              {int, ""} when int > 0 -> int
+              _ -> @default_max_runs
+            end
         end
       end)
 

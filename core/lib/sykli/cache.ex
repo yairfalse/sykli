@@ -22,12 +22,14 @@ defmodule Sykli.Cache do
   @version "0.1.0"
 
   defp repo do
-    cond do
-      System.get_env("SYKLI_CACHE_S3_BUCKET") != nil ->
-        Sykli.Cache.TieredRepository
+    bucket = System.get_env("SYKLI_CACHE_S3_BUCKET")
+    access = System.get_env("SYKLI_CACHE_S3_ACCESS_KEY")
+    secret = System.get_env("SYKLI_CACHE_S3_SECRET_KEY")
 
-      true ->
-        Sykli.Cache.FileRepository
+    if bucket != nil and access != nil and secret != nil do
+      Sykli.Cache.TieredRepository
+    else
+      Sykli.Cache.FileRepository
     end
   end
 

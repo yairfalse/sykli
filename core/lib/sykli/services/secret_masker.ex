@@ -13,7 +13,7 @@ defmodule Sykli.Services.SecretMasker do
   Replace known secret values in a string with a mask.
   Secrets shorter than #{@min_secret_length} chars are ignored to avoid false positives.
   """
-  @spec mask_string(String.t(), [String.t()]) :: String.t()
+  @spec mask_string(term(), [String.t()]) :: term()
   def mask_string(str, _secrets) when not is_binary(str), do: str
   def mask_string(str, []), do: str
 

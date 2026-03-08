@@ -36,9 +36,11 @@ defmodule Sykli.Occurrence.Enrichment do
     enriched = enrich(occ, graph, executor_result, workdir)
     result = persist(enriched, workdir)
 
-    # Fire-and-forget webhook notification for terminal events
+    # Fire-and-forget webhook notification for terminal events (masked)
     if occ.type in ["ci.run.passed", "ci.run.failed"] do
-      Sykli.Services.NotificationService.notify(to_persistence_map(enriched))
+      secrets = collect_secrets_from_env()
+      masked = Sykli.Services.SecretMasker.mask_deep(to_persistence_map(enriched), secrets)
+      Sykli.Services.NotificationService.notify(masked)
     end
 
     result

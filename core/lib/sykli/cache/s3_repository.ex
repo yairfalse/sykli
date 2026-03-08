@@ -38,8 +38,11 @@ defmodule Sykli.Cache.S3Repository do
           {:error, _} -> {:error, :corrupted}
         end
 
-      {:error, _} ->
+      {:error, {:http_error, 404}} ->
         {:error, :not_found}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -237,6 +240,6 @@ defmodule Sykli.Cache.S3Repository do
   end
 
   defp http_opts do
-    [timeout: 30_000, connect_timeout: 5_000]
+    [timeout: 30_000, connect_timeout: 5_000] ++ Sykli.HTTP.ssl_opts(endpoint())
   end
 end

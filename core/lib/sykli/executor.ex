@@ -339,21 +339,31 @@ defmodule Sykli.Executor do
 
   defp chunk_tasks(level, :infinity), do: [level]
   defp chunk_tasks(level, n) when is_integer(n) and n > 0, do: Enum.chunk_every(level, n)
+  defp chunk_tasks(level, _), do: [level]
 
-  # Partition remaining levels into runnable and blocked by failed tasks
+  # Partition remaining levels into runnable and blocked by failed tasks.
+  # Computes transitive closure: if A fails, B depends on A → blocked,
+  # C depends on B → also blocked.
   defp partition_blocked(levels, failed_names, _graph) do
-    {runnable_levels, blocked_tasks} =
-      Enum.reduce(levels, {[], []}, fn level, {run_acc, block_acc} ->
+    {runnable_levels, blocked_tasks, expanded_failed} =
+      Enum.reduce(levels, {[], [], failed_names}, fn level, {run_acc, block_acc, failed_set} ->
         {runnable, blocked} =
           Enum.split_with(level, fn task ->
             deps = task.depends_on || []
-            not Enum.any?(deps, &MapSet.member?(failed_names, &1))
+            not Enum.any?(deps, &MapSet.member?(failed_set, &1))
           end)
 
+        # Expand failed set with newly blocked task names for transitivity
+        new_failed =
+          blocked
+          |> Enum.map(& &1.name)
+          |> Enum.reduce(failed_set, &MapSet.put(&2, &1))
+
         run_acc = if runnable != [], do: run_acc ++ [runnable], else: run_acc
-        {run_acc, block_acc ++ blocked}
+        {run_acc, block_acc ++ blocked, new_failed}
       end)
 
+    _ = expanded_failed
     {runnable_levels, blocked_tasks}
   end
 

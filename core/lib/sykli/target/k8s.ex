@@ -302,7 +302,17 @@ defmodule Sykli.Target.K8s do
 
   @impl true
   def copy_artifact(source_path, dest_path, _workdir, state) do
-    # Use an ephemeral pod that mounts the artifact PVC to perform the copy
+    # Validate paths are within /artifacts to prevent path traversal
+    if String.contains?(source_path, "..") or String.contains?(dest_path, "..") do
+      {:error, {:artifact_copy_failed, "path traversal not allowed"}}
+    else
+      safe_source = Path.join("/artifacts", source_path)
+      safe_dest = Path.join("/artifacts", dest_path)
+      do_copy_artifact(safe_source, safe_dest, state)
+    end
+  end
+
+  defp do_copy_artifact(source_path, dest_path, state) do
     pvc_name = state.artifact_pvc || "sykli-artifacts"
     pod_name = "sykli-copy-#{:rand.uniform(100_000)}"
     copy_timeout = 60
@@ -320,7 +330,7 @@ defmodule Sykli.Target.K8s do
         "containers" => [
           %{
             "name" => "copy",
-            "image" => "busybox:latest",
+            "image" => "busybox:1.37",
             "command" => ["cp", "-r", source_path, dest_path],
             "volumeMounts" => [
               %{"name" => "artifacts", "mountPath" => "/artifacts"}

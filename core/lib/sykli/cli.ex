@@ -265,8 +265,16 @@ defmodule Sykli.CLI do
   defp do_parse_run_args(["--git-token-secret=" <> secret | tail], opts, rest),
     do: do_parse_run_args(tail, [{:git_token_secret, secret} | opts], rest)
 
-  defp do_parse_run_args(["--max-parallel=" <> n | tail], opts, rest),
-    do: do_parse_run_args(tail, [{:max_parallel, String.to_integer(n)} | opts], rest)
+  defp do_parse_run_args(["--max-parallel=" <> n | tail], opts, rest) do
+    case Integer.parse(n) do
+      {value, ""} when value > 0 ->
+        do_parse_run_args(tail, [{:max_parallel, value} | opts], rest)
+
+      _ ->
+        IO.puts(:stderr, "Error: --max-parallel must be a positive integer, got: #{n}")
+        halt(1)
+    end
+  end
 
   defp do_parse_run_args(["--continue-on-failure" | tail], opts, rest),
     do: do_parse_run_args(tail, [{:continue_on_failure, true} | opts], rest)

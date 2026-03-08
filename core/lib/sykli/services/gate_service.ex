@@ -136,7 +136,7 @@ defmodule Sykli.Services.GateService do
       {~c"accept", ~c"application/json"}
     ]
 
-    http_opts = [timeout: timeout_ms, connect_timeout: 5_000]
+    http_opts = [timeout: timeout_ms, connect_timeout: 5_000] ++ Sykli.HTTP.ssl_opts(url)
 
     case :httpc.request(
            :post,

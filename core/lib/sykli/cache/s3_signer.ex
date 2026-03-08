@@ -17,11 +17,14 @@ defmodule Sykli.Cache.S3Signer do
           config :: map()
         ) :: [{String.t(), String.t()}]
   def sign(method, url, headers, body, config) do
-    %{
-      access_key: access_key,
-      secret_key: secret_key,
-      region: region
-    } = config
+    access_key = Map.get(config, :access_key)
+    secret_key = Map.get(config, :secret_key)
+    region = Map.get(config, :region)
+
+    if is_nil(access_key) or is_nil(secret_key) or is_nil(region) do
+      raise ArgumentError,
+            "S3Signer requires :access_key, :secret_key, and :region; got: #{inspect(Map.keys(config))}"
+    end
 
     service = "s3"
     now = DateTime.utc_now()
