@@ -13,13 +13,20 @@ All core development happens in `core/`:
 ```bash
 cd core
 mix deps.get              # install dependencies (first time)
-mix test                  # run all tests (~960 tests)
+mix test                  # run all tests (~970 tests)
 mix test test/sykli/executor_test.exs           # single test file
 mix test test/sykli/executor_test.exs:42        # single test at line
 mix test --only integration                      # tagged tests
 mix format                # format code
 mix escript.build         # build the sykli binary → core/sykli
 ./sykli --help            # smoke test the binary
+```
+
+SDK conformance tests (validates SDK JSON output against expected cases):
+```bash
+tests/conformance/run.sh                    # all SDKs, all cases
+tests/conformance/run.sh --sdk go           # single SDK
+tests/conformance/run.sh case-name          # single case
 ```
 
 Black-box tests (run against the built binary):
@@ -109,7 +116,9 @@ Five SDKs in `sdk/` — Go, Rust, TypeScript, Elixir, Python. All support the fu
 
 SDK detection order: `.go` → `.rs` → `.exs` → `.ts` → `.py`
 
-SDKs are run with `--emit`, must output valid JSON to stdout. When changing task schema fields, update all five SDKs.
+SDKs are run with `--emit`, must output valid JSON to stdout. When changing task schema fields, update all five SDKs and their conformance test cases.
+
+The project dogfoods itself via `sykli.exs` (root-level pipeline) and `.github/workflows/sykli-ci.yml`.
 
 ## CLI Commands
 
