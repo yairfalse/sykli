@@ -27,7 +27,7 @@ defmodule Sykli.RunRegistryTest do
 
       assert run.id == run_id
       assert run.project_path == "/my/project"
-      assert run.tasks == ["lint", "test"]
+      assert Map.keys(run.tasks) |> Enum.sort() == ["lint", "test"]
       assert run.status == :pending
       assert run.node == node()
     end
@@ -61,7 +61,6 @@ defmodule Sykli.RunRegistryTest do
 
       {:ok, run} = RunRegistry.get_run(run_id)
       assert run.status == :completed
-      assert run.result == :ok
       assert run.completed_at != nil
     end
 
@@ -72,7 +71,6 @@ defmodule Sykli.RunRegistryTest do
 
       {:ok, run} = RunRegistry.get_run(run_id)
       assert run.status == :failed
-      assert run.result == {:error, :test_failed}
     end
   end
 

@@ -102,7 +102,7 @@ defmodule Sykli.Executor.ServerTest do
 
       {:ok, run} = RunRegistry.get_run(run_id)
       assert run.project_path == "/tmp"
-      assert "registry_task" in run.tasks
+      assert Map.has_key?(run.tasks, "registry_task")
     end
   end
 

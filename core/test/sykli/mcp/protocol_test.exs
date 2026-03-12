@@ -52,7 +52,7 @@ defmodule Sykli.MCP.ProtocolTest do
       assert response["id"] == 2
       tools = response["result"]["tools"]
       assert is_list(tools)
-      assert length(tools) == 5
+      assert length(tools) == 7
 
       names = Enum.map(tools, & &1["name"])
       assert "run_pipeline" in names

@@ -4,9 +4,9 @@ defmodule Sykli.MCP.ToolsTest do
   alias Sykli.MCP.Tools
 
   describe "list/0" do
-    test "returns 5 tool definitions" do
+    test "returns 7 tool definitions" do
       tools = Tools.list()
-      assert length(tools) == 5
+      assert length(tools) == 7
     end
 
     test "each tool has name, description, and inputSchema" do
@@ -63,6 +63,45 @@ defmodule Sykli.MCP.ToolsTest do
       path = "/tmp/sykli-mcp-test-#{:rand.uniform(999_999)}"
       result = Tools.call("suggest_tests", %{"path" => path})
       assert {:error, _message} = result
+    end
+
+    test "retry_task with nonexistent path returns error" do
+      path = "/tmp/sykli-mcp-test-#{:rand.uniform(999_999)}"
+      result = Tools.call("retry_task", %{"path" => path, "tasks" => ["some_task"]})
+      assert {:error, message} = result
+      assert is_binary(message)
+    end
+
+    test "run_fix with nonexistent path returns error" do
+      path = "/tmp/sykli-mcp-test-#{:rand.uniform(999_999)}"
+      result = Tools.call("run_fix", %{"path" => path})
+      assert {:error, message} = result
+      assert is_binary(message)
+    end
+  end
+
+  describe "list/0 tool names" do
+    test "includes retry_task and run_fix" do
+      names = Tools.list() |> Enum.map(& &1["name"])
+      assert "retry_task" in names
+      assert "run_fix" in names
+    end
+
+    test "all 7 expected tool names are present" do
+      names = Tools.list() |> Enum.map(& &1["name"]) |> MapSet.new()
+
+      expected =
+        MapSet.new([
+          "run_pipeline",
+          "explain_pipeline",
+          "get_failure",
+          "suggest_tests",
+          "get_history",
+          "retry_task",
+          "run_fix"
+        ])
+
+      assert MapSet.equal?(names, expected)
     end
   end
 end
