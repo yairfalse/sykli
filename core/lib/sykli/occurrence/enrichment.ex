@@ -16,6 +16,7 @@ defmodule Sykli.Occurrence.Enrichment do
   alias Sykli.Occurrence.HistoryAnalyzer
   alias Sykli.Occurrence.Store
   alias Sykli.RunHistory
+  alias Sykli.Services.CausalityService
 
   @max_output_lines 200
 
@@ -55,7 +56,14 @@ defmodule Sykli.Occurrence.Enrichment do
     results = extract_results(executor_result)
     task_names = Enum.map(results, & &1.name)
     history_map = HistoryAnalyzer.analyze(task_names, workdir)
-    likely_causes = compute_likely_causes(results, graph, workdir)
+
+    failed_names =
+      results
+      |> Enum.filter(&(&1.status == :failed))
+      |> Enum.map(& &1.name)
+
+    likely_causes =
+      CausalityService.analyze(failed_names, graph, workdir, get_field: &get_field/2)
 
     # Build domain-specific data (was ci_data, now goes into data per spec)
     ci_data = build_ci_data(results, graph, history_map, occ.run_id, workdir)
@@ -558,77 +566,6 @@ defmodule Sykli.Occurrence.Enrichment do
 
   # Keep backward compat
   defdelegate error_to_map(error), to: __MODULE__, as: :error_detail_map
-
-  # ─────────────────────────────────────────────────────────────────────────────
-  # CAUSALITY
-  # ─────────────────────────────────────────────────────────────────────────────
-
-  defp compute_likely_causes(results, graph, workdir) do
-    failed =
-      results
-      |> Enum.filter(&(&1.status == :failed))
-      |> Enum.map(& &1.name)
-
-    if failed == [] do
-      %{}
-    else
-      changed_files =
-        case RunHistory.load_last_good(path: workdir) do
-          {:ok, last_good} -> changed_files_since(last_good.git_ref, workdir)
-          _ -> MapSet.new()
-        end
-
-      if MapSet.size(changed_files) == 0 do
-        Map.new(
-          failed,
-          &{&1, %{changed_files: [], explanation: "no previous good run to compare"}}
-        )
-      else
-        Map.new(failed, fn name ->
-          task = Map.get(graph, name, %{})
-          inputs = get_field(task, :inputs) || []
-
-          task_files =
-            inputs
-            |> Enum.flat_map(fn pattern -> expand_glob(pattern, workdir) end)
-            |> MapSet.new()
-
-          matching = MapSet.intersection(changed_files, task_files) |> MapSet.to_list()
-
-          cause =
-            if matching != [] do
-              %{
-                changed_files: matching,
-                explanation: "files matching task inputs changed since last passing run"
-              }
-            else
-              %{
-                changed_files: [],
-                explanation: "no direct file match; failure may be environmental"
-              }
-            end
-
-          {name, cause}
-        end)
-      end
-    end
-  end
-
-  defp changed_files_since(ref, workdir) do
-    case Sykli.Git.run(["diff", "--name-only", ref], cd: workdir) do
-      {:ok, output} -> output |> String.split("\n", trim: true) |> MapSet.new()
-      _ -> MapSet.new()
-    end
-  end
-
-  defp expand_glob(pattern, workdir) do
-    full = Path.join(workdir, pattern)
-
-    case Path.wildcard(full) do
-      [] -> []
-      files -> Enum.map(files, &Path.relative_to(&1, workdir))
-    end
-  end
 
   # ─────────────────────────────────────────────────────────────────────────────
   # PERSISTENCE

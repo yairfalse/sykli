@@ -20,6 +20,9 @@ defmodule Sykli.Application do
       # PubSub for events - works locally and across distributed nodes
       {Phoenix.PubSub, name: Sykli.PubSub},
 
+      # Task supervisor for executor - isolates task crashes from executor
+      {Task.Supervisor, name: Sykli.TaskSupervisor},
+
       # Run registry - tracks all local runs
       Sykli.RunRegistry,
 
@@ -27,7 +30,8 @@ defmodule Sykli.Application do
       Sykli.Executor.Server
     ]
 
-    opts = [strategy: :one_for_one, name: Sykli.Supervisor]
+    # rest_for_one: if PubSub crashes, restart TaskSupervisor + RunRegistry + Executor.Server
+    opts = [strategy: :rest_for_one, name: Sykli.Supervisor]
     result = Supervisor.start_link(children, opts)
 
     # If running as Burrito binary, invoke CLI

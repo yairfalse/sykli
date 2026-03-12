@@ -229,6 +229,8 @@ defmodule Sykli.Explain do
       semantic = format_semantic(task)
       retry = format_retry(task)
 
+      history_hint = format_history_hint(task)
+
       %{
         name: task.name,
         command: task.command,
@@ -240,7 +242,8 @@ defmodule Sykli.Explain do
         semantic: semantic,
         container: task.container,
         retry: retry,
-        estimated_duration_ms: Map.get(duration_map, task.name)
+        estimated_duration_ms: Map.get(duration_map, task.name),
+        history_hint: history_hint
       }
     end)
     |> Enum.sort_by(& &1.level)
@@ -263,6 +266,16 @@ defmodule Sykli.Explain do
   defp format_retry(task) do
     if Task.retriable?(task) do
       task.retry
+    else
+      nil
+    end
+  end
+
+  defp format_history_hint(task) do
+    hint = Task.history_hint(task)
+
+    if hint.avg_duration_ms || hint.flaky || hint.pass_rate do
+      Task.HistoryHint.to_map(hint)
     else
       nil
     end

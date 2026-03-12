@@ -66,8 +66,7 @@ defmodule Sykli.Executor.Server do
     result =
       receive do
         %Occurrence{type: "ci.run.passed", run_id: ^run_id} ->
-          {:ok, run} = RunRegistry.get_run(run_id)
-          {:ok, run_id, run.result}
+          {:ok, run_id, :ok}
 
         %Occurrence{type: "ci.run.failed", run_id: ^run_id} ->
           {:error, run_id, :task_failed}

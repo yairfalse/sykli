@@ -50,28 +50,5 @@ defmodule Sykli.Occurrence.HistoryAnalyzer do
     end)
   end
 
-  defp hint_to_map(%HistoryHint{} = hint) do
-    base = %{
-      "streak" => hint.streak,
-      "avg_duration_ms" => hint.avg_duration_ms,
-      "pass_rate" => hint.pass_rate,
-      "flaky" => hint.flaky,
-      "failure_patterns" => hint.failure_patterns,
-      "last_failure" => format_datetime(hint.last_failure)
-    }
-
-    # Remove nil/empty values for cleaner output
-    base
-    |> Enum.reject(fn
-      {_k, nil} -> true
-      {_k, []} -> true
-      {"flaky", false} -> true
-      {"streak", 0} -> true
-      _ -> false
-    end)
-    |> Map.new()
-  end
-
-  defp format_datetime(nil), do: nil
-  defp format_datetime(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
+  defp hint_to_map(%HistoryHint{} = hint), do: HistoryHint.to_map(hint)
 end

@@ -111,6 +111,44 @@ defmodule Sykli.MCP.Tools do
             }
           }
         }
+      },
+      %{
+        "name" => "retry_task",
+        "description" =>
+          "Re-run specific task(s) by name. Re-detects the SDK, re-emits the graph, and executes only the named tasks.",
+        "inputSchema" => %{
+          "type" => "object",
+          "properties" => %{
+            "path" => %{
+              "type" => "string",
+              "description" => "Project path (default: current directory)"
+            },
+            "tasks" => %{
+              "type" => "array",
+              "items" => %{"type" => "string"},
+              "description" => "Task names to retry"
+            }
+          },
+          "required" => ["tasks"]
+        }
+      },
+      %{
+        "name" => "run_fix",
+        "description" =>
+          "Analyze the last failure: identify failed tasks, correlate with git changes, extract error locations, and suggest fixes. Returns structured JSON.",
+        "inputSchema" => %{
+          "type" => "object",
+          "properties" => %{
+            "path" => %{
+              "type" => "string",
+              "description" => "Project path (default: current directory)"
+            },
+            "task" => %{
+              "type" => "string",
+              "description" => "Specific task name to analyze (default: all failed)"
+            }
+          }
+        }
       }
     ]
   end
@@ -348,6 +386,65 @@ defmodule Sykli.MCP.Tools do
              flaky_tasks: flaky_tasks
            }
          }}
+    end
+  end
+
+  defp do_call("retry_task", args) do
+    path = args["path"] || "."
+    task_names = args["tasks"] || []
+
+    if task_names == [] do
+      {:error, "No task names provided"}
+    else
+      name_set = MapSet.new(task_names)
+      filter_fn = fn task -> MapSet.member?(name_set, task.name) end
+      opts = [filter: filter_fn]
+
+      case Sykli.run(path, opts) do
+        {:ok, results} ->
+          {:ok,
+           %{
+             status: "passed",
+             retried: task_names,
+             tasks:
+               Enum.map(results, fn r ->
+                 %{name: r.name, status: to_string(r.status), duration_ms: r.duration_ms}
+               end)
+           }}
+
+        {:error, results} when is_list(results) ->
+          {:ok,
+           %{
+             status: "failed",
+             retried: task_names,
+             tasks:
+               Enum.map(results, fn r ->
+                 base = %{name: r.name, status: to_string(r.status), duration_ms: r.duration_ms}
+                 if r.error, do: Map.put(base, :error, inspect(r.error)), else: base
+               end)
+           }}
+
+        {:error, reason} ->
+          {:error, "Retry failed: #{inspect(reason)}"}
+      end
+    end
+  end
+
+  defp do_call("run_fix", args) do
+    path = args["path"] || "."
+    task = args["task"]
+
+    opts = if task, do: [task: task], else: []
+
+    case Sykli.Fix.analyze(path, opts) do
+      {:ok, analysis} ->
+        {:ok, analysis}
+
+      {:error, :no_occurrence} ->
+        {:error, "No occurrence data found. Run 'sykli' first."}
+
+      {:error, :no_failures} ->
+        {:ok, %{status: "no_failures", message: "No failed tasks in the last run."}}
     end
   end
 

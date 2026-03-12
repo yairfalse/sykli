@@ -515,57 +515,47 @@ defmodule Sykli.Daemon do
   end
 
   defp start_daemon_services(role) do
-    # Occurrence store is always needed (context for AI)
-    # Pass workdir so the store hydrates ETF files on startup
     workdir = File.cwd!()
 
-    case Sykli.Occurrence.Store.start_link(workdir: workdir) do
-      {:ok, _} ->
-        Logger.debug("[Sykli.Daemon] Started Occurrence Store")
+    # Build child specs based on role
+    children = daemon_children(role, workdir)
+
+    case Supervisor.start_link(children,
+           strategy: :one_for_one,
+           name: Sykli.Daemon.Supervisor
+         ) do
+      {:ok, _pid} ->
+        Logger.info("[Sykli.Daemon] Started daemon supervisor (role: #{role})")
+        :ok
 
       {:error, {:already_started, _}} ->
         :ok
 
       {:error, reason} ->
-        Logger.warning("[Sykli.Daemon] Failed to start Occurrence Store: #{inspect(reason)}")
+        Logger.warning("[Sykli.Daemon] Failed to start daemon supervisor: #{inspect(reason)}")
+        :ok
     end
-
-    # Cluster discovery is always needed for mesh networking
-    start_service(Sykli.Cluster, "Cluster")
-
-    # Start role-specific services
-    case role do
-      :worker ->
-        # Workers only execute tasks - no Coordinator service
-        # The Reporter forwards events to remote coordinator
-        Logger.info("[Sykli.Daemon] Worker mode - will execute tasks only")
-
-      :coordinator ->
-        # Coordinators run the Coordinator service but don't execute tasks
-        start_service(Sykli.Coordinator, "Coordinator")
-        Logger.info("[Sykli.Daemon] Coordinator mode - will not execute tasks")
-
-      :full ->
-        # Full nodes do everything
-        start_service(Sykli.Coordinator, "Coordinator")
-        Logger.info("[Sykli.Daemon] Full mode - can execute and coordinate")
-    end
-
-    :ok
   end
 
-  defp start_service(module, name) do
-    case module.start_link() do
-      {:ok, _} ->
-        Logger.debug("[Sykli.Daemon] Started #{name}")
-        :ok
+  defp daemon_children(role, workdir) do
+    # Occurrence store is always needed (context for AI)
+    base = [
+      {Sykli.Occurrence.Store, workdir: workdir},
+      Sykli.Cluster
+    ]
 
-      {:error, {:already_started, _}} ->
-        :ok
+    case role do
+      :worker ->
+        Logger.info("[Sykli.Daemon] Worker mode - will execute tasks only")
+        base
 
-      {:error, reason} ->
-        Logger.warning("[Sykli.Daemon] Failed to start #{name}: #{inspect(reason)}")
-        :ok
+      :coordinator ->
+        Logger.info("[Sykli.Daemon] Coordinator mode - will not execute tasks")
+        base ++ [Sykli.Coordinator]
+
+      :full ->
+        Logger.info("[Sykli.Daemon] Full mode - can execute and coordinate")
+        base ++ [Sykli.Coordinator]
     end
   end
 

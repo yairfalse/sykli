@@ -24,13 +24,16 @@ defmodule Sykli.Graph.Task.HistoryHint do
   - Make informed retry decisions
   """
 
+  @type duration_trend :: :stable | :increasing | :decreasing | nil
+
   @type t :: %__MODULE__{
           flaky: boolean(),
           avg_duration_ms: non_neg_integer() | nil,
           failure_patterns: [String.t()],
           pass_rate: float() | nil,
           last_failure: DateTime.t() | nil,
-          streak: integer()
+          streak: integer(),
+          duration_trend: duration_trend()
         }
 
   @enforce_keys []
@@ -39,7 +42,8 @@ defmodule Sykli.Graph.Task.HistoryHint do
             failure_patterns: [],
             pass_rate: nil,
             last_failure: nil,
-            streak: 0
+            streak: 0,
+            duration_trend: nil
 
   @doc """
   Creates a HistoryHint struct from a map (parsed JSON).
@@ -54,7 +58,8 @@ defmodule Sykli.Graph.Task.HistoryHint do
       failure_patterns: map["failure_patterns"] || [],
       pass_rate: map["pass_rate"],
       last_failure: parse_datetime(map["last_failure"]),
-      streak: map["streak"] || 0
+      streak: map["streak"] || 0,
+      duration_trend: parse_trend(map["duration_trend"])
     }
   end
 
@@ -69,7 +74,8 @@ defmodule Sykli.Graph.Task.HistoryHint do
       "failure_patterns" => hint.failure_patterns,
       "pass_rate" => hint.pass_rate,
       "last_failure" => format_datetime(hint.last_failure),
-      "streak" => hint.streak
+      "streak" => hint.streak,
+      "duration_trend" => if(hint.duration_trend, do: Atom.to_string(hint.duration_trend))
     }
 
     base
@@ -129,7 +135,8 @@ defmodule Sykli.Graph.Task.HistoryHint do
       failure_patterns: failure_patterns,
       pass_rate: if(total_count > 0, do: pass_count / total_count, else: nil),
       last_failure: last_failure,
-      streak: streak
+      streak: streak,
+      duration_trend: compute_duration_trend(durations)
     }
   end
 
@@ -169,6 +176,47 @@ defmodule Sykli.Graph.Task.HistoryHint do
 
   defp safe_avg([]), do: nil
   defp safe_avg(list), do: round(Enum.sum(list) / length(list))
+
+  defp parse_trend(nil), do: nil
+  defp parse_trend("stable"), do: :stable
+  defp parse_trend("increasing"), do: :increasing
+  defp parse_trend("decreasing"), do: :decreasing
+  defp parse_trend(_), do: nil
+
+  # Compute duration trend from last 5 durations (most recent first).
+  # Uses simple linear regression sign: if the slope is positive → increasing.
+  defp compute_duration_trend(durations) when length(durations) < 3, do: nil
+
+  defp compute_duration_trend(durations) do
+    recent = Enum.take(durations, 5)
+    n = length(recent)
+    # recent is most-recent-first, so index 0 = latest
+    # For trend: we want to see if newer runs are slower
+    indexed = Enum.with_index(recent) |> Enum.map(fn {d, i} -> {n - 1 - i, d} end)
+
+    sum_x = Enum.reduce(indexed, 0, fn {x, _}, acc -> acc + x end)
+    sum_y = Enum.reduce(indexed, 0, fn {_, y}, acc -> acc + y end)
+    sum_xy = Enum.reduce(indexed, 0, fn {x, y}, acc -> acc + x * y end)
+    sum_x2 = Enum.reduce(indexed, 0, fn {x, _}, acc -> acc + x * x end)
+
+    denominator = n * sum_x2 - sum_x * sum_x
+
+    if denominator == 0 do
+      :stable
+    else
+      slope = (n * sum_xy - sum_x * sum_y) / denominator
+      avg = safe_avg(recent) || 1
+
+      # Use relative threshold (10% of average) to avoid noise
+      threshold = avg * 0.1
+
+      cond do
+        slope > threshold -> :increasing
+        slope < -threshold -> :decreasing
+        true -> :stable
+      end
+    end
+  end
 
   defp compute_streak([]), do: 0
 

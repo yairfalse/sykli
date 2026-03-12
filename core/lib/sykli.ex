@@ -6,7 +6,10 @@ defmodule Sykli do
   """
 
   alias Sykli.{Detector, Graph, Executor, Cache, RunHistory, GitContext, Context, Occurrence}
+  alias Sykli.Graph.Task.HistoryHint
   alias Sykli.Occurrence.Enrichment
+  alias Sykli.Occurrence.HistoryAnalyzer
+  alias Sykli.Services.CausalityService
 
   @doc """
   Run the sykli pipeline.
@@ -35,6 +38,9 @@ defmodule Sykli do
          {:ok, graph} <- Graph.parse(json) do
       # Expand matrix tasks into individual tasks
       expanded_graph = Graph.expand_matrix(graph)
+
+      # Inject history hints from previous runs into task structs
+      expanded_graph = inject_history_hints(expanded_graph, path)
 
       # Resolve capability-based dependencies (provides/needs)
       case Sykli.Services.CapabilityResolver.resolve(expanded_graph) do
@@ -345,68 +351,52 @@ defmodule Sykli do
     end
   end
 
-  # Add likely cause to failed tasks by correlating git changes with task inputs
+  # Add likely cause to failed tasks by correlating git changes with task inputs.
+  # Delegates to CausalityService for the actual git diff + glob intersection.
   defp add_likely_causes(task_results, path) do
-    # Get last good run to compare against
-    case RunHistory.load_last_good(path: path) do
-      {:ok, last_good} ->
-        # Get changed files since last good run
-        changed_files = get_changed_files_since(last_good.git_ref, path)
+    failed_names =
+      task_results
+      |> Enum.filter(&(&1.status == :failed))
+      |> Enum.map(& &1.name)
 
-        if MapSet.size(changed_files) > 0 do
-          Enum.map(task_results, fn task ->
-            if task.status == :failed do
-              add_likely_cause_to_task(task, changed_files, path)
-            else
-              task
-            end
-          end)
-        else
-          task_results
-        end
-
-      {:error, _} ->
-        # No previous good run to compare against
-        task_results
-    end
-  end
-
-  defp add_likely_cause_to_task(task, changed_files, path) do
-    # Expand task inputs to actual file paths
-    task_input_files =
-      (task.inputs || [])
-      |> Enum.flat_map(fn pattern -> expand_glob(pattern, path) end)
-      |> MapSet.new()
-
-    # Find intersection
-    likely_cause = RunHistory.likely_cause(changed_files, task_input_files)
-
-    if MapSet.size(likely_cause) > 0 do
-      %{task | likely_cause: MapSet.to_list(likely_cause)}
+    if failed_names == [] do
+      task_results
     else
-      task
+      # Build a minimal graph from task results (name => %{inputs: ...})
+      input_graph =
+        Map.new(task_results, fn t -> {t.name, %{inputs: t.inputs}} end)
+
+      causes = CausalityService.analyze(failed_names, input_graph, path)
+
+      Enum.map(task_results, fn task ->
+        case Map.get(causes, task.name) do
+          %{changed_files: files} when files != [] ->
+            %{task | likely_cause: files}
+
+          _ ->
+            task
+        end
+      end)
     end
   end
 
-  defp get_changed_files_since(ref, path) do
-    case Sykli.Git.run(["diff", "--name-only", ref], cd: path) do
-      {:ok, output} ->
-        output
-        |> String.split("\n", trim: true)
-        |> MapSet.new()
+  # Populate history_hint on each task from HistoryAnalyzer data.
+  # This feeds learned data (flakiness, avg_duration, pass_rate) from previous
+  # runs into the current execution, enabling adaptive scheduling and predictive warnings.
+  defp inject_history_hints(graph, workdir) do
+    task_names = Map.keys(graph)
+    history_map = HistoryAnalyzer.analyze(task_names, workdir)
 
-      _ ->
-        MapSet.new()
-    end
-  end
+    Map.new(graph, fn {name, task} ->
+      case Map.get(history_map, name) do
+        stats when is_map(stats) and stats != %{} ->
+          hint = HistoryHint.from_map(stats)
+          {name, %{task | history_hint: hint}}
 
-  defp expand_glob(pattern, path) do
-    full_pattern = Path.join(path, pattern)
-
-    case Path.wildcard(full_pattern) do
-      [] -> []
-      files -> Enum.map(files, &Path.relative_to(&1, path))
-    end
+        _ ->
+          {name, task}
+      end
+    end)
   end
 
   defp extract_task_results({:ok, results}, graph, path) do

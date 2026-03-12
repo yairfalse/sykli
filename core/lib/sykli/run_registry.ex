@@ -25,24 +25,9 @@ defmodule Sykli.RunRegistry do
 
   use GenServer
 
-  @table :sykli_runs
+  alias Sykli.Run
 
-  # Run struct
-  defmodule Run do
-    @moduledoc false
-    defstruct [
-      :id,
-      :project_path,
-      :tasks,
-      # :pending | :running | :completed | :failed
-      :status,
-      # nil | :ok | {:error, reason}
-      :result,
-      :started_at,
-      :completed_at,
-      :node
-    ]
-  end
+  @table :sykli_runs
 
   ## Client API
 
@@ -96,7 +81,7 @@ defmodule Sykli.RunRegistry do
     |> :ets.tab2list()
     |> Enum.map(fn {_id, run} -> run end)
     |> filter_by_status(status)
-    |> Enum.sort_by(& &1.started_at, {:desc, DateTime})
+    |> Enum.sort_by(&(&1.started_at || DateTime.from_unix!(0)), {:desc, DateTime})
     |> maybe_limit(limit)
   end
 
@@ -118,18 +103,8 @@ defmodule Sykli.RunRegistry do
   @impl true
   def handle_call({:start_run, project_path, tasks}, _from, state) do
     run_id = generate_id()
-    now = DateTime.utc_now()
-
-    run = %Run{
-      id: run_id,
-      project_path: project_path,
-      tasks: tasks,
-      status: :pending,
-      result: nil,
-      started_at: now,
-      completed_at: nil,
-      node: node()
-    }
+    task_names = Enum.map(tasks, fn t -> if is_binary(t), do: t, else: t.name end)
+    run = Run.new(run_id, project_path, task_names)
 
     :ets.insert(@table, {run_id, run})
     {:reply, {:ok, run_id}, state}
@@ -152,8 +127,7 @@ defmodule Sykli.RunRegistry do
   def handle_call({:complete_run, run_id, result}, _from, state) do
     case :ets.lookup(@table, run_id) do
       [{^run_id, run}] ->
-        status = if result == :ok, do: :completed, else: :failed
-        updated = %{run | status: status, result: result, completed_at: DateTime.utc_now()}
+        updated = Run.complete(run, result)
         :ets.insert(@table, {run_id, updated})
         {:reply, :ok, state}
 

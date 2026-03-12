@@ -108,6 +108,9 @@ defmodule Sykli.Query do
   def classify("dependents of " <> task), do: {:tasks, :dependents, String.trim(task)}
   def classify("what blocks " <> task), do: {:tasks, :dependents, String.trim(task)}
   def classify("task " <> task), do: {:tasks, :details, String.trim(task)}
+  def classify("tasks covering " <> pattern), do: {:coverage, String.trim(pattern)}
+  def classify("tasks in level " <> level), do: {:tasks, :level, String.trim(level)}
+  def classify("path from " <> rest), do: parse_path_query(rest)
 
   # Run queries
   def classify("last run"), do: {:runs, :latest}
@@ -136,6 +139,13 @@ defmodule Sykli.Query do
 
       true ->
         :unknown
+    end
+  end
+
+  defp parse_path_query(rest) do
+    case String.split(rest, " to ", parts: 2) do
+      [from, to] -> {:tasks, :path, {String.trim(from), String.trim(to)}}
+      _ -> :unknown
     end
   end
 

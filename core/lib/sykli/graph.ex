@@ -754,6 +754,14 @@ defmodule Sykli.Graph do
     MapSet.member?(deps, dependency)
   end
 
+  @doc """
+  Returns a map of task_name => MapSet of all transitive dependencies.
+  """
+  @spec transitive_deps(map()) :: %{String.t() => MapSet.t()}
+  def transitive_deps(graph) do
+    build_transitive_deps(graph)
+  end
+
   # Build a map of task_name => set of all transitive dependencies
   defp build_transitive_deps(graph) do
     graph
