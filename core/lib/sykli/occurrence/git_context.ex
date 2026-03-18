@@ -21,6 +21,7 @@ defmodule Sykli.Occurrence.GitContext do
     %{
       "sha" => get_sha(opts),
       "branch" => get_branch(opts),
+      "remote_url" => get_remote_url(workdir),
       "recent_commits" => recent_commits(workdir),
       "changed_files" => changed_files(workdir)
     }
@@ -58,6 +59,46 @@ defmodule Sykli.Occurrence.GitContext do
       _ -> nil
     end
   end
+
+  defp get_remote_url(workdir) do
+    case Git.run(["remote", "get-url", "origin"], cd: workdir) do
+      {:ok, url} -> url |> String.trim() |> normalize_remote_url()
+      _ -> nil
+    end
+  end
+
+  @doc """
+  Normalizes a git remote URL to HTTPS format for SLSA provenance.
+
+  Converts SSH URLs like `git@github.com:org/repo.git` to
+  `https://github.com/org/repo`. Strips trailing `.git`.
+  """
+  @spec normalize_remote_url(String.t()) :: String.t()
+  def normalize_remote_url(url) do
+    url
+    |> convert_ssh_to_https()
+    |> String.trim_trailing(".git")
+  end
+
+  defp convert_ssh_to_https("git@" <> rest) do
+    case String.split(rest, ":", parts: 2) do
+      [host, path] -> "https://#{host}/#{path}"
+      _ -> "https://#{rest}"
+    end
+  end
+
+  defp convert_ssh_to_https("ssh://git@" <> rest) do
+    case String.split(rest, "/", parts: 2) do
+      [host_port, path] ->
+        host = host_port |> String.split(":") |> List.first()
+        "https://#{host}/#{path}"
+
+      _ ->
+        "https://#{rest}"
+    end
+  end
+
+  defp convert_ssh_to_https(url), do: url
 
   defp changed_files(workdir) do
     # Get uncommitted changes (staged + unstaged + untracked)

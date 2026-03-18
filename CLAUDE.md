@@ -13,7 +13,7 @@ All core development happens in `core/`:
 ```bash
 cd core
 mix deps.get              # install dependencies (first time)
-mix test                  # run all tests (~1073 tests)
+mix test                  # run all tests (~1101 tests)
 mix test test/sykli/executor_test.exs           # single test file
 mix test test/sykli/executor_test.exs:42        # single test at line
 mix test --only integration                      # tagged tests
@@ -95,6 +95,7 @@ sykli.go ──emit──▶ JSON task graph (stdout) ──▶ Elixir engine �
 | `Telemetry` | `telemetry.ex` | `:telemetry` spans/events for tasks, cache, runs |
 | `HTTP` | `http.ex` | Shared TLS verification opts for `:httpc` callers |
 | `Error` | `error.ex` | Structured error types with formatter |
+| `Attestation` | `attestation.ex` + `attestation/*.ex` | SLSA v1.0 provenance generation, DSSE envelope, signing |
 
 ### TaskResult Status Values
 
@@ -130,6 +131,8 @@ Occurrence context carries `trace_id`, `span_id`, and `chain_id` (for correlatin
 ```
 .sykli/
 ├── occurrence.json          # latest run (FALSE Protocol, always written)
+├── attestation.json         # DSSE envelope with SLSA v1.0 provenance (per-run)
+├── attestations/            # per-task DSSE envelopes (for artifact registries)
 ├── occurrences_json/        # per-run JSON archive (last 20)
 ├── occurrences/             # ETF archive (last 50, fast BEAM reload)
 ├── context.json             # pipeline structure + health (via `sykli context`)
@@ -160,6 +163,7 @@ The project dogfoods itself via `sykli.exs` (root-level pipeline) and `.github/w
 | `SYKLI_LABELS` | Node profile labels for mesh placement |
 | `SYKLI_COOKIE` | Erlang distribution cookie for daemon/mesh mode |
 | `SYKLI_K8S_NAMESPACE` | K8s target namespace (default: `"sykli"`) |
+| `SYKLI_SIGNING_KEY` | HMAC-SHA256 key for signing DSSE attestation envelopes |
 | `GITHUB_TOKEN` / `GITLAB_TOKEN` / `BITBUCKET_TOKEN` | SCM commit status integration |
 
 ## Testing Patterns

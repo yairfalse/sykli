@@ -37,6 +37,11 @@ defmodule Sykli.Occurrence.Enrichment do
     enriched = enrich(occ, graph, executor_result, workdir)
     result = persist(enriched, workdir)
 
+    # Generate SLSA provenance attestation for terminal events
+    if occ.type in ["ci.run.passed", "ci.run.failed"] do
+      persist_attestation(enriched, graph, workdir)
+    end
+
     # Fire-and-forget webhook notification for terminal events (masked)
     if occ.type in ["ci.run.passed", "ci.run.failed"] do
       secrets = collect_secrets_from_env()
@@ -684,6 +689,66 @@ defmodule Sykli.Occurrence.Enrichment do
       {:error, _} ->
         :ok
     end
+  end
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # SLSA ATTESTATION
+  # ─────────────────────────────────────────────────────────────────────────────
+
+  defp persist_attestation(enriched, graph, workdir) do
+    alias Sykli.Attestation.Envelope
+
+    dir = Path.join(workdir, ".sykli")
+
+    # Per-run attestation
+    case Sykli.Attestation.generate(enriched, graph, workdir) do
+      {:ok, attestation} ->
+        write_attestation(attestation, Path.join(dir, "attestation.json"))
+
+      {:error, :no_subjects} ->
+        :ok
+    end
+
+    # Per-task attestations (for artifact registries)
+    per_task = Sykli.Attestation.generate_per_task(enriched, graph, workdir)
+
+    if per_task != [] do
+      att_dir = Path.join(dir, "attestations")
+      File.mkdir_p!(att_dir)
+
+      Enum.each(per_task, fn {task_name, attestation} ->
+        safe_name = String.replace(task_name, "/", ":")
+        write_attestation(attestation, Path.join(att_dir, "#{safe_name}.json"))
+      end)
+    end
+  end
+
+  # Write attestation as DSSE envelope (signed if key available, unsigned otherwise)
+  defp write_attestation(attestation, path) do
+    alias Sykli.Attestation.Envelope
+
+    {:ok, envelope} = Envelope.wrap(attestation)
+
+    envelope =
+      if signing_key_configured?() do
+        case Envelope.sign(envelope, Sykli.Attestation.Signer.HMAC) do
+          {:ok, signed} -> signed
+          _ -> envelope
+        end
+      else
+        envelope
+      end
+
+    json = Jason.encode!(envelope, pretty: true)
+    File.write(path, json)
+  end
+
+  defp signing_key_configured? do
+    key =
+      System.get_env("SYKLI_SIGNING_KEY") ||
+        Application.get_env(:sykli, :signing_key)
+
+    is_binary(key) and key != ""
   end
 
   # ─────────────────────────────────────────────────────────────────────────────

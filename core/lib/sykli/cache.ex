@@ -217,6 +217,12 @@ defmodule Sykli.Cache do
   end
 
   @doc """
+  Look up a cache entry by key.
+  Returns {:ok, Cache.Entry.t()} or {:error, reason}.
+  """
+  def get_entry(key), do: repo().get(key)
+
+  @doc """
   Get cache statistics.
   """
   def stats, do: repo().stats()
