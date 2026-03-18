@@ -28,7 +28,7 @@ defmodule Sykli.Attestation.Envelope do
   @spec wrap(map()) :: {:ok, map()}
   def wrap(attestation) when is_map(attestation) do
     payload = Jason.encode!(attestation)
-    encoded = Base.url_encode64(payload, padding: false)
+    encoded = Base.encode64(payload)
 
     envelope = %{
       "payloadType" => @payload_type,
@@ -43,24 +43,27 @@ defmodule Sykli.Attestation.Envelope do
   Signs a DSSE envelope using the given signer module.
 
   The signer must implement `Sykli.Attestation.Signer`.
+  PAE is computed over the raw payload bytes (decoded from base64),
+  per the DSSE spec.
   Returns `{:ok, signed_envelope}` or `{:error, reason}`.
   """
   @spec sign(map(), module(), keyword()) :: {:ok, map()} | {:error, term()}
   def sign(%{"payloadType" => ptype, "payload" => payload} = envelope, signer, opts \\ []) do
-    # DSSE PAE (Pre-Authentication Encoding)
-    pae = pae_encode(ptype, payload)
+    with {:ok, raw_payload} <- Base.decode64(payload) do
+      pae = pae_encode(ptype, raw_payload)
 
-    case signer.sign(pae, opts) do
-      {:ok, sig_bytes, keyid} ->
-        signature = %{
-          "keyid" => keyid,
-          "sig" => Base.url_encode64(sig_bytes, padding: false)
-        }
+      case signer.sign(pae, opts) do
+        {:ok, sig_bytes, keyid} ->
+          signature = %{
+            "keyid" => keyid,
+            "sig" => Base.encode64(sig_bytes)
+          }
 
-        {:ok, Map.put(envelope, "signatures", [signature | envelope["signatures"]])}
+          {:ok, Map.put(envelope, "signatures", [signature | envelope["signatures"]])}
 
-      {:error, reason} ->
-        {:error, reason}
+        {:error, reason} ->
+          {:error, reason}
+      end
     end
   end
 
@@ -73,17 +76,19 @@ defmodule Sykli.Attestation.Envelope do
         signer,
         opts \\ []
       ) do
-    pae = pae_encode(ptype, payload)
+    with {:ok, raw_payload} <- Base.decode64(payload) do
+      pae = pae_encode(ptype, raw_payload)
 
-    Enum.find_value(sigs, {:error, :no_valid_signature}, fn sig ->
-      case Base.url_decode64(sig["sig"], padding: false) do
-        {:ok, sig_bytes} ->
-          if signer.verify(pae, sig_bytes, sig["keyid"], opts), do: :ok
+      Enum.find_value(sigs, {:error, :no_valid_signature}, fn sig ->
+        case Base.decode64(sig["sig"]) do
+          {:ok, sig_bytes} ->
+            if signer.verify(pae, sig_bytes, sig["keyid"], opts), do: :ok
 
-        _ ->
-          nil
-      end
-    end)
+          _ ->
+            nil
+        end
+      end)
+    end
   end
 
   @doc """
@@ -91,7 +96,7 @@ defmodule Sykli.Attestation.Envelope do
   """
   @spec decode_payload(map()) :: {:ok, map()} | {:error, term()}
   def decode_payload(%{"payload" => payload}) do
-    with {:ok, json} <- Base.url_decode64(payload, padding: false),
+    with {:ok, json} <- Base.decode64(payload),
          {:ok, decoded} <- Jason.decode(json) do
       {:ok, decoded}
     end
@@ -99,7 +104,8 @@ defmodule Sykli.Attestation.Envelope do
 
   # PAE (Pre-Authentication Encoding) as defined by DSSE spec:
   # "DSSEv1" + SP + len(type) + SP + type + SP + len(body) + SP + body
-  defp pae_encode(payload_type, payload) do
-    "DSSEv1 #{byte_size(payload_type)} #{payload_type} #{byte_size(payload)} #{payload}"
+  # Body is the raw payload bytes (not base64-encoded).
+  defp pae_encode(payload_type, payload_bytes) do
+    "DSSEv1 #{byte_size(payload_type)} #{payload_type} #{byte_size(payload_bytes)} #{payload_bytes}"
   end
 end

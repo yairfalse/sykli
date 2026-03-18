@@ -62,8 +62,12 @@ defmodule Sykli.Occurrence.GitContext do
 
   defp get_remote_url(workdir) do
     case Git.run(["remote", "get-url", "origin"], cd: workdir) do
-      {:ok, url} -> url |> String.trim() |> normalize_remote_url()
-      _ -> nil
+      {:ok, url} ->
+        trimmed = String.trim(url)
+        if trimmed == "", do: nil, else: normalize_remote_url(trimmed)
+
+      _ ->
+        nil
     end
   end
 

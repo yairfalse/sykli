@@ -215,7 +215,7 @@ defmodule Sykli.Attestation do
   # RUN DETAILS — what actually happened
   # ─────────────────────────────────────────────────────────────────────────────
 
-  defp run_details(%Occurrence{} = occ, git) do
+  defp run_details(%Occurrence{} = occ, _git) do
     builder_version = Application.spec(:sykli, :vsn) |> to_string()
 
     metadata =

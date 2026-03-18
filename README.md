@@ -113,7 +113,7 @@ mix escript.build
 sudo mv sykli /usr/local/bin/
 ```
 
-Requires Elixir 1.16+.
+Requires Elixir 1.14+.
 
 </details>
 

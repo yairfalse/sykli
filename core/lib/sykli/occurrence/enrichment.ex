@@ -696,8 +696,6 @@ defmodule Sykli.Occurrence.Enrichment do
   # ─────────────────────────────────────────────────────────────────────────────
 
   defp persist_attestation(enriched, graph, workdir) do
-    alias Sykli.Attestation.Envelope
-
     dir = Path.join(workdir, ".sykli")
 
     # Per-run attestation
@@ -714,24 +712,27 @@ defmodule Sykli.Occurrence.Enrichment do
 
     if per_task != [] do
       att_dir = Path.join(dir, "attestations")
-      File.mkdir_p!(att_dir)
 
-      Enum.each(per_task, fn {task_name, attestation} ->
-        safe_name = String.replace(task_name, "/", ":")
-        write_attestation(attestation, Path.join(att_dir, "#{safe_name}.json"))
-      end)
+      case File.mkdir_p(att_dir) do
+        :ok ->
+          Enum.each(per_task, fn {task_name, attestation} ->
+            safe_name = String.replace(task_name, "/", ":")
+            write_attestation(attestation, Path.join(att_dir, "#{safe_name}.json"))
+          end)
+
+        {:error, _} ->
+          :ok
+      end
     end
   end
 
   # Write attestation as DSSE envelope (signed if key available, unsigned otherwise)
   defp write_attestation(attestation, path) do
-    alias Sykli.Attestation.Envelope
-
-    {:ok, envelope} = Envelope.wrap(attestation)
+    {:ok, envelope} = Sykli.Attestation.Envelope.wrap(attestation)
 
     envelope =
       if signing_key_configured?() do
-        case Envelope.sign(envelope, Sykli.Attestation.Signer.HMAC) do
+        case Sykli.Attestation.Envelope.sign(envelope, Sykli.Attestation.Signer.HMAC) do
           {:ok, signed} -> signed
           _ -> envelope
         end
@@ -740,7 +741,11 @@ defmodule Sykli.Occurrence.Enrichment do
       end
 
     json = Jason.encode!(envelope, pretty: true)
-    File.write(path, json)
+
+    case File.write(path, json) do
+      :ok -> :ok
+      {:error, _} -> :ok
+    end
   end
 
   defp signing_key_configured? do
