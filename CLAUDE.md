@@ -185,6 +185,8 @@ The project dogfoods itself via `sykli.exs` (root-level pipeline) and `.github/w
 - **HTTP with TLS** — all `:httpc` callers use `Sykli.HTTP.ssl_opts/1` for `verify_peer` + hostname checking
 - **Cache backend selection** — `Sykli.Cache.repo/0` dynamically selects FileRepository or TieredRepository (L1 local + L2 S3) based on env vars
 - **Secret masking** — `SecretMasker.mask_deep/2` applied to occurrence data before persistence and webhook delivery
+- **Path containment** — file reads and Docker mounts must use `String.starts_with?(path, base <> "/")` to prevent path traversal (trailing slash prevents prefix tricks)
+- **TLS everywhere** — all `:httpc` calls must include `Sykli.HTTP.ssl_opts/1` (OIDC, S3, SCM, webhooks)
 - **Elixir heredoc gotcha** — `"""` embeds literal newlines that break JSON. Use `~s()` for single-line JSON in test fixtures
 - **~s() with parens gotcha** — `~s()` uses `()` as delimiters, so `~s(matches(x, "y"))` breaks. Use `~s[]` or `~S||` instead
 
@@ -198,3 +200,4 @@ The project dogfoods itself via `sykli.exs` (root-level pipeline) and `.github/w
 
 - `--timeout` flag doesn't enforce timeouts on local target (tasks run to completion)
 - 1 test requires Docker daemon running (skipped when unavailable)
+- See `docs/deep-dive-findings.md` for 37 tracked issues across security/reliability/architecture/test coverage
