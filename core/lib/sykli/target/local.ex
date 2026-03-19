@@ -376,15 +376,24 @@ defmodule Sykli.Target.Local do
   end
 
   defp extract_host_path(resource, abs_workdir) do
-    case String.split(resource, ":", parts: 2) do
-      ["src", path] ->
-        full_path =
-          if String.starts_with?(path, "/"), do: path, else: Path.join(abs_workdir, path)
+    resolved =
+      case String.split(resource, ":", parts: 2) do
+        ["src", path] ->
+          full_path =
+            if String.starts_with?(path, "/"), do: path, else: Path.join(abs_workdir, path)
 
-        Path.expand(full_path)
+          Path.expand(full_path)
 
-      _ ->
-        abs_workdir
+        _ ->
+          abs_workdir
+      end
+
+    # Block paths outside workdir to prevent host filesystem escape via mounts.
+    # Use trailing slash to prevent prefix tricks (e.g., /tmp/workdir_evil matching /tmp/workdir)
+    if resolved == abs_workdir or String.starts_with?(resolved, abs_workdir <> "/") do
+      resolved
+    else
+      abs_workdir
     end
   end
 

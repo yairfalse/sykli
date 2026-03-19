@@ -123,12 +123,15 @@ defmodule Sykli.RunRegistry do
     end
   end
 
+  @max_completed_runs 500
+
   @impl true
   def handle_call({:complete_run, run_id, result}, _from, state) do
     case :ets.lookup(@table, run_id) do
       [{^run_id, run}] ->
         updated = Run.complete(run, result)
         :ets.insert(@table, {run_id, updated})
+        evict_old_completed()
         {:reply, :ok, state}
 
       [] ->
@@ -143,6 +146,23 @@ defmodule Sykli.RunRegistry do
     timestamp = DateTime.utc_now() |> DateTime.to_unix()
     suffix = :crypto.strong_rand_bytes(4) |> Base.encode16(case: :lower)
     "run_#{timestamp}_#{suffix}"
+  end
+
+  defp evict_old_completed do
+    completed =
+      :ets.tab2list(@table)
+      |> Enum.map(fn {_id, run} -> run end)
+      |> Enum.filter(&(&1.status in [:completed, :failed]))
+
+    if length(completed) > @max_completed_runs do
+      completed
+      |> Enum.sort_by(
+        fn run -> run.started_at || run.completed_at || ~U[2000-01-01 00:00:00Z] end,
+        {:asc, DateTime}
+      )
+      |> Enum.take(length(completed) - @max_completed_runs)
+      |> Enum.each(fn run -> :ets.delete(@table, run.id) end)
+    end
   end
 
   defp filter_by_status(runs, nil), do: runs

@@ -37,6 +37,11 @@ defmodule Sykli.Occurrence.Enrichment do
     enriched = enrich(occ, graph, executor_result, workdir)
     result = persist(enriched, workdir)
 
+    # Generate SLSA provenance attestation for terminal events
+    if occ.type in ["ci.run.passed", "ci.run.failed"] do
+      persist_attestation(enriched, graph, workdir)
+    end
+
     # Fire-and-forget webhook notification for terminal events (masked)
     if occ.type in ["ci.run.passed", "ci.run.failed"] do
       secrets = collect_secrets_from_env()
@@ -600,9 +605,15 @@ defmodule Sykli.Occurrence.Enrichment do
       json = Jason.encode!(occurrence_map, pretty: true)
       :ok = File.write(json_path, json)
 
-      # Also write latest as occurrence.json for quick access
+      # Atomic write for latest occurrence.json (tmp + rename avoids race)
       latest_path = Path.join(dir, "occurrence.json")
-      :ok = File.write(latest_path, json)
+      tmp_path = latest_path <> ".tmp.#{occ.run_id}"
+      :ok = File.write(tmp_path, json)
+
+      case File.rename(tmp_path, latest_path) do
+        :ok -> :ok
+        {:error, _} -> File.rm(tmp_path)
+      end
 
       # Evict old JSON files (keep last N)
       evict_old_files(json_dir, @max_json_occurrences, ".json")
@@ -687,6 +698,71 @@ defmodule Sykli.Occurrence.Enrichment do
   end
 
   # ─────────────────────────────────────────────────────────────────────────────
+  # SLSA ATTESTATION
+  # ─────────────────────────────────────────────────────────────────────────────
+
+  defp persist_attestation(enriched, graph, workdir) do
+    dir = Path.join(workdir, ".sykli")
+
+    # Per-run attestation
+    case Sykli.Attestation.generate(enriched, graph, workdir) do
+      {:ok, attestation} ->
+        write_attestation(attestation, Path.join(dir, "attestation.json"))
+
+      {:error, :no_subjects} ->
+        :ok
+    end
+
+    # Per-task attestations (for artifact registries)
+    per_task = Sykli.Attestation.generate_per_task(enriched, graph, workdir)
+
+    if per_task != [] do
+      att_dir = Path.join(dir, "attestations")
+
+      case File.mkdir_p(att_dir) do
+        :ok ->
+          Enum.each(per_task, fn {task_name, attestation} ->
+            safe_name = String.replace(task_name, "/", ":")
+            write_attestation(attestation, Path.join(att_dir, "#{safe_name}.json"))
+          end)
+
+        {:error, _} ->
+          :ok
+      end
+    end
+  end
+
+  # Write attestation as DSSE envelope (signed if key available, unsigned otherwise)
+  defp write_attestation(attestation, path) do
+    {:ok, envelope} = Sykli.Attestation.Envelope.wrap(attestation)
+
+    envelope =
+      if signing_key_configured?() do
+        case Sykli.Attestation.Envelope.sign(envelope, Sykli.Attestation.Signer.HMAC) do
+          {:ok, signed} -> signed
+          _ -> envelope
+        end
+      else
+        envelope
+      end
+
+    json = Jason.encode!(envelope, pretty: true)
+
+    case File.write(path, json) do
+      :ok -> :ok
+      {:error, _} -> :ok
+    end
+  end
+
+  defp signing_key_configured? do
+    key =
+      System.get_env("SYKLI_SIGNING_KEY") ||
+        Application.get_env(:sykli, :signing_key)
+
+    is_binary(key) and key != ""
+  end
+
+  # ─────────────────────────────────────────────────────────────────────────────
   # HELPERS
   # ─────────────────────────────────────────────────────────────────────────────
 
@@ -742,14 +818,40 @@ defmodule Sykli.Occurrence.Enrichment do
     |> Map.new()
   end
 
-  # Collect secret values from common env var patterns for masking
-  @secret_env_patterns ["_TOKEN", "_SECRET", "_KEY", "_PASSWORD", "_PASS", "_API_KEY"]
+  # Collect secret values from env vars for masking.
+  # Matches common patterns (_TOKEN, _SECRET, _KEY, etc.) and connection
+  # string URLs (DATABASE_URL, etc.). Does not inspect task-level secret_refs.
+  @secret_env_patterns [
+    "_TOKEN",
+    "_SECRET",
+    "_KEY",
+    "_PASSWORD",
+    "_PASS",
+    "_API_KEY",
+    "_CREDENTIAL",
+    "_AUTH"
+  ]
   defp collect_secrets_from_env do
-    System.get_env()
-    |> Enum.filter(fn {key, _val} ->
-      Enum.any?(@secret_env_patterns, &String.contains?(key, &1))
-    end)
-    |> Enum.map(fn {_key, val} -> val end)
+    env = System.get_env()
+
+    pattern_matched =
+      env
+      |> Enum.filter(fn {key, _val} ->
+        Enum.any?(@secret_env_patterns, &String.contains?(key, &1))
+      end)
+      |> Enum.map(fn {_key, val} -> val end)
+
+    # Also collect values of any env vars that look like connection strings
+    connection_strings =
+      env
+      |> Enum.filter(fn {key, val} ->
+        (String.contains?(key, "URL") or String.contains?(key, "DSN")) and
+          String.contains?(val, "://")
+      end)
+      |> Enum.map(fn {_key, val} -> val end)
+
+    (pattern_matched ++ connection_strings)
+    |> Enum.uniq()
     |> Enum.filter(&(byte_size(&1) >= 4))
   end
 end

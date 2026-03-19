@@ -69,7 +69,14 @@ defmodule Sykli.Services.OIDCService do
       {~c"Accept", ~c"application/json"}
     ]
 
-    case :httpc.request(:get, {String.to_charlist(url), headers}, [{:timeout, 10_000}], []) do
+    ssl_opts = Sykli.HTTP.ssl_opts(url)
+
+    case :httpc.request(
+           :get,
+           {String.to_charlist(url), headers},
+           [{:timeout, 10_000}] ++ ssl_opts,
+           []
+         ) do
       {:ok, {{_, 200, _}, _headers, body}} ->
         case Jason.decode(to_string(body)) do
           {:ok, %{"value" => id_token}} -> {:ok, id_token}
@@ -135,7 +142,9 @@ defmodule Sykli.Services.OIDCService do
 
     url = ~c"https://sts.amazonaws.com/?#{params}"
 
-    case :httpc.request(:get, {url, []}, [{:timeout, 30_000}], []) do
+    ssl_opts = Sykli.HTTP.ssl_opts("https://sts.amazonaws.com")
+
+    case :httpc.request(:get, {url, []}, [{:timeout, 30_000}] ++ ssl_opts, []) do
       {:ok, {{_, 200, _}, _headers, body}} ->
         parse_aws_response(to_string(body))
 
@@ -195,11 +204,13 @@ defmodule Sykli.Services.OIDCService do
 
     headers = [{~c"Content-Type", ~c"application/json"}]
 
+    gcp_url = "https://sts.googleapis.com/v1/token"
+    ssl_opts = Sykli.HTTP.ssl_opts(gcp_url)
+
     case :httpc.request(
            :post,
-           {~c"https://sts.googleapis.com/v1/token", headers, ~c"application/json",
-            String.to_charlist(body)},
-           [{:timeout, 30_000}],
+           {String.to_charlist(gcp_url), headers, ~c"application/json", String.to_charlist(body)},
+           [{:timeout, 30_000}] ++ ssl_opts,
            []
          ) do
       {:ok, {{_, 200, _}, _, resp_body}} ->

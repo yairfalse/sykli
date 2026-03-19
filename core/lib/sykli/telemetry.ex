@@ -88,7 +88,8 @@ defmodule Sykli.Telemetry do
 
   @doc false
   def handle_event([:sykli, :task, :stop], measurements, metadata, _config) do
-    Logger.debug("[telemetry] task #{metadata.task} completed in #{measurements.duration}ms")
+    duration_ms = System.convert_time_unit(measurements.duration, :native, :millisecond)
+    Logger.debug("[telemetry] task #{metadata.task} completed in #{duration_ms}ms")
   end
 
   def handle_event([:sykli, :cache, :check], _measurements, metadata, _config) do
@@ -101,7 +102,7 @@ defmodule Sykli.Telemetry do
 
   def handle_event([:sykli, :run, :stop], measurements, metadata, _config) do
     Logger.debug(
-      "[telemetry] run #{metadata.run_id} #{metadata.status} in #{measurements.duration}ms"
+      "[telemetry] run #{metadata.run_id} #{metadata.status} in #{System.convert_time_unit(measurements.duration, :native, :millisecond)}ms"
     )
   end
 end

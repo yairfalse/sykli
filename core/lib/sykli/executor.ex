@@ -880,9 +880,20 @@ defmodule Sykli.Executor do
   end
 
   defp resolve_single_secret_ref(%{source: "file", key: path}) do
-    case File.read(path) do
-      {:ok, content} -> {:ok, String.trim(content)}
-      {:error, reason} -> {:error, {:file_read_failed, path, reason}}
+    abs_path = Path.expand(path)
+
+    # Block paths outside CWD to prevent path traversal
+    # (e.g., reading /etc/shadow or K8s service account tokens).
+    # Use trailing slash to prevent prefix tricks (/cwd_evil matching /cwd).
+    cwd = File.cwd!()
+
+    if abs_path == cwd or String.starts_with?(abs_path, cwd <> "/") do
+      case File.read(abs_path) do
+        {:ok, content} -> {:ok, String.trim(content)}
+        {:error, reason} -> {:error, {:file_read_failed, path, reason}}
+      end
+    else
+      {:error, {:path_traversal, path}}
     end
   end
 

@@ -1,4 +1,6 @@
 defmodule Sykli.Occurrence.PubSub do
+  require Logger
+
   @moduledoc """
   Pub/sub for Occurrence structs.
 
@@ -123,8 +125,15 @@ defmodule Sykli.Occurrence.PubSub do
 
   # Broadcast to both run-specific and :all topics
   defp broadcast(%Occurrence{run_id: run_id} = occ) do
-    Phoenix.PubSub.broadcast(@pubsub, topic(run_id), occ)
-    Phoenix.PubSub.broadcast(@pubsub, topic(:all), occ)
+    case Phoenix.PubSub.broadcast(@pubsub, topic(run_id), occ) do
+      :ok -> :ok
+      {:error, reason} -> Logger.warning("PubSub broadcast failed: #{inspect(reason)}")
+    end
+
+    case Phoenix.PubSub.broadcast(@pubsub, topic(:all), occ) do
+      :ok -> :ok
+      {:error, reason} -> Logger.warning("PubSub broadcast failed: #{inspect(reason)}")
+    end
   end
 
   defp topic(:all), do: "sykli:occurrences:all"

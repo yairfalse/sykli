@@ -73,6 +73,7 @@ Run `sykli` and it executes your tasks in parallel, with caching, retries, and c
 | **Matrix Builds** | Test across multiple configurations |
 | **Gate Tasks** | Approval points that pause the pipeline |
 | **Capability Dependencies** | Tasks declare what they provide and need |
+| **SLSA Provenance** | Automatic supply-chain attestation (in-toto/SLSA v1) |
 
 ---
 
@@ -558,6 +559,17 @@ Occurrences are stored at three levels for different access patterns:
 
 When the daemon is running, the occurrence store accumulates history in ETS. This enables cross-run queries like regression detection and recent outcome patterns — without reading files.
 
+### SLSA Provenance
+
+Every run that produces artifacts automatically generates a [SLSA v1.0](https://slsa.dev) provenance attestation wrapped in a [DSSE](https://github.com/secure-systems-lab/dsse) envelope:
+
+```
+.sykli/attestation.json        # Per-run DSSE envelope
+.sykli/attestations/build.json # Per-task envelopes (for registries)
+```
+
+Attestations are signed with HMAC-SHA256 when `SYKLI_SIGNING_KEY` is set. The Signer interface is pluggable for future Sigstore/Fulcio integration.
+
 ### Context for AI Assistants
 
 ```bash
@@ -569,9 +581,9 @@ The `.sykli/` directory is designed as the AI's memory of your project:
 ```
 .sykli/
 ├── occurrence.json          # Latest run (FALSE Protocol format)
+├── attestation.json         # SLSA v1.0 provenance (DSSE envelope)
+├── attestations/            # Per-task attestations
 ├── occurrences/             # ETF archive (last 50 runs)
-│   ├── run_abc123.etf
-│   └── run_def456.etf
 ├── context.json             # Pipeline structure + health
 └── runs/                    # Run history (lean format)
 ```
@@ -607,7 +619,8 @@ The `.sykli/` directory is designed as the AI's memory of your project:
 | K8s Target | Beta |
 | Gate Tasks | Beta |
 | Capability Dependencies | Beta |
-| Remote Cache | Planned |
+| Remote Cache (S3) | Beta |
+| SLSA Provenance | Beta |
 
 ---
 
@@ -616,10 +629,10 @@ The `.sykli/` directory is designed as the AI's memory of your project:
 Sykli is open source under the MIT license. Contributions welcome!
 
 ```bash
-cd core && mix test          # Run tests (770+ tests)
+cd core && mix test          # Run tests (1100+ tests)
 mix escript.build            # Build binary
 
-test/blackbox/run.sh         # Run black-box test suite
+test/blackbox/run.sh         # Run black-box test suite (84 cases)
 ```
 
 ---
