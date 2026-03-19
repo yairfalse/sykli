@@ -15,12 +15,10 @@ defmodule Sykli.Attestation.Envelope do
   @payload_type "application/vnd.in-toto+json"
 
   @type t :: %{
-          payloadType: String.t(),
-          payload: String.t(),
-          signatures: [signature()]
+          String.t() => String.t() | [signature()]
         }
 
-  @type signature :: %{keyid: String.t(), sig: String.t()}
+  @type signature :: %{String.t() => String.t()}
 
   @doc """
   Wraps an attestation map in a DSSE envelope (unsigned).

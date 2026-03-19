@@ -54,6 +54,7 @@ defmodule Sykli.Attestation.Signer.HMAC do
       nil -> {:error, :no_signing_key}
       "" -> {:error, :no_signing_key}
       k when is_binary(k) -> {:ok, k}
+      _ -> {:error, :invalid_signing_key}
     end
   end
 end

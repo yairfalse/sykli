@@ -609,7 +609,11 @@ defmodule Sykli.Occurrence.Enrichment do
       latest_path = Path.join(dir, "occurrence.json")
       tmp_path = latest_path <> ".tmp.#{occ.run_id}"
       :ok = File.write(tmp_path, json)
-      File.rename(tmp_path, latest_path)
+
+      case File.rename(tmp_path, latest_path) do
+        :ok -> :ok
+        {:error, _} -> File.rm(tmp_path)
+      end
 
       # Evict old JSON files (keep last N)
       evict_old_files(json_dir, @max_json_occurrences, ".json")
@@ -814,9 +818,9 @@ defmodule Sykli.Occurrence.Enrichment do
     |> Map.new()
   end
 
-  # Collect secret values from common env var patterns for masking.
-  # Also includes any env vars explicitly listed in task secrets/secret_refs
-  # to catch non-standard secret names like DATABASE_URL.
+  # Collect secret values from env vars for masking.
+  # Matches common patterns (_TOKEN, _SECRET, _KEY, etc.) and connection
+  # string URLs (DATABASE_URL, etc.). Does not inspect task-level secret_refs.
   @secret_env_patterns [
     "_TOKEN",
     "_SECRET",

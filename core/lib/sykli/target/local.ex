@@ -388,8 +388,9 @@ defmodule Sykli.Target.Local do
           abs_workdir
       end
 
-    # Block paths outside workdir to prevent host filesystem escape via mounts
-    if String.starts_with?(resolved, abs_workdir) do
+    # Block paths outside workdir to prevent host filesystem escape via mounts.
+    # Use trailing slash to prevent prefix tricks (e.g., /tmp/workdir_evil matching /tmp/workdir)
+    if resolved == abs_workdir or String.starts_with?(resolved, abs_workdir <> "/") do
       resolved
     else
       abs_workdir
