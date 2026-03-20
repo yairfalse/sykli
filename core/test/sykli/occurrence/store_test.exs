@@ -127,54 +127,6 @@ defmodule Sykli.Occurrence.StoreTest do
     end
   end
 
-  describe "recent_outcomes/2" do
-    test "returns task outcomes across occurrences" do
-      start_store()
-
-      Store.put(
-        make_occurrence_with_tasks("r1", "2026-01-01T00:00:00Z", [
-          %{"name" => "test", "status" => "passed"}
-        ])
-      )
-
-      Store.put(
-        make_occurrence_with_tasks("r2", "2026-01-02T00:00:00Z", [
-          %{"name" => "test", "status" => "failed"}
-        ])
-      )
-
-      Store.put(
-        make_occurrence_with_tasks("r3", "2026-01-03T00:00:00Z", [
-          %{"name" => "test", "status" => "passed"}
-        ])
-      )
-
-      outcomes = Store.recent_outcomes("test")
-      assert outcomes == ["pass", "fail", "pass"]
-    end
-
-    test "returns empty list for unknown task" do
-      start_store()
-      Store.put(make_occurrence("r1", "2026-01-01T00:00:00Z"))
-
-      assert Store.recent_outcomes("nonexistent") == []
-    end
-
-    test "respects n limit" do
-      start_store()
-
-      for i <- 1..5 do
-        Store.put(
-          make_occurrence_with_tasks("r#{i}", "2026-01-0#{i}T00:00:00Z", [
-            %{"name" => "test", "status" => "passed"}
-          ])
-        )
-      end
-
-      assert length(Store.recent_outcomes("test", 3)) == 3
-    end
-  end
-
   describe "eviction" do
     test "evicts oldest entries when exceeding max" do
       start_store()

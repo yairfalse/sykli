@@ -573,9 +573,6 @@ defmodule Sykli.Occurrence.Enrichment do
     %{"message" => inspect(other)}
   end
 
-  # Keep backward compat
-  defdelegate error_to_map(error), to: __MODULE__, as: :error_detail_map
-
   # ─────────────────────────────────────────────────────────────────────────────
   # PERSISTENCE
   # ─────────────────────────────────────────────────────────────────────────────

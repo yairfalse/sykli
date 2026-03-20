@@ -54,20 +54,6 @@ defmodule Sykli.Services.ConditionService do
   end
 
   @doc """
-  Build context as a string-keyed map (for legacy compatibility).
-  """
-  @spec build_context_map() :: map()
-  def build_context_map do
-    %{
-      "branch" => get_branch(),
-      "tag" => get_tag(),
-      "event" => System.get_env("GITHUB_EVENT_NAME"),
-      "pr_number" => System.get_env("GITHUB_PR_NUMBER"),
-      "ci" => System.get_env("CI") == "true"
-    }
-  end
-
-  @doc """
   Get the current branch name.
   """
   @spec get_branch() :: String.t() | nil

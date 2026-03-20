@@ -6,7 +6,6 @@ defmodule Sykli.Application do
   - ULID for monotonic event ID generation (AHTI compatible)
   - Phoenix.PubSub for event distribution
   - RunRegistry for tracking runs
-  - Executor.Server for stateful execution
   """
 
   use Application
@@ -24,13 +23,10 @@ defmodule Sykli.Application do
       {Task.Supervisor, name: Sykli.TaskSupervisor},
 
       # Run registry - tracks all local runs
-      Sykli.RunRegistry,
-
-      # Executor server - stateful execution with events
-      Sykli.Executor.Server
+      Sykli.RunRegistry
     ]
 
-    # rest_for_one: if PubSub crashes, restart TaskSupervisor + RunRegistry + Executor.Server
+    # rest_for_one: if PubSub crashes, restart TaskSupervisor + RunRegistry
     opts = [strategy: :rest_for_one, name: Sykli.Supervisor]
     result = Supervisor.start_link(children, opts)
 

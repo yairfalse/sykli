@@ -217,25 +217,10 @@ defmodule Sykli.RunHistory do
 
       {:error, :enoent} ->
         {:ok, []}
+
+      {:error, reason} ->
+        {:error, reason}
     end
-  end
-
-  @doc """
-  Calculate the current streak (consecutive passes) for a task.
-  """
-  @spec calculate_streak(String.t(), keyword()) :: {:ok, non_neg_integer()}
-  def calculate_streak(task_name, opts \\ []) do
-    {:ok, runs} = list(opts)
-    streak = count_streak(runs, task_name)
-    {:ok, streak}
-  end
-
-  @doc """
-  Calculate likely cause by intersecting changed files with task inputs.
-  """
-  @spec likely_cause(MapSet.t(), MapSet.t()) :: MapSet.t()
-  def likely_cause(changed_files, task_inputs) do
-    MapSet.intersection(changed_files, task_inputs)
   end
 
   # ----- PRIVATE -----
@@ -336,18 +321,5 @@ defmodule Sykli.RunHistory do
       {:ok, dt, _offset} -> dt
       {:error, _} -> DateTime.utc_now()
     end
-  end
-
-  defp count_streak(runs, task_name) do
-    runs
-    |> Enum.reduce_while(0, fn run, count ->
-      task_result = Enum.find(run.tasks, &(&1.name == task_name))
-
-      case task_result do
-        nil -> {:halt, count}
-        %{status: :passed} -> {:cont, count + 1}
-        _ -> {:halt, count}
-      end
-    end)
   end
 end

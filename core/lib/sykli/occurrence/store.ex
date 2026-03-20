@@ -72,27 +72,6 @@ defmodule Sykli.Occurrence.Store do
     |> Enum.take(limit)
   end
 
-  @doc """
-  Returns recent outcomes for a specific task across stored occurrences.
-
-  Returns a list of outcome strings like `["pass", "pass", "fail", "pass"]`,
-  newest first.
-  """
-  @spec recent_outcomes(String.t(), pos_integer()) :: [String.t()]
-  def recent_outcomes(task_name, n \\ 10) do
-    @table
-    |> :ets.tab2list()
-    |> Enum.map(fn {_key, occ} -> occ end)
-    |> Enum.reverse()
-    |> Enum.flat_map(fn occ ->
-      case find_task_outcome(occ, task_name) do
-        nil -> []
-        outcome -> [outcome]
-      end
-    end)
-    |> Enum.take(n)
-  end
-
   # ─────────────────────────────────────────────────────────────────────────────
   # CLIENT API — Writes go through GenServer
   # ─────────────────────────────────────────────────────────────────────────────
@@ -243,24 +222,4 @@ defmodule Sykli.Occurrence.Store do
   defp filter_by_status(occurrences, status) do
     Enum.filter(occurrences, &(&1["outcome"] == status))
   end
-
-  defp find_task_outcome(occurrence, task_name) do
-    # Support both new format (data.tasks) and old format (ci_data.tasks)
-    tasks =
-      get_in(occurrence, ["data", "tasks"]) ||
-        get_in(occurrence, ["ci_data", "tasks"]) ||
-        []
-
-    case Enum.find(tasks, &(&1["name"] == task_name)) do
-      %{"status" => status} -> normalize_outcome(status)
-      _ -> nil
-    end
-  end
-
-  defp normalize_outcome("passed"), do: "pass"
-  defp normalize_outcome("cached"), do: "pass"
-  defp normalize_outcome("failed"), do: "fail"
-  defp normalize_outcome("skipped"), do: "skip"
-  defp normalize_outcome("blocked"), do: "skip"
-  defp normalize_outcome(other), do: other
 end
