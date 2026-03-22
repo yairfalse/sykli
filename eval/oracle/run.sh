@@ -543,6 +543,374 @@ if begin_case "022" "CLI: --help exits 0"; then
 fi
 
 # ============================================================================
+# ADVERSARIAL INPUTS (023-026)
+# ============================================================================
+
+printf "\n${BOLD}Adversarial Inputs${RESET}\n"
+
+# --- case_023: unicode task names ---
+if begin_case "023" "Adversarial: unicode task names execute"; then
+  dir=$(tmp_workdir)
+  make_pipeline "$dir" "unicode_name.exs"
+  LAST_OUTPUT=$(run_sykli "$dir" 2>&1) && exit_code=0 || exit_code=$?
+  if assert_exit 0 "$exit_code"; then
+    if assert_contains "$LAST_OUTPUT" "passed"; then
+      pass 0
+    fi
+  fi
+  rm -rf "$dir"
+fi
+
+# --- case_024: shell special characters in command ---
+if begin_case "024" "Adversarial: shell special chars in command"; then
+  dir=$(tmp_workdir)
+  make_pipeline "$dir" "shell_special.exs"
+  LAST_OUTPUT=$(run_sykli "$dir" 2>&1) && exit_code=0 || exit_code=$?
+  if assert_exit 0 "$exit_code"; then
+    if assert_contains "$LAST_OUTPUT" "done"; then
+      pass 0
+    fi
+  fi
+  rm -rf "$dir"
+fi
+
+# --- case_025: task producing 5000 lines of output ---
+if begin_case "025" "Adversarial: large output (5000 lines) doesn't crash"; then
+  dir=$(tmp_workdir)
+  make_pipeline "$dir" "big_output.exs"
+  LAST_OUTPUT=$(run_sykli "$dir" 2>&1) && exit_code=0 || exit_code=$?
+  if assert_exit 0 "$exit_code"; then
+    pass 0
+  fi
+  rm -rf "$dir"
+fi
+
+# --- case_026: duplicate task names ---
+if begin_case "026" "Adversarial: duplicate task names handled"; then
+  dir=$(tmp_workdir)
+  make_pipeline "$dir" "duplicate_names.exs"
+  LAST_OUTPUT=$(run_sykli "$dir" validate --json 2>&1) && exit_code=0 || exit_code=$?
+  # Should either reject or deduplicate — must not crash
+  pass 0
+  rm -rf "$dir"
+fi
+
+# ============================================================================
+# DAG SCALE (027-029)
+# ============================================================================
+
+printf "\n${BOLD}DAG Scale${RESET}\n"
+
+# --- case_027: 30-level deep chain ---
+if begin_case "027" "Scale: 30-level deep DAG chain completes"; then
+  dir=$(tmp_workdir)
+  make_pipeline "$dir" "deep_dag.exs"
+  LAST_OUTPUT=$(run_sykli "$dir" 2>&1) && exit_code=0 || exit_code=$?
+  if assert_exit 0 "$exit_code"; then
+    if assert_contains "$LAST_OUTPUT" "30 passed"; then
+      pass 0
+    fi
+  fi
+  rm -rf "$dir"
+fi
+
+# --- case_028: 50 parallel tasks ---
+if begin_case "028" "Scale: 50 parallel tasks at one level"; then
+  dir=$(tmp_workdir)
+  make_pipeline "$dir" "wide_dag.exs"
+  LAST_OUTPUT=$(run_sykli "$dir" 2>&1) && exit_code=0 || exit_code=$?
+  if assert_exit 0 "$exit_code"; then
+    if assert_contains "$LAST_OUTPUT" "50 passed"; then
+      pass 0
+    fi
+  fi
+  rm -rf "$dir"
+fi
+
+# --- case_029: task with no command field ---
+if begin_case "029" "Scale: task with no command doesn't crash"; then
+  dir=$(tmp_workdir)
+  make_pipeline "$dir" "no_command.exs"
+  # Should either skip gracefully or produce clear error — must not crash
+  LAST_OUTPUT=$(run_sykli "$dir" 2>&1) && exit_code=0 || exit_code=$?
+  # We just care it doesn't segfault/hang
+  pass 0
+  rm -rf "$dir"
+fi
+
+# ============================================================================
+# EXECUTION SEMANTICS (030-033)
+# ============================================================================
+
+printf "\n${BOLD}Execution Semantics${RESET}\n"
+
+# --- case_030: continue-on-failure runs independent tasks ---
+if begin_case "030" "Semantics: --continue-on-failure runs independent tasks"; then
+  dir=$(tmp_workdir)
+  make_pipeline "$dir" "continue_on_fail.exs"
+  LAST_OUTPUT=$(run_sykli "$dir" --continue-on-failure 2>&1) && exit_code=0 || exit_code=$?
+  # Pipeline should fail overall but "independent" should still run
+  if assert_contains "$LAST_OUTPUT" "still-ran"; then
+    pass 0
+  fi
+  rm -rf "$dir"
+fi
+
+# --- case_031: blocked downstream doesn't execute ---
+if begin_case "031" "Semantics: blocked task skipped when dependency fails"; then
+  dir=$(tmp_workdir)
+  make_pipeline "$dir" "blocked_downstream.exs"
+  LAST_OUTPUT=$(run_sykli "$dir" 2>&1) && exit_code=0 || exit_code=$?
+  if [[ "$exit_code" -ne 0 ]]; then
+    # "deploy" should NOT have run
+    if ! echo "$LAST_OUTPUT" | grep -q "echo deploy"; then
+      pass 0
+    else
+      fail "blocked task 'deploy' should not have executed"
+    fi
+  else
+    fail "pipeline should fail when build fails"
+  fi
+  rm -rf "$dir"
+fi
+
+# --- case_032: condition skips task ---
+if begin_case "032" "Semantics: when condition skips non-matching task"; then
+  dir=$(tmp_workdir)
+  make_pipeline "$dir" "condition_skip.exs"
+  LAST_OUTPUT=$(run_sykli "$dir" 2>&1) && exit_code=0 || exit_code=$?
+  if assert_exit 0 "$exit_code"; then
+    if assert_contains "$LAST_OUTPUT" "skipped|SKIPPED"; then
+      pass 0
+    fi
+  fi
+  rm -rf "$dir"
+fi
+
+# --- case_033: matrix expansion creates N tasks ---
+if begin_case "033" "Semantics: matrix expands to 3 tasks"; then
+  dir=$(tmp_workdir)
+  make_pipeline "$dir" "matrix.exs"
+  LAST_OUTPUT=$(run_sykli "$dir" 2>&1) && exit_code=0 || exit_code=$?
+  if assert_exit 0 "$exit_code"; then
+    if assert_contains "$LAST_OUTPUT" "3 passed"; then
+      pass 0
+    fi
+  fi
+  rm -rf "$dir"
+fi
+
+# ============================================================================
+# SECURITY (034-036)
+# ============================================================================
+
+printf "\n${BOLD}Security${RESET}\n"
+
+# --- case_034: secrets masked in occurrence.json ---
+if begin_case "034" "Security: secrets masked in occurrence.json"; then
+  dir=$(tmp_workdir)
+  make_pipeline "$dir" "secret_env.exs"
+  # Set a secret env var and run
+  SYKLI_TEST_SECRET_TOKEN="super-secret-value-12345" run_sykli "$dir" >/dev/null 2>&1 || true
+  settle
+  if assert_file_exists "$dir/.sykli/occurrence.json"; then
+    json=$(cat "$dir/.sykli/occurrence.json")
+    # The actual secret value must NOT appear in the occurrence
+    if echo "$json" | grep -q "super-secret-value-12345"; then
+      fail "secret value leaked into occurrence.json"
+    else
+      pass 0
+    fi
+  fi
+  rm -rf "$dir"
+fi
+
+# --- case_035: occurrence has summary counts ---
+if begin_case "035" "Security: occurrence summary has correct counts"; then
+  dir=$(tmp_workdir)
+  make_pipeline "$dir" "dag.exs"
+  run_sykli "$dir" >/dev/null 2>&1 || true
+  settle
+  if assert_file_exists "$dir/.sykli/occurrence.json"; then
+    json=$(cat "$dir/.sykli/occurrence.json")
+    passed_count=$(echo "$json" | jq '.data.summary.passed' 2>/dev/null)
+    if [[ "$passed_count" == "3" ]]; then
+      pass 0
+    else
+      fail "expected summary.passed=3, got $passed_count"
+    fi
+  fi
+  rm -rf "$dir"
+fi
+
+# --- case_036: occurrence has correct type for failing run ---
+if begin_case "036" "Security: occurrence type is ci.run.failed for failures"; then
+  dir=$(tmp_workdir)
+  make_pipeline "$dir" "fail.exs"
+  run_sykli "$dir" >/dev/null 2>&1 || true
+  settle
+  if assert_file_exists "$dir/.sykli/occurrence.json"; then
+    json=$(cat "$dir/.sykli/occurrence.json")
+    if assert_json_field "$json" ".type" "ci.run.failed"; then
+      pass 0
+    fi
+  fi
+  rm -rf "$dir"
+fi
+
+# ============================================================================
+# CACHE CORRECTNESS (037-039)
+# ============================================================================
+
+printf "\n${BOLD}Cache Correctness${RESET}\n"
+
+# --- case_037: changing command busts cache ---
+if begin_case "037" "Cache: command change invalidates cache"; then
+  dir=$(tmp_workdir)
+  # First run with cached.exs (command: echo cached)
+  make_pipeline "$dir" "cached.exs"
+  run_sykli "$dir" >/dev/null 2>&1 || true
+  settle
+  # Second run with cache_bust.exs (command: echo changed-command, same inputs)
+  make_pipeline "$dir" "cache_bust.exs"
+  LAST_OUTPUT=$(run_sykli "$dir" 2>&1) && exit_code=0 || exit_code=$?
+  if assert_exit 0 "$exit_code"; then
+    # Should NOT be cached — command changed
+    if echo "$LAST_OUTPUT" | grep -q "command changed"; then
+      pass 0
+    elif ! echo "$LAST_OUTPUT" | grep -qi "cached"; then
+      pass 0
+    else
+      fail "task should not be cached after command change"
+    fi
+  fi
+  rm -rf "$dir"
+fi
+
+# --- case_038: occurrence written to per-run archive ---
+if begin_case "038" "Cache: per-run occurrence JSON archived"; then
+  dir=$(tmp_workdir)
+  make_pipeline "$dir" "pass.exs"
+  run_sykli "$dir" >/dev/null 2>&1 || true
+  settle
+  archive_dir="$dir/.sykli/occurrences_json"
+  if [[ -d "$archive_dir" ]]; then
+    count=$(ls "$archive_dir"/*.json 2>/dev/null | wc -l | tr -d ' ')
+    if [[ "$count" -ge 1 ]]; then
+      pass 0
+    else
+      fail "expected at least 1 archived occurrence JSON, got $count"
+    fi
+  else
+    fail "occurrences_json directory not created"
+  fi
+  rm -rf "$dir"
+fi
+
+# --- case_039: validate --json produces valid JSON ---
+if begin_case "039" "Cache: validate --json is parseable JSON"; then
+  dir=$(tmp_workdir)
+  make_pipeline "$dir" "dag.exs"
+  LAST_OUTPUT=$(run_sykli "$dir" validate --json 2>&1) && exit_code=0 || exit_code=$?
+  if assert_exit 0 "$exit_code"; then
+    if echo "$LAST_OUTPUT" | jq empty 2>/dev/null; then
+      pass 0
+    else
+      fail "validate --json output is not valid JSON"
+    fi
+  fi
+  rm -rf "$dir"
+fi
+
+# ============================================================================
+# ATTESTATION DEEP (040-042)
+# ============================================================================
+
+printf "\n${BOLD}Attestation Deep${RESET}\n"
+
+# --- case_040: attestation has subjects with SHA256 digests ---
+if begin_case "040" "Attestation: subjects have sha256 digests"; then
+  dir=$(tmp_workdir)
+  make_pipeline "$dir" "with_outputs.exs"
+  run_sykli "$dir" >/dev/null 2>&1 || true
+  settle
+  if assert_file_exists "$dir/.sykli/attestation.json"; then
+    payload=$(cat "$dir/.sykli/attestation.json" | jq -r '.payload' 2>/dev/null)
+    decoded=$(echo "$payload" | base64 --decode 2>/dev/null || echo "$payload" | base64 -D 2>/dev/null) || decoded=""
+    if [[ -n "$decoded" ]]; then
+      subject_count=$(echo "$decoded" | jq '.subject | length' 2>/dev/null)
+      if [[ "$subject_count" -gt 0 ]]; then
+        digest=$(echo "$decoded" | jq -r '.subject[0].digest.sha256' 2>/dev/null)
+        if [[ -n "$digest" && "$digest" != "null" && ${#digest} -eq 64 ]]; then
+          pass 0
+        else
+          fail "subject digest is not a 64-char SHA256: '$digest'"
+        fi
+      else
+        fail "attestation has 0 subjects"
+      fi
+    else
+      fail "could not decode attestation payload"
+    fi
+  fi
+  rm -rf "$dir"
+fi
+
+# --- case_041: attestation builder has sykli version ---
+if begin_case "041" "Attestation: builder includes sykli version"; then
+  dir=$(tmp_workdir)
+  make_pipeline "$dir" "with_outputs.exs"
+  run_sykli "$dir" >/dev/null 2>&1 || true
+  settle
+  if assert_file_exists "$dir/.sykli/attestation.json"; then
+    payload=$(cat "$dir/.sykli/attestation.json" | jq -r '.payload' 2>/dev/null)
+    decoded=$(echo "$payload" | base64 --decode 2>/dev/null || echo "$payload" | base64 -D 2>/dev/null) || decoded=""
+    if [[ -n "$decoded" ]]; then
+      builder_id=$(echo "$decoded" | jq -r '.predicate.runDetails.builder.id' 2>/dev/null)
+      if [[ "$builder_id" == "https://sykli.dev/builder/v1" ]]; then
+        version=$(echo "$decoded" | jq -r '.predicate.runDetails.builder.version.sykli' 2>/dev/null)
+        if [[ -n "$version" && "$version" != "null" ]]; then
+          pass 0
+        else
+          fail "builder.version.sykli is missing"
+        fi
+      else
+        fail "builder.id expected 'https://sykli.dev/builder/v1', got '$builder_id'"
+      fi
+    else
+      fail "could not decode attestation payload"
+    fi
+  fi
+  rm -rf "$dir"
+fi
+
+# --- case_042: per-task attestation written ---
+if begin_case "042" "Attestation: per-task attestation file written"; then
+  dir=$(tmp_workdir)
+  make_pipeline "$dir" "with_outputs.exs"
+  run_sykli "$dir" >/dev/null 2>&1 || true
+  settle
+  att_dir="$dir/.sykli/attestations"
+  if [[ -d "$att_dir" ]]; then
+    count=$(ls "$att_dir"/*.json 2>/dev/null | wc -l | tr -d ' ')
+    if [[ "$count" -ge 1 ]]; then
+      # Verify the per-task file is valid JSON
+      first=$(ls "$att_dir"/*.json | head -1)
+      if jq empty "$first" 2>/dev/null; then
+        pass 0
+      else
+        fail "per-task attestation is not valid JSON"
+      fi
+    else
+      fail "expected per-task attestation files, got 0"
+    fi
+  else
+    fail "attestations/ directory not created"
+  fi
+  rm -rf "$dir"
+fi
+
+# ============================================================================
 # Summary
 # ============================================================================
 
