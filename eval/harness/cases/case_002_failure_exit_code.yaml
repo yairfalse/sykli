@@ -1,0 +1,8 @@
+id: case_002
+description: "Failing task exits non-zero"
+oracle_case: "002"
+task_prompt: |
+  ensure that when a sykli pipeline contains a task with command `exit 1`,
+  the sykli binary exits with a non-zero exit code. The failure must be
+  visible in the exit code, not just in the output. Do not modify the oracle.
+timeout_secs: 60

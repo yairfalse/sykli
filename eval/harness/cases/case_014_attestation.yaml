@@ -1,0 +1,9 @@
+id: case_014
+description: "SLSA attestation written for passing run with outputs"
+oracle_case: "014"
+task_prompt: |
+  ensure that when a sykli pipeline produces artifacts (tasks with declared
+  outputs), the file .sykli/attestation.json is written after the run.
+  The attestation must be a DSSE envelope with payloadType set to
+  "application/vnd.in-toto+json". Do not modify the oracle.
+timeout_secs: 90
