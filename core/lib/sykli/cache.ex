@@ -242,7 +242,7 @@ defmodule Sykli.Cache do
 
   @doc """
   Generate cache key from all factors that affect output.
-  Includes v2 fields: container, task env, mounts.
+  Includes v2 fields (container, task env, mounts) and v3 project fingerprint.
   """
   def cache_key(task, workdir) do
     abs_workdir = Path.expand(workdir)
@@ -254,9 +254,15 @@ defmodule Sykli.Cache do
     task_env_hash = hash_task_env(task.env || %{})
     mounts_hash = hash_mounts(task.mounts || [])
 
+    # v3: project fingerprint prevents cross-project cache pollution.
+    # Uses git remote URL (same repo on different machines shares cache)
+    # or falls back to workdir hash (non-git projects scoped by directory).
+    fingerprint = project_fingerprint(abs_workdir)
+
     data =
       Enum.join(
         [
+          fingerprint,
           task.name,
           task.command,
           inputs_hash,
@@ -271,6 +277,45 @@ defmodule Sykli.Cache do
 
     :crypto.hash(:sha256, data)
     |> Base.encode16(case: :lower)
+  end
+
+  # ----- PROJECT FINGERPRINT -----
+
+  # Generates a stable project identity for cache scoping.
+  # Priority: git remote URL > absolute workdir path.
+  # This ensures different projects get different cache keys even if
+  # their task names and commands are identical.
+  # Memoized per workdir via :persistent_term to avoid shelling out to git
+  # on every cache key computation.
+  @doc false
+  def project_fingerprint(workdir) do
+    key = {:sykli_project_fingerprint, workdir}
+
+    case safe_persistent_get(key) do
+      {:ok, fingerprint} ->
+        fingerprint
+
+      :error ->
+        fingerprint = compute_fingerprint(workdir)
+        :persistent_term.put(key, fingerprint)
+        fingerprint
+    end
+  end
+
+  defp safe_persistent_get(key) do
+    {:ok, :persistent_term.get(key)}
+  rescue
+    ArgumentError -> :error
+  end
+
+  defp compute_fingerprint(workdir) do
+    case Sykli.Git.remote_url(cd: workdir) do
+      {:ok, url} when is_binary(url) and url != "" ->
+        :crypto.hash(:sha256, url) |> Base.encode16(case: :lower)
+
+      _ ->
+        :crypto.hash(:sha256, workdir) |> Base.encode16(case: :lower)
+    end
   end
 
   # ----- PRIVATE HELPERS -----

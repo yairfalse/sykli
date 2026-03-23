@@ -1,0 +1,9 @@
+id: case_006
+description: "Occurrence has error block for failed runs"
+oracle_case: "006"
+task_prompt: |
+  ensure that when a sykli pipeline run fails (a task exits non-zero),
+  the .sykli/occurrence.json file contains an error block (not null)
+  with structured failure information. The error block should include
+  fields like what_failed, code, or similar. Do not modify the oracle.
+timeout_secs: 90

@@ -1,0 +1,9 @@
+id: case_003
+description: "Occurrence JSON written after pipeline run"
+oracle_case: "003"
+task_prompt: |
+  ensure that after a sykli pipeline run completes, the file
+  .sykli/occurrence.json is written in the working directory. The file
+  must be valid JSON with a protocol_version field set to "1.0".
+  Do not modify the oracle.
+timeout_secs: 60

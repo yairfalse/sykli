@@ -1,0 +1,10 @@
+id: case_017
+description: "Cycle in DAG is detected and rejected"
+oracle_case: "017"
+task_prompt: |
+  ensure that sykli's validate command detects and rejects cyclic
+  dependencies in the task graph. When two tasks depend on each other
+  (A depends on B, B depends on A), sykli validate must exit non-zero
+  and the output must contain the word "cycle" or "circular".
+  Do not modify the oracle.
+timeout_secs: 60
