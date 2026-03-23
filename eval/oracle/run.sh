@@ -80,10 +80,6 @@ make_pipeline() {
   cp "$FIXTURES_DIR/$fixture" "$dir/sykli.exs"
 }
 
-# Clean the global cache to prevent cross-case pollution
-clean_cache() {
-  rm -rf "${HOME}/.sykli/cache/meta" "${HOME}/.sykli/cache/blobs" 2>/dev/null || true
-}
 
 run_sykli() {
   local dir="$1"
@@ -377,7 +373,6 @@ printf "\n${BOLD}Caching${RESET}\n"
 
 # --- case_011: second run uses cache ---
 if begin_case "011" "Caching: second run hits cache"; then
-  clean_cache
   dir=$(tmp_workdir)
   make_pipeline "$dir" "cached.exs"
   # First run
@@ -569,7 +564,6 @@ fi
 
 # --- case_024: shell special characters in command ---
 if begin_case "024" "Adversarial: shell special chars in command"; then
-  clean_cache
   dir=$(tmp_workdir)
   make_pipeline "$dir" "shell_special.exs"
   LAST_OUTPUT=$(run_sykli "$dir" 2>&1) && exit_code=0 || exit_code=$?
@@ -653,7 +647,6 @@ printf "\n${BOLD}Execution Semantics${RESET}\n"
 
 # --- case_030: continue-on-failure runs independent tasks ---
 if begin_case "030" "Semantics: --continue-on-failure runs independent tasks"; then
-  clean_cache
   dir=$(tmp_workdir)
   make_pipeline "$dir" "continue_on_fail.exs"
   LAST_OUTPUT=$(run_sykli "$dir" --continue-on-failure 2>&1) && exit_code=0 || exit_code=$?
@@ -774,7 +767,6 @@ printf "\n${BOLD}Cache Correctness${RESET}\n"
 
 # --- case_037: changing command busts cache ---
 if begin_case "037" "Cache: command change invalidates cache"; then
-  clean_cache
   dir=$(tmp_workdir)
   # First run with cached.exs (command: echo cached)
   make_pipeline "$dir" "cached.exs"
@@ -1024,7 +1016,6 @@ fi
 
 # --- case_050: duration_ms is non-zero for real task ---
 if begin_case "050" "Structure: duration_ms is non-zero in occurrence"; then
-  clean_cache
   dir=$(tmp_workdir)
   make_pipeline "$dir" "slow_task.exs"
   run_sykli "$dir" >/dev/null 2>&1 || true

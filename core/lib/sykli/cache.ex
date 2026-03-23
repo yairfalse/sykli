@@ -254,9 +254,15 @@ defmodule Sykli.Cache do
     task_env_hash = hash_task_env(task.env || %{})
     mounts_hash = hash_mounts(task.mounts || [])
 
+    # v3: project fingerprint prevents cross-project cache pollution.
+    # Uses git remote URL (same repo on different machines shares cache)
+    # or falls back to workdir hash (non-git projects scoped by directory).
+    fingerprint = project_fingerprint(abs_workdir)
+
     data =
       Enum.join(
         [
+          fingerprint,
           task.name,
           task.command,
           inputs_hash,
@@ -271,6 +277,34 @@ defmodule Sykli.Cache do
 
     :crypto.hash(:sha256, data)
     |> Base.encode16(case: :lower)
+  end
+
+  # ----- PROJECT FINGERPRINT -----
+
+  # Generates a stable project identity for cache scoping.
+  # Priority: git remote URL > absolute workdir path.
+  # This ensures different projects get different cache keys even if
+  # their task names and commands are identical.
+  @doc false
+  def project_fingerprint(workdir) do
+    case git_remote_url(workdir) do
+      {:ok, url} ->
+        :crypto.hash(:sha256, url) |> Base.encode16(case: :lower) |> String.slice(0, 16)
+
+      :error ->
+        :crypto.hash(:sha256, workdir) |> Base.encode16(case: :lower) |> String.slice(0, 16)
+    end
+  end
+
+  defp git_remote_url(workdir) do
+    case Sykli.Git.run(["remote", "get-url", "origin"], cd: workdir) do
+      {:ok, url} ->
+        trimmed = String.trim(url)
+        if trimmed == "", do: :error, else: {:ok, trimmed}
+
+      _ ->
+        :error
+    end
   end
 
   # ----- PRIVATE HELPERS -----
