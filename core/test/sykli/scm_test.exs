@@ -242,7 +242,9 @@ defmodule Sykli.SCMTest do
 
       for state <- ~w(pending success failure error other) do
         result = Sykli.SCM.GitLab.update_status("task", state)
-        assert match?({:error, _}, result), "expected error for state #{state}, got: #{inspect(result)}"
+
+        assert match?({:error, _}, result),
+               "expected error for state #{state}, got: #{inspect(result)}"
       end
     end
   end
@@ -300,6 +302,7 @@ defmodule Sykli.SCMTest do
 
       for state <- ~w(pending success failure error other) do
         result = Sykli.SCM.Bitbucket.update_status("task", state)
+
         assert result == :ok or match?({:error, _}, result),
                "unexpected result for state #{state}: #{inspect(result)}"
       end

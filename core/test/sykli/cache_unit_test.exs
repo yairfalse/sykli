@@ -322,7 +322,10 @@ defmodule Sykli.CacheUnitTest do
     end
 
     test "get_blob returns error for missing hash" do
-      assert {:error, :not_found} = FileRepository.get_blob("0000000000000000000000000000000000000000000000000000000000000000")
+      assert {:error, :not_found} =
+               FileRepository.get_blob(
+                 "0000000000000000000000000000000000000000000000000000000000000000"
+               )
     end
 
     test "blob_exists? works correctly" do

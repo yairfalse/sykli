@@ -860,7 +860,21 @@ defmodule Sykli.Executor do
   end
 
   defp maybe_github_status(task_name, state) do
-    Sykli.SCM.update_status(task_name, state)
+    Task.Supervisor.async_nolink(Sykli.TaskSupervisor, fn ->
+      case Sykli.SCM.update_status(task_name, state) do
+        :ok ->
+          :ok
+
+        {:error, reason} ->
+          require Logger
+
+          Logger.warning(
+            "[SCM] status update failed for #{task_name}/#{state}: #{inspect(reason)}"
+          )
+      end
+    end)
+
+    :ok
   end
 
   # ----- SECRET REF RESOLUTION -----

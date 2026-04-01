@@ -132,7 +132,12 @@ defmodule Sykli.Services.OIDCService do
     discovery_url = String.trim_trailing(issuer, "/") <> "/.well-known/openid-configuration"
     ssl_opts = Sykli.HTTP.ssl_opts(discovery_url)
 
-    case :httpc.request(:get, {String.to_charlist(discovery_url), []}, [{:timeout, 10_000}] ++ ssl_opts, []) do
+    case :httpc.request(
+           :get,
+           {String.to_charlist(discovery_url), []},
+           [{:timeout, 10_000}] ++ ssl_opts,
+           []
+         ) do
       {:ok, {{_, 200, _}, _, body}} ->
         case Jason.decode(to_string(body)) do
           {:ok, %{"jwks_uri" => jwks_uri}} -> {:ok, jwks_uri}
@@ -206,7 +211,9 @@ defmodule Sykli.Services.OIDCService do
         end
 
       case curve do
-        {:error, _} = err -> err
+        {:error, _} = err ->
+          err
+
         named_curve ->
           point = <<4>> <> x_bin <> y_bin
           {:ok, {{:ECPoint, point}, {:namedCurve, :pubkey_cert_records.namedCurves(named_curve)}}}

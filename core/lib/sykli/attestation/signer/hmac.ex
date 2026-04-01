@@ -81,7 +81,9 @@ defmodule Sykli.Attestation.Signer.HMAC do
 
       path ->
         case File.read(path) do
-          {:ok, content} -> String.trim(content)
+          {:ok, content} ->
+            String.trim(content)
+
           {:error, reason} ->
             Logger.warning("[HMAC] failed to read key file #{path}: #{inspect(reason)}")
             nil

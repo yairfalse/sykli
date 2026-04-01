@@ -817,7 +817,7 @@ defmodule Sykli.Occurrence.Enrichment do
 
   # Collect secret values from env vars for masking.
   # Matches common patterns (_TOKEN, _SECRET, _KEY, etc.) and connection
-  # string URLs (DATABASE_URL, etc.). Does not inspect task-level secret_refs.
+  # string env vars (DATABASE_URL, REDIS_DSN, etc.).
   @secret_env_patterns [
     "_TOKEN",
     "_SECRET",
@@ -826,28 +826,18 @@ defmodule Sykli.Occurrence.Enrichment do
     "_PASS",
     "_API_KEY",
     "_CREDENTIAL",
-    "_AUTH"
+    "_AUTH",
+    "_URL",
+    "_DSN",
+    "_URI",
+    "_CONN"
   ]
   defp collect_secrets_from_env do
-    env = System.get_env()
-
-    pattern_matched =
-      env
-      |> Enum.filter(fn {key, _val} ->
-        Enum.any?(@secret_env_patterns, &String.contains?(key, &1))
-      end)
-      |> Enum.map(fn {_key, val} -> val end)
-
-    # Also collect values of any env vars that look like connection strings
-    connection_strings =
-      env
-      |> Enum.filter(fn {key, val} ->
-        (String.contains?(key, "URL") or String.contains?(key, "DSN")) and
-          String.contains?(val, "://")
-      end)
-      |> Enum.map(fn {_key, val} -> val end)
-
-    (pattern_matched ++ connection_strings)
+    System.get_env()
+    |> Enum.filter(fn {key, _val} ->
+      Enum.any?(@secret_env_patterns, &String.contains?(key, &1))
+    end)
+    |> Enum.map(fn {_key, val} -> val end)
     |> Enum.uniq()
     |> Enum.filter(&(byte_size(&1) >= 4))
   end

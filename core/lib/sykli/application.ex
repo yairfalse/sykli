@@ -87,7 +87,9 @@ defmodule Sykli.Application do
     children = Task.Supervisor.children(Sykli.TaskSupervisor)
 
     if children != [] do
-      Logger.info("[Sykli] Draining #{length(children)} in-flight tasks (timeout: #{timeout}ms)...")
+      Logger.info(
+        "[Sykli] Draining #{length(children)} in-flight tasks (timeout: #{timeout}ms)..."
+      )
 
       refs =
         Enum.map(children, fn pid ->
