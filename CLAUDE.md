@@ -13,7 +13,7 @@ All core development happens in `core/`:
 ```bash
 cd core
 mix deps.get              # install dependencies (first time)
-mix test                  # run all tests (~1101 tests)
+mix test                  # run all tests (~1068 tests)
 mix test test/sykli/executor_test.exs           # single test file
 mix test test/sykli/executor_test.exs:42        # single test at line
 mix test --only integration                      # tagged tests
@@ -34,6 +34,16 @@ Black-box tests (run against the built binary):
 test/blackbox/run.sh              # all 84 cases, 7 categories
 test/blackbox/run.sh --verbose    # show failure details
 test/blackbox/run.sh --filter=POS # filter by category
+```
+
+Eval harness (AI agent evaluation against oracle ground-truth cases):
+```bash
+eval/oracle/run.sh                          # run all oracle cases against binary
+eval/oracle/run.sh --case 001               # single case
+eval/oracle/run.sh --category pipeline      # filter by category
+eval/oracle/run.sh --verbose                # show command output on failure
+eval/harness/run.sh                         # full eval loop (Claude Code → build → oracle → report)
+eval/harness/run.sh --case 001 --dry-run    # preview without running
 ```
 
 Before every commit: `mix format && mix test && mix escript.build`
