@@ -91,6 +91,7 @@ defmodule Sykli.CLI do
     Options:
       -h, --help                Show this help
       -v, --version             Show version
+      --json                    Output as JSON (for AI agents and tooling)
       --mesh                    Distribute tasks across connected BEAM nodes
       --filter=NAME             Only run tasks matching NAME
       --timeout=DURATION        Per-task timeout (default: 5m). Use 10m, 30s, 2h, 1d, or 0 for no timeout
@@ -136,19 +137,32 @@ defmodule Sykli.CLI do
   defp run_sykli(args) do
     {path, opts} = parse_run_args(args)
     start_time = System.monotonic_time(:millisecond)
+    json_output = Keyword.get(opts, :json, false)
 
-    # Build run options
-    run_opts = []
+    # Suppress stdout before any work so target setup lines don't leak
+    original_gl = if json_output, do: suppress_stdout(), else: nil
 
-    # Handle K8s target - prepare git context first
-    case prepare_target_context(path, opts) do
-      {:ok, target_opts} ->
-        run_opts = target_opts ++ run_opts
-        do_run_sykli(path, opts, run_opts, start_time)
+    try do
+      run_opts = []
 
-      {:error, reason} ->
-        display_error(reason)
-        halt(1)
+      case prepare_target_context(path, opts) do
+        {:ok, target_opts} ->
+          run_opts = target_opts ++ run_opts
+          do_run_sykli(path, opts, run_opts, start_time, json_output, original_gl)
+
+        {:error, reason} ->
+          if original_gl, do: restore_stdout(original_gl)
+
+          if json_output do
+            IO.puts(JsonResponse.error(Error.wrap(reason)))
+          else
+            display_error(reason)
+          end
+
+          halt(1)
+      end
+    after
+      if original_gl, do: restore_stdout(original_gl)
     end
   end
 
@@ -181,11 +195,10 @@ defmodule Sykli.CLI do
     end
   end
 
-  defp do_run_sykli(path, opts, run_opts, start_time) do
+  defp do_run_sykli(path, opts, run_opts, start_time, json_output, original_gl) do
     # Select executor based on --mesh flag
     run_opts =
       if opts[:mesh] do
-        IO.puts("#{IO.ANSI.cyan()}Running with mesh executor#{IO.ANSI.reset()}")
         [{:executor, Sykli.Executor.Mesh} | run_opts]
       else
         run_opts
@@ -208,34 +221,78 @@ defmodule Sykli.CLI do
         run_opts
       end
 
-    case Sykli.run(path, run_opts) do
+    result = Sykli.run(path, run_opts)
+    duration = System.monotonic_time(:millisecond) - start_time
+
+    # Restore stdout before writing output
+    if original_gl, do: restore_stdout(original_gl)
+
+    case result do
       {:ok, results} ->
-        duration = System.monotonic_time(:millisecond) - start_time
+        if json_output do
+          IO.puts(JsonResponse.ok(run_json_data("passed", results, duration, path)))
+        else
+          IO.puts(
+            "\n#{IO.ANSI.green()}✓ All tasks completed in #{format_duration(duration)}#{IO.ANSI.reset()}"
+          )
 
-        IO.puts(
-          "\n#{IO.ANSI.green()}✓ All tasks completed in #{format_duration(duration)}#{IO.ANSI.reset()}"
-        )
-
-        # Results are TaskResult structs
-        Enum.each(results, fn %Sykli.Executor.TaskResult{name: name} ->
-          IO.puts("  ✓ #{name}")
-        end)
+          Enum.each(results, fn %Sykli.Executor.TaskResult{name: name} ->
+            IO.puts("  ✓ #{name}")
+          end)
+        end
 
         halt(0)
 
       {:error, results} when is_list(results) ->
-        # Task failures are already displayed during execution
-        IO.puts("\n#{IO.ANSI.red()}Build failed#{IO.ANSI.reset()}")
+        if json_output do
+          IO.puts(JsonResponse.ok(run_json_data("failed", results, duration, path)))
+        else
+          IO.puts("\n#{IO.ANSI.red()}Build failed#{IO.ANSI.reset()}")
 
-        IO.puts(
-          "\n  #{IO.ANSI.faint()}💡 Ask your AI: \"read .sykli/occurrence.json and fix the failure\"#{IO.ANSI.reset()}"
-        )
+          IO.puts(
+            "\n  #{IO.ANSI.faint()}💡 Ask your AI: \"read .sykli/occurrence.json and fix the failure\"#{IO.ANSI.reset()}"
+          )
+        end
 
         halt(1)
 
       {:error, reason} ->
-        display_error(reason)
+        if json_output do
+          IO.puts(JsonResponse.error(Error.wrap(reason)))
+        else
+          display_error(reason)
+        end
+
         halt(1)
+    end
+  end
+
+  defp run_json_data(status, results, duration_ms, path) do
+    %{
+      status: status,
+      duration_ms: duration_ms,
+      tasks: Enum.map(results, &task_result_to_map/1),
+      occurrence_path: Path.join([path, ".sykli", "occurrence.json"])
+    }
+  end
+
+  defp task_result_to_map(%Sykli.Executor.TaskResult{} = r) do
+    base = %{
+      name: r.name,
+      status: Atom.to_string(r.status),
+      duration_ms: r.duration_ms,
+      cached: r.status == :cached
+    }
+
+    case r.error do
+      %Sykli.Error{} = err ->
+        Map.put(base, :error, %{code: err.code, message: err.message, hints: err.hints})
+
+      nil ->
+        base
+
+      other ->
+        Map.put(base, :error, %{code: "unknown", message: inspect(other), hints: []})
     end
   end
 
@@ -247,6 +304,9 @@ defmodule Sykli.CLI do
   end
 
   defp do_parse_run_args([], opts, rest), do: {opts, rest}
+
+  defp do_parse_run_args(["--json" | tail], opts, rest),
+    do: do_parse_run_args(tail, [{:json, true} | opts], rest)
 
   defp do_parse_run_args(["--mesh" | tail], opts, rest),
     do: do_parse_run_args(tail, [{:mesh, true} | opts], rest)
@@ -2723,6 +2783,52 @@ defmodule Sykli.CLI do
     seconds = ms / 1000
     "#{Float.round(seconds, 1)}s"
   end
+
+  # ----- JSON HELPERS -----
+
+  # Redirect stdout to a discarded StringIO so only JSON is emitted.
+  # Returns the original group leader for restoration.
+  defp suppress_stdout do
+    original = Process.group_leader()
+    parent = self()
+
+    sink =
+      spawn(fn ->
+        ref = Process.monitor(parent)
+        discard_io_loop(ref)
+      end)
+
+    Process.group_leader(self(), sink)
+    original
+  end
+
+  defp restore_stdout(original_gl) do
+    Process.group_leader(self(), original_gl)
+  end
+
+  # IO server process that discards all writes (zero memory).
+  defp discard_io_loop(parent_ref) do
+    receive do
+      {:io_request, from, reply_as, request} ->
+        send(from, {:io_reply, reply_as, discard_io_reply(request)})
+        discard_io_loop(parent_ref)
+
+      {:DOWN, ^parent_ref, :process, _pid, _reason} ->
+        :ok
+
+      _other ->
+        discard_io_loop(parent_ref)
+    end
+  end
+
+  defp discard_io_reply({:put_chars, _}), do: :ok
+  defp discard_io_reply({:put_chars, _, _}), do: :ok
+  defp discard_io_reply({:put_chars, _, _, _}), do: :ok
+  defp discard_io_reply({:put_chars, _, _, _, _}), do: :ok
+  defp discard_io_reply({:requests, reqs}), do: Enum.each(reqs, &discard_io_reply/1)
+  defp discard_io_reply(:getopts), do: {:ok, [encoding: :unicode]}
+  defp discard_io_reply({:setopts, _}), do: :ok
+  defp discard_io_reply(_), do: {:error, :enotsup}
 
   # ----- ERROR DISPLAY -----
 

@@ -864,6 +864,39 @@
         "ok": true,
         "version": "1"
       }
+    },
+    {
+      "id": "SYS-025",
+      "name": "run --json pass returns structured output",
+      "fixture": "single_task",
+      "command": "sykli run --json",
+      "expect_exit": 0,
+      "expect_json": {
+        "ok": true,
+        "version": "1"
+      }
+    },
+    {
+      "id": "SYS-026",
+      "name": "run --json fail returns ok:true with failed status",
+      "fixture": "failing_task",
+      "command": "sykli run --json",
+      "expect_exit": 1,
+      "expect_json": {
+        "ok": true,
+        "version": "1"
+      }
+    },
+    {
+      "id": "SYS-027",
+      "name": "run --json infra error returns ok:false with error code",
+      "fixture": "empty_dir",
+      "command": "sykli run --json",
+      "expect_exit": 1,
+      "expect_json": {
+        "ok": false,
+        "version": "1"
+      }
     }
   ]
 }
