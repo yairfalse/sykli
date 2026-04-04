@@ -62,12 +62,26 @@ defmodule Sykli.CLI.JsonResponseTest do
     end
   end
 
+  describe "error_with_data/1" do
+    test "returns ok: false with data populated" do
+      result = JsonResponse.error_with_data(%{valid: false, errors: ["cycle"]}) |> Jason.decode!()
+
+      assert result["ok"] == false
+      assert result["version"] == "1"
+      assert result["data"]["valid"] == false
+      assert result["data"]["errors"] == ["cycle"]
+      assert result["error"] == nil
+    end
+  end
+
   describe "envelope shape consistency" do
-    test "ok and error have the same top-level keys" do
+    test "ok, error, and error_with_data have the same top-level keys" do
       ok_keys = JsonResponse.ok(%{}) |> Jason.decode!() |> Map.keys() |> Enum.sort()
       err_keys = JsonResponse.error("x") |> Jason.decode!() |> Map.keys() |> Enum.sort()
+      ewd_keys = JsonResponse.error_with_data(%{}) |> Jason.decode!() |> Map.keys() |> Enum.sort()
 
       assert ok_keys == err_keys
+      assert ok_keys == ewd_keys
       assert ok_keys == ["data", "error", "ok", "version"]
     end
   end

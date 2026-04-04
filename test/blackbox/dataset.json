@@ -200,7 +200,8 @@
       "shell": true,
       "expect_exit": 0,
       "expect_json_contains": {
-        "ok": true
+        "ok": true,
+        "version": "1"
       }
     },
     {
@@ -210,7 +211,7 @@
       "command": "sykli validate --json",
       "expect_exit": 1,
       "expect_json_contains": {
-        "ok": true
+        "ok": false
       }
     },
     {
@@ -220,7 +221,7 @@
       "command": "sykli validate --json",
       "expect_exit": 1,
       "expect_json_contains": {
-        "ok": true
+        "ok": false
       }
     },
     {
@@ -230,7 +231,7 @@
       "command": "sykli validate --json",
       "expect_exit": 1,
       "expect_json_contains": {
-        "ok": true
+        "ok": false
       }
     },
     {
@@ -240,7 +241,7 @@
       "command": "sykli validate --json",
       "expect_exit": 1,
       "expect_json_contains": {
-        "ok": true
+        "ok": false
       }
     },
     {
@@ -250,7 +251,7 @@
       "command": "sykli validate --json",
       "expect_exit": 1,
       "expect_json_contains": {
-        "ok": true
+        "ok": false
       }
     },
     {
@@ -287,7 +288,7 @@
       "command": "sykli validate --json",
       "expect_exit": 1,
       "expect_json_contains": {
-        "ok": true
+        "ok": false
       }
     },
     {
@@ -318,7 +319,7 @@
       "command": "sykli validate --json",
       "expect_exit": 1,
       "expect_json": {
-        "ok": true
+        "ok": false
       },
       "note": "Validate catches missing command field"
     },
@@ -441,7 +442,8 @@
       "shell": true,
       "expect_exit": 0,
       "expect_json_contains": {
-        "ok": true
+        "ok": true,
+        "version": "1"
       }
     },
     {

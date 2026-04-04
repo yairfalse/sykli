@@ -52,4 +52,16 @@ defmodule Sykli.CLI.JsonResponse do
     }
     |> Jason.encode!()
   end
+
+  @doc """
+  Wrap a failure that still carries data (e.g. validation found errors).
+
+  `ok` is false (the command's outcome is failure), but `data` is populated
+  so agents can inspect the details.
+  """
+  @spec error_with_data(term()) :: String.t()
+  def error_with_data(data) do
+    %{ok: false, version: @version, data: data, error: nil}
+    |> Jason.encode!()
+  end
 end

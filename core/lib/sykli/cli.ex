@@ -773,7 +773,13 @@ defmodule Sykli.CLI do
     case Sykli.Validate.validate(path) do
       {:ok, result} ->
         if json_output do
-          IO.puts(JsonResponse.ok(Sykli.Validate.to_map(result)))
+          data = Sykli.Validate.to_map(result)
+
+          if result.valid do
+            IO.puts(JsonResponse.ok(data))
+          else
+            IO.puts(JsonResponse.error_with_data(data))
+          end
         else
           output_validation_result(result)
         end
