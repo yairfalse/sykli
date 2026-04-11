@@ -77,6 +77,29 @@ run_typescript() {
   npx tsx "$fixture" --emit 2>/dev/null
 }
 
+run_rust() {
+  local fixture="$1"
+  local tmp_proj="$TMP_DIR/rust_conformance"
+  mkdir -p "$tmp_proj/src"
+  cat > "$tmp_proj/Cargo.toml" << TOML
+[package]
+name = "conformance"
+version = "0.1.0"
+edition = "2021"
+[dependencies]
+sykli = { path = "$ROOT/sdk/rust" }
+TOML
+  cp "$fixture" "$tmp_proj/src/main.rs"
+  cd "$tmp_proj"
+  cargo run --quiet -- --emit 2>/dev/null
+}
+
+run_elixir() {
+  local fixture="$1"
+  cd "$ROOT/sdk/elixir"
+  mix run "$fixture" -- --emit 2>/dev/null
+}
+
 PASS=0
 FAIL=0
 SKIP=0
@@ -94,7 +117,7 @@ run_case() {
   local expected
   expected=$(normalize_json < "$expected_file")
 
-  local sdks=("go" "python" "typescript")
+  local sdks=("go" "python" "typescript" "rust" "elixir")
 
   for sdk in "${sdks[@]}"; do
     if [[ -n "$FILTER_SDK" && "$sdk" != "$FILTER_SDK" ]]; then
@@ -106,6 +129,8 @@ run_case() {
       go)         ext="go" ;;
       python)     ext="py" ;;
       typescript) ext="ts" ;;
+      rust)       ext="rs" ;;
+      elixir)     ext="exs" ;;
     esac
 
     local fixture="$FIXTURES_DIR/$sdk/${case_name}.${ext}"
@@ -146,7 +171,7 @@ run_case() {
 run_negative_case() {
   local case_name="$1"
 
-  local sdks=("go" "python" "typescript")
+  local sdks=("go" "python" "typescript" "rust" "elixir")
 
   for sdk in "${sdks[@]}"; do
     if [[ -n "$FILTER_SDK" && "$sdk" != "$FILTER_SDK" ]]; then
@@ -158,6 +183,8 @@ run_negative_case() {
       go)         ext="go" ;;
       python)     ext="py" ;;
       typescript) ext="ts" ;;
+      rust)       ext="rs" ;;
+      elixir)     ext="exs" ;;
     esac
 
     local fixture="$FIXTURES_DIR/$sdk/${case_name}.${ext}"

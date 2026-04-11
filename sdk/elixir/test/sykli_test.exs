@@ -5,11 +5,12 @@ defmodule SykliTest do
     test "simple pipeline" do
       use Sykli
 
-      result = pipeline do
-        task "test" do
-          run "mix test"
+      result =
+        pipeline do
+          task "test" do
+            run("mix test")
+          end
         end
-      end
 
       assert length(result.tasks) == 1
       assert hd(result.tasks).name == "test"
@@ -19,16 +20,17 @@ defmodule SykliTest do
     test "multiple tasks with dependencies" do
       use Sykli
 
-      result = pipeline do
-        task "test" do
-          run "mix test"
-        end
+      result =
+        pipeline do
+          task "test" do
+            run("mix test")
+          end
 
-        task "build" do
-          run "mix compile"
-          after_ ["test"]
+          task "build" do
+            run("mix compile")
+            after_(["test"])
+          end
         end
-      end
 
       assert length(result.tasks) == 2
 
@@ -39,20 +41,21 @@ defmodule SykliTest do
     test "task with all options" do
       use Sykli
 
-      result = pipeline do
-        task "full" do
-          run "mix test"
-          container "elixir:1.16"
-          workdir "/app"
-          inputs ["**/*.ex"]
-          outputs ["_build"]
-          env "MIX_ENV", "test"
-          when_ "branch == 'main'"
-          secret "HEX_API_KEY"
-          retry 3
-          timeout 300
+      result =
+        pipeline do
+          task "full" do
+            run("mix test")
+            container("elixir:1.16")
+            workdir("/app")
+            inputs(["**/*.ex"])
+            outputs(["_build"])
+            env("MIX_ENV", "test")
+            when_("branch == 'main'")
+            secret("HEX_API_KEY")
+            retry(3)
+            timeout(300)
+          end
         end
-      end
 
       task = hd(result.tasks)
       assert task.container == "elixir:1.16"
@@ -68,15 +71,16 @@ defmodule SykliTest do
     test "dynamic tasks with for loop" do
       use Sykli
 
-      result = pipeline do
-        services = ["api", "web"]
+      result =
+        pipeline do
+          services = ["api", "web"]
 
-        for svc <- services do
-          task "test-#{svc}" do
-            run "mix test apps/#{svc}"
+          for svc <- services do
+            task "test-#{svc}" do
+              run("mix test apps/#{svc}")
+            end
           end
         end
-      end
 
       assert length(result.tasks) == 2
       names = Enum.map(result.tasks, & &1.name) |> Enum.sort()
@@ -86,18 +90,19 @@ defmodule SykliTest do
     test "resources" do
       use Sykli
 
-      result = pipeline do
-        src = dir(".", as: "src")
-        deps_cache = cache("mix-deps")
+      result =
+        pipeline do
+          src = dir(".", as: "src")
+          deps_cache = cache("mix-deps")
 
-        task "test" do
-          container "elixir:1.16"
-          mount src, "/app"
-          mount_cache deps_cache, "/root/.mix"
-          workdir "/app"
-          run "mix test"
+          task "test" do
+            container("elixir:1.16")
+            mount(src, "/app")
+            mount_cache(deps_cache, "/root/.mix")
+            workdir("/app")
+            run("mix test")
+          end
         end
-      end
 
       assert map_size(result.resources) == 2
       assert result.resources["src"].type == :directory
@@ -128,8 +133,8 @@ defmodule SykliTest do
       assert_raise RuntimeError, ~r/unknown task/, fn ->
         pipeline do
           task "build" do
-            run "mix compile"
-            after_ ["nonexistent"]
+            run("mix compile")
+            after_(["nonexistent"])
           end
         end
         |> Sykli.Emitter.validate!()
@@ -142,13 +147,13 @@ defmodule SykliTest do
       assert_raise RuntimeError, ~r/cycle detected/, fn ->
         pipeline do
           task "a" do
-            run "echo a"
-            after_ ["b"]
+            run("echo a")
+            after_(["b"])
           end
 
           task "b" do
-            run "echo b"
-            after_ ["a"]
+            run("echo b")
+            after_(["a"])
           end
         end
         |> Sykli.Emitter.validate!()
@@ -161,12 +166,13 @@ defmodule SykliTest do
       assert_raise RuntimeError, ~r/did you mean "build"/, fn ->
         pipeline do
           task "build" do
-            run "mix compile"
+            run("mix compile")
           end
 
           task "deploy" do
-            run "mix deploy"
-            after_ ["buld"]  # typo
+            run("mix deploy")
+            # typo
+            after_(["buld"])
           end
         end
         |> Sykli.Emitter.validate!()
@@ -211,10 +217,11 @@ defmodule SykliTest do
     end
 
     test "raw passes through advanced options" do
-      opts = K8s.options()
-             |> K8s.memory("32Gi")
-             |> K8s.gpu(1)
-             |> K8s.raw(~s({"nodeSelector": {"gpu": "true"}}))
+      opts =
+        K8s.options()
+        |> K8s.memory("32Gi")
+        |> K8s.gpu(1)
+        |> K8s.raw(~s({"nodeSelector": {"gpu": "true"}}))
 
       assert opts.memory == "32Gi"
       assert opts.gpu == 1
@@ -224,15 +231,19 @@ defmodule SykliTest do
     test "k8s options in task emits correctly" do
       use Sykli
 
-      result = pipeline do
-        task "build" do
-          run "cargo build"
-          k8s K8s.options()
-               |> K8s.memory("4Gi")
-               |> K8s.cpu("2")
-               |> K8s.gpu(1)
+      result =
+        pipeline do
+          task "build" do
+            run("cargo build")
+
+            k8s(
+              K8s.options()
+              |> K8s.memory("4Gi")
+              |> K8s.cpu("2")
+              |> K8s.gpu(1)
+            )
+          end
         end
-      end
 
       json = Sykli.Emitter.to_json(result)
       decoded = Jason.decode!(json)
@@ -246,15 +257,19 @@ defmodule SykliTest do
     test "k8s raw escape hatch emits correctly" do
       use Sykli
 
-      result = pipeline do
-        task "gpu-train" do
-          run "python train.py"
-          k8s K8s.options()
-               |> K8s.memory("32Gi")
-               |> K8s.gpu(1)
-               |> K8s.raw(~s({"serviceAccount": "ml-runner"}))
+      result =
+        pipeline do
+          task "gpu-train" do
+            run("python train.py")
+
+            k8s(
+              K8s.options()
+              |> K8s.memory("32Gi")
+              |> K8s.gpu(1)
+              |> K8s.raw(~s({"serviceAccount": "ml-runner"}))
+            )
+          end
         end
-      end
 
       json = Sykli.Emitter.to_json(result)
       decoded = Jason.decode!(json)
@@ -271,8 +286,8 @@ defmodule SykliTest do
       assert_raise Sykli.K8s.ValidationError, ~r/did you mean 'Gi'/, fn ->
         pipeline do
           task "build" do
-            run "cargo build"
-            k8s K8s.options() |> K8s.memory("4gb")
+            run("cargo build")
+            k8s(K8s.options() |> K8s.memory("4gb"))
           end
         end
         |> Sykli.Emitter.validate!()
@@ -287,8 +302,9 @@ defmodule SykliTest do
       assert_raise ArgumentError, ~r/SecretRef.from_vault\(\) requires 'path#field' format/, fn ->
         pipeline do
           task "deploy" do
-            run "./deploy.sh"
-            secret_from "DB_PASS", Sykli.SecretRef.from_vault("secret/data/db")  # missing #field
+            run("./deploy.sh")
+            # missing #field
+            secret_from("DB_PASS", Sykli.SecretRef.from_vault("secret/data/db"))
           end
         end
         |> Sykli.Emitter.validate!()
@@ -298,12 +314,13 @@ defmodule SykliTest do
     test "accepts valid vault path" do
       use Sykli
 
-      result = pipeline do
-        task "deploy" do
-          run "./deploy.sh"
-          secret_from "DB_PASS", Sykli.SecretRef.from_vault("secret/data/db#password")
+      result =
+        pipeline do
+          task "deploy" do
+            run("./deploy.sh")
+            secret_from("DB_PASS", Sykli.SecretRef.from_vault("secret/data/db#password"))
+          end
         end
-      end
 
       # Should not raise
       Sykli.Emitter.validate!(result)
@@ -314,9 +331,10 @@ defmodule SykliTest do
     test "mix_test creates test task" do
       use Sykli
 
-      result = pipeline do
-        mix_test()
-      end
+      result =
+        pipeline do
+          mix_test()
+        end
 
       task = hd(result.tasks)
       assert task.name == "test"
@@ -327,9 +345,10 @@ defmodule SykliTest do
     test "mix_credo creates credo task" do
       use Sykli
 
-      result = pipeline do
-        mix_credo()
-      end
+      result =
+        pipeline do
+          mix_credo()
+        end
 
       task = hd(result.tasks)
       assert task.name == "credo"
@@ -339,9 +358,10 @@ defmodule SykliTest do
     test "presets with custom names" do
       use Sykli
 
-      result = pipeline do
-        mix_test(name: "unit-test")
-      end
+      result =
+        pipeline do
+          mix_test(name: "unit-test")
+        end
 
       assert hd(result.tasks).name == "unit-test"
     end
@@ -351,12 +371,13 @@ defmodule SykliTest do
     test "single required label" do
       use Sykli
 
-      result = pipeline do
-        task "train" do
-          run "python train.py"
-          requires ["gpu"]
+      result =
+        pipeline do
+          task "train" do
+            run("python train.py")
+            requires(["gpu"])
+          end
         end
-      end
 
       task = hd(result.tasks)
       assert task.requires == ["gpu"]
@@ -365,12 +386,13 @@ defmodule SykliTest do
     test "multiple required labels" do
       use Sykli
 
-      result = pipeline do
-        task "build" do
-          run "docker build"
-          requires ["docker", "arm64"]
+      result =
+        pipeline do
+          task "build" do
+            run("docker build")
+            requires(["docker", "arm64"])
+          end
         end
-      end
 
       task = hd(result.tasks)
       assert task.requires == ["docker", "arm64"]
@@ -379,12 +401,13 @@ defmodule SykliTest do
     test "requires emits to JSON" do
       use Sykli
 
-      result = pipeline do
-        task "train" do
-          run "python train.py"
-          requires ["gpu", "high-memory"]
+      result =
+        pipeline do
+          task "train" do
+            run("python train.py")
+            requires(["gpu", "high-memory"])
+          end
         end
-      end
 
       json = Sykli.Emitter.to_json(result)
       decoded = Jason.decode!(json)
@@ -396,11 +419,12 @@ defmodule SykliTest do
     test "omits requires when empty" do
       use Sykli
 
-      result = pipeline do
-        task "test" do
-          run "mix test"
+      result =
+        pipeline do
+          task "test" do
+            run("mix test")
+          end
         end
-      end
 
       json = Sykli.Emitter.to_json(result)
       decoded = Jason.decode!(json)
@@ -414,14 +438,15 @@ defmodule SykliTest do
     test "semantic metadata (covers, intent, criticality)" do
       use Sykli
 
-      result = pipeline do
-        task "auth-test" do
-          run "mix test test/auth"
-          covers ["lib/auth/**/*.ex", "lib/auth.ex"]
-          intent "Tests authentication and authorization"
-          critical()
+      result =
+        pipeline do
+          task "auth-test" do
+            run("mix test test/auth")
+            covers(["lib/auth/**/*.ex", "lib/auth.ex"])
+            intent("Tests authentication and authorization")
+            critical()
+          end
         end
-      end
 
       task = hd(result.tasks)
       assert task.semantic.covers == ["lib/auth/**/*.ex", "lib/auth.ex"]
@@ -432,13 +457,14 @@ defmodule SykliTest do
     test "ai_hooks (on_fail, select)" do
       use Sykli
 
-      result = pipeline do
-        task "flaky-test" do
-          run "mix test --only integration"
-          on_fail(:retry)
-          select_mode(:smart)
+      result =
+        pipeline do
+          task "flaky-test" do
+            run("mix test --only integration")
+            on_fail(:retry)
+            select_mode(:smart)
+          end
         end
-      end
 
       task = hd(result.tasks)
       assert task.ai_hooks.on_fail == :retry
@@ -448,13 +474,14 @@ defmodule SykliTest do
     test "smart() shorthand" do
       use Sykli
 
-      result = pipeline do
-        task "unit-test" do
-          run "mix test"
-          covers ["lib/**/*.ex"]
-          smart()
+      result =
+        pipeline do
+          task "unit-test" do
+            run("mix test")
+            covers(["lib/**/*.ex"])
+            smart()
+          end
         end
-      end
 
       task = hd(result.tasks)
       assert task.ai_hooks.select == :smart
@@ -463,12 +490,13 @@ defmodule SykliTest do
     test "set_criticality with levels" do
       use Sykli
 
-      result = pipeline do
-        task "lint" do
-          run "mix credo"
-          set_criticality(:low)
+      result =
+        pipeline do
+          task "lint" do
+            run("mix credo")
+            set_criticality(:low)
+          end
         end
-      end
 
       task = hd(result.tasks)
       assert task.semantic.criticality == :low
@@ -477,16 +505,17 @@ defmodule SykliTest do
     test "AI-native fields emit to JSON" do
       use Sykli
 
-      result = pipeline do
-        task "auth-test" do
-          run "mix test test/auth"
-          covers ["lib/auth/**/*.ex"]
-          intent "Auth tests"
-          critical()
-          on_fail(:analyze)
-          smart()
+      result =
+        pipeline do
+          task "auth-test" do
+            run("mix test test/auth")
+            covers(["lib/auth/**/*.ex"])
+            intent("Auth tests")
+            critical()
+            on_fail(:analyze)
+            smart()
+          end
         end
-      end
 
       json = Sykli.Emitter.to_json(result)
       decoded = Jason.decode!(json)
@@ -502,11 +531,12 @@ defmodule SykliTest do
     test "omits AI-native fields when not set" do
       use Sykli
 
-      result = pipeline do
-        task "test" do
-          run "mix test"
+      result =
+        pipeline do
+          task "test" do
+            run("mix test")
+          end
         end
-      end
 
       json = Sykli.Emitter.to_json(result)
       decoded = Jason.decode!(json)
@@ -519,16 +549,17 @@ defmodule SykliTest do
     test "fluent helpers for task_ref" do
       use Sykli
 
-      result = pipeline do
-        parallel("tests", [
-          task_ref("auth-test")
-          |> run_cmd("mix test test/auth")
-          |> with_covers(["lib/auth/**/*.ex"])
-          |> with_intent("Auth tests")
-          |> with_critical()
-          |> with_smart()
-        ])
-      end
+      result =
+        pipeline do
+          parallel("tests", [
+            task_ref("auth-test")
+            |> run_cmd("mix test test/auth")
+            |> with_covers(["lib/auth/**/*.ex"])
+            |> with_intent("Auth tests")
+            |> with_critical()
+            |> with_smart()
+          ])
+        end
 
       task = Enum.find(result.tasks, &(&1.name == "auth-test"))
       assert task.semantic.covers == ["lib/auth/**/*.ex"]
@@ -542,11 +573,12 @@ defmodule SykliTest do
     test "emits v1 for simple pipeline" do
       use Sykli
 
-      result = pipeline do
-        task "test" do
-          run "mix test"
+      result =
+        pipeline do
+          task "test" do
+            run("mix test")
+          end
         end
-      end
 
       json = Sykli.Emitter.to_json(result)
       decoded = Jason.decode!(json)
@@ -559,17 +591,63 @@ defmodule SykliTest do
     test "emits v2 when containers used" do
       use Sykli
 
-      result = pipeline do
-        task "test" do
-          container "elixir:1.16"
-          run "mix test"
+      result =
+        pipeline do
+          task "test" do
+            container("elixir:1.16")
+            run("mix test")
+          end
         end
-      end
 
       json = Sykli.Emitter.to_json(result)
       decoded = Jason.decode!(json)
 
       assert decoded["version"] == "2"
+    end
+
+    test "provides and needs capabilities" do
+      use Sykli
+
+      result =
+        pipeline do
+          task "compile" do
+            run("go build -o /out/app ./cmd/server")
+            provides("binary", "/out/app")
+          end
+
+          task "migrate" do
+            run("dbmate up")
+            provides("db-ready")
+          end
+
+          task "integration-test" do
+            run("go test -tags=integration ./...")
+            needs(["binary", "db-ready"])
+            timeout(300)
+          end
+        end
+
+      compile = Enum.find(result.tasks, &(&1.name == "compile"))
+      assert compile.provides == [%{name: "binary", value: "/out/app"}]
+
+      migrate = Enum.find(result.tasks, &(&1.name == "migrate"))
+      assert migrate.provides == [%{name: "db-ready"}]
+
+      test_task = Enum.find(result.tasks, &(&1.name == "integration-test"))
+      assert test_task.needs == ["binary", "db-ready"]
+
+      # Verify JSON serialization
+      json = Sykli.Emitter.to_json(result)
+      decoded = Jason.decode!(json)
+
+      compile_json = Enum.find(decoded["tasks"], &(&1["name"] == "compile"))
+      assert compile_json["provides"] == [%{"name" => "binary", "value" => "/out/app"}]
+
+      migrate_json = Enum.find(decoded["tasks"], &(&1["name"] == "migrate"))
+      assert migrate_json["provides"] == [%{"name" => "db-ready"}]
+
+      test_json = Enum.find(decoded["tasks"], &(&1["name"] == "integration-test"))
+      assert test_json["needs"] == ["binary", "db-ready"]
     end
 
     test "elixir_inputs returns expected patterns" do

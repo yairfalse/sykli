@@ -33,7 +33,10 @@ defmodule Sykli.Emitter do
         unless MapSet.member?(task_names, dep) do
           suggestion = suggest_task_name(dep, MapSet.to_list(task_names))
           message = "task #{inspect(task.name)} depends on unknown task #{inspect(dep)}"
-          message = if suggestion, do: message <> " (did you mean #{inspect(suggestion)}?)", else: message
+
+          message =
+            if suggestion, do: message <> " (did you mean #{inspect(suggestion)}?)", else: message
+
           Logger.error("unknown dependency", task: task.name, dependency: dep)
           raise message
         end
@@ -174,10 +177,11 @@ defmodule Sykli.Emitter do
 
   defp task_to_json(task) do
     # Use when_cond if set, otherwise use condition string
-    condition = case task.when_cond do
-      %Sykli.Condition{expr: expr} when expr != "" -> expr
-      _ -> task.condition
-    end
+    condition =
+      case task.when_cond do
+        %Sykli.Condition{expr: expr} when expr != "" -> expr
+        _ -> task.condition
+      end
 
     %{name: task.name}
     |> maybe_put(:command, task.command)
@@ -199,6 +203,8 @@ defmodule Sykli.Emitter do
     |> maybe_put(:target, task.target_name)
     |> maybe_put(:k8s, if(task.k8s, do: Sykli.K8s.to_json(task.k8s), else: nil))
     |> maybe_put(:requires, non_empty(task.requires))
+    |> maybe_put(:provides, non_empty_list(task.provides, &provide_to_json/1))
+    |> maybe_put(:needs, non_empty(task.needs))
     |> maybe_put(:semantic, semantic_to_json(task.semantic))
     |> maybe_put(:ai_hooks, ai_hooks_to_json(task.ai_hooks))
     |> maybe_put(:gate, gate_to_json(task.gate))
@@ -206,6 +212,7 @@ defmodule Sykli.Emitter do
   end
 
   defp gate_to_json(nil), do: nil
+
   defp gate_to_json(gate) do
     %{strategy: gate.strategy}
     |> maybe_put(:timeout, gate.timeout)
@@ -215,11 +222,15 @@ defmodule Sykli.Emitter do
   end
 
   defp semantic_to_json(nil), do: nil
+
   defp semantic_to_json(semantic) do
     %{}
     |> maybe_put(:covers, non_empty(semantic.covers))
     |> maybe_put(:intent, semantic.intent)
-    |> maybe_put(:criticality, if(semantic.criticality, do: Atom.to_string(semantic.criticality), else: nil))
+    |> maybe_put(
+      :criticality,
+      if(semantic.criticality, do: Atom.to_string(semantic.criticality), else: nil)
+    )
     |> case do
       map when map_size(map) == 0 -> nil
       map -> map
@@ -227,6 +238,7 @@ defmodule Sykli.Emitter do
   end
 
   defp ai_hooks_to_json(nil), do: nil
+
   defp ai_hooks_to_json(ai_hooks) do
     %{}
     |> maybe_put(:on_fail, if(ai_hooks.on_fail, do: Atom.to_string(ai_hooks.on_fail), else: nil))
@@ -237,12 +249,18 @@ defmodule Sykli.Emitter do
     end
   end
 
+  defp provide_to_json(%{name: name, value: nil}), do: %{name: name}
+  defp provide_to_json(%{name: name, value: value}), do: %{name: name, value: value}
+  defp provide_to_json(%{name: name}), do: %{name: name}
+
   defp secret_ref_to_json(ref) do
-    source = case ref.source do
-      :env -> "env"
-      :file -> "file"
-      :vault -> "vault"
-    end
+    source =
+      case ref.source do
+        :env -> "env"
+        :file -> "file"
+        :vault -> "vault"
+      end
+
     %{name: ref.name, source: source, key: ref.key}
   end
 

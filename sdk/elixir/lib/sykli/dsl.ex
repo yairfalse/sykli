@@ -481,6 +481,51 @@ defmodule Sykli.DSL do
   end
 
   # ============================================================================
+  # CAPABILITY-BASED DEPENDENCIES
+  # ============================================================================
+
+  @doc """
+  Declares that this task provides a named capability.
+
+  Other tasks can declare they need this capability via `needs/1`.
+  The optional value is metadata (e.g., an artifact path).
+
+  ## Examples
+
+      task "compile" do
+        run "go build -o /out/app ./cmd/server"
+        provides "binary", "/out/app"
+      end
+
+      task "migrate" do
+        run "dbmate up"
+        provides "db-ready"
+      end
+  """
+  def provides(name, value \\ nil) when is_binary(name) do
+    update_current_task(fn t ->
+      entry = if value, do: %{name: name, value: value}, else: %{name: name}
+      %{t | provides: t.provides ++ [entry]}
+    end)
+  end
+
+  @doc """
+  Declares that this task needs named capabilities.
+
+  A dependency on the providing task is auto-resolved by the engine.
+
+  ## Examples
+
+      task "integration-test" do
+        run "go test -tags=integration ./..."
+        needs ["binary", "db-ready"]
+      end
+  """
+  def needs(names) when is_list(names) do
+    update_current_task(fn t -> %{t | needs: t.needs ++ names} end)
+  end
+
+  # ============================================================================
   # GATE OPTIONS
   # ============================================================================
 
@@ -489,7 +534,8 @@ defmodule Sykli.DSL do
 
   Strategies: "prompt", "env", "file", "webhook"
   """
-  def gate_strategy(strategy) when is_binary(strategy) and strategy in ~w(prompt env file webhook) do
+  def gate_strategy(strategy)
+      when is_binary(strategy) and strategy in ~w(prompt env file webhook) do
     update_current_task(fn t ->
       gate = t.gate || raise "gate_strategy can only be used inside a gate block"
       %{t | gate: %{gate | strategy: strategy}}
@@ -650,10 +696,11 @@ defmodule Sykli.DSL do
   end
 
   defp add_chain_dependency(%Sykli.TaskGroup{} = group, prev) do
-    deps = case prev do
-      %Sykli.Task{name: name} -> [name]
-      %Sykli.TaskGroup{} = g -> Sykli.TaskGroup.task_names(g)
-    end
+    deps =
+      case prev do
+        %Sykli.Task{name: name} -> [name]
+        %Sykli.TaskGroup{} = g -> Sykli.TaskGroup.task_names(g)
+      end
 
     Enum.each(group.tasks, fn task ->
       updated = %{task | depends_on: task.depends_on ++ deps}
@@ -663,6 +710,7 @@ defmodule Sykli.DSL do
 
   defp register_chain_item(%Sykli.Task{} = task) do
     tasks = Process.get(:sykli_tasks, [])
+
     unless Enum.any?(tasks, &(&1.name == task.name)) do
       Process.put(:sykli_tasks, [task | tasks])
     end
@@ -670,17 +718,23 @@ defmodule Sykli.DSL do
 
   defp register_chain_item(%Sykli.TaskGroup{tasks: group_tasks}) do
     tasks = Process.get(:sykli_tasks, [])
-    new_tasks = Enum.reject(group_tasks, fn t ->
-      Enum.any?(tasks, &(&1.name == t.name))
-    end)
+
+    new_tasks =
+      Enum.reject(group_tasks, fn t ->
+        Enum.any?(tasks, &(&1.name == t.name))
+      end)
+
     Process.put(:sykli_tasks, new_tasks ++ tasks)
   end
 
   defp update_task_in_process(name, update_fn) do
     tasks = Process.get(:sykli_tasks, [])
-    updated = Enum.map(tasks, fn t ->
-      if t.name == name, do: update_fn.(t), else: t
-    end)
+
+    updated =
+      Enum.map(tasks, fn t ->
+        if t.name == name, do: update_fn.(t), else: t
+      end)
+
     Process.put(:sykli_tasks, updated)
   end
 
@@ -706,7 +760,8 @@ defmodule Sykli.DSL do
   """
   @spec matrix_tasks(String.t(), [any()], (any() -> Sykli.Task.t() | nil)) :: Sykli.TaskGroup.t()
   def matrix_tasks(name, values, generator)
-      when is_binary(name) and is_list(values) and length(values) > 0 and is_function(generator, 1) do
+      when is_binary(name) and is_list(values) and length(values) > 0 and
+             is_function(generator, 1) do
     tasks =
       values
       |> Enum.map(fn v -> generator.(v) end)
@@ -839,10 +894,11 @@ defmodule Sykli.DSL do
   @doc "Creates a mix test task."
   defmacro mix_test(opts \\ []) do
     name = Keyword.get(opts, :name, "test")
+
     quote do
       task unquote(name) do
-        run "mix test"
-        inputs unquote(@elixir_inputs)
+        run("mix test")
+        inputs(unquote(@elixir_inputs))
       end
     end
   end
@@ -850,10 +906,11 @@ defmodule Sykli.DSL do
   @doc "Creates a mix credo task."
   defmacro mix_credo(opts \\ []) do
     name = Keyword.get(opts, :name, "credo")
+
     quote do
       task unquote(name) do
-        run "mix credo --strict"
-        inputs unquote(@elixir_inputs)
+        run("mix credo --strict")
+        inputs(unquote(@elixir_inputs))
       end
     end
   end
@@ -861,10 +918,11 @@ defmodule Sykli.DSL do
   @doc "Creates a mix format --check-formatted task."
   defmacro mix_format(opts \\ []) do
     name = Keyword.get(opts, :name, "format")
+
     quote do
       task unquote(name) do
-        run "mix format --check-formatted"
-        inputs unquote(@elixir_inputs)
+        run("mix format --check-formatted")
+        inputs(unquote(@elixir_inputs))
       end
     end
   end
@@ -872,10 +930,11 @@ defmodule Sykli.DSL do
   @doc "Creates a mix dialyzer task."
   defmacro mix_dialyzer(opts \\ []) do
     name = Keyword.get(opts, :name, "dialyzer")
+
     quote do
       task unquote(name) do
-        run "mix dialyzer"
-        inputs unquote(@elixir_inputs)
+        run("mix dialyzer")
+        inputs(unquote(@elixir_inputs))
       end
     end
   end
@@ -883,10 +942,11 @@ defmodule Sykli.DSL do
   @doc "Creates a mix deps.get task."
   defmacro mix_deps(opts \\ []) do
     name = Keyword.get(opts, :name, "deps")
+
     quote do
       task unquote(name) do
-        run "mix deps.get"
-        inputs ["mix.exs", "mix.lock"]
+        run("mix deps.get")
+        inputs(["mix.exs", "mix.lock"])
       end
     end
   end

@@ -157,8 +157,10 @@ The project dogfoods itself via `sykli.exs` (root-level pipeline) and `.github/w
 Key env vars (see `cli.ex` and module docs for full details):
 
 - `SYKLI_CACHE_S3_BUCKET` (+ `_REGION`, `_ENDPOINT`, `_ACCESS_KEY`, `_SECRET_KEY`) — enable S3 cache tier
-- `SYKLI_SIGNING_KEY` — HMAC-SHA256 key for DSSE attestation envelopes
+- `SYKLI_SIGNING_KEY` — HMAC-SHA256 key for DSSE attestation envelopes (development only)
+- `SYKLI_ATTESTATION_KEY_FILE` — path to signing key file (recommended for production)
 - `SYKLI_SOURCE_URI` — override occurrence `source` field (default: `"sykli"`)
+- `SYKLI_DRAIN_TIMEOUT_MS` — graceful shutdown drain timeout (default: 30000)
 - `SYKLI_K8S_NAMESPACE` — K8s target namespace (default: `"sykli"`)
 - `GITHUB_TOKEN` / `GITLAB_TOKEN` / `BITBUCKET_TOKEN` — SCM commit status integration
 
@@ -180,7 +182,9 @@ Key env vars (see `cli.ex` and module docs for full details):
 - **Executor.Config** — executor options flow through `%Executor.Config{}` struct (target, timeout, run_id, max_parallel, continue_on_failure)
 - **HTTP with TLS** — all `:httpc` callers use `Sykli.HTTP.ssl_opts/1` for `verify_peer` + hostname checking
 - **Cache backend selection** — `Sykli.Cache.repo/0` dynamically selects FileRepository or TieredRepository (L1 local + L2 S3) based on env vars
-- **Secret masking** — `SecretMasker.mask_deep/2` applied to occurrence data before persistence and webhook delivery
+- **Secret masking** — `SecretMasker.mask_deep/2` applied to occurrence data before persistence and webhook delivery. Env var patterns: `_TOKEN`, `_SECRET`, `_KEY`, `_PASSWORD`, `_URL`, `_DSN`, `_URI`, `_CONN`, etc.
+- **S3 circuit breaker** — `TieredRepository` tracks consecutive S3 failures in `persistent_term`; after 5 failures, L2 writes skip for 60s cooldown
+- **Async SCM** — `maybe_github_status/2` fires via `Task.Supervisor.async_nolink` (never blocks executor)
 - **Path containment** — file reads and Docker mounts must use `String.starts_with?(path, base <> "/")` to prevent path traversal (trailing slash prevents prefix tricks)
 - **TLS everywhere** — all `:httpc` calls must include `Sykli.HTTP.ssl_opts/1` (OIDC, S3, SCM, webhooks)
 - **Elixir heredoc gotcha** — `"""` embeds literal newlines that break JSON. Use `~s()` for single-line JSON in test fixtures
@@ -196,4 +200,5 @@ Key env vars (see `cli.ex` and module docs for full details):
 
 - `--timeout` flag doesn't enforce timeouts on local target (tasks run to completion)
 - 1 test requires Docker daemon running (skipped when unavailable)
-- See `docs/deep-dive-findings.md` for 37 tracked issues across security/reliability/architecture/test coverage
+- ~51 pre-existing test failures (Docker-dependent tests that require Docker daemon)
+- See `docs/deep-dive-findings.md` for tracked issues — security (SEC-001–007) and reliability (REL-001–008) items are all resolved; test coverage (TEST-001–010) resolved; architecture items (ARCH-001–010) remain as long-term structural improvements

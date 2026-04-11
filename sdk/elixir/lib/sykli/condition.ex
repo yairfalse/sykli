@@ -58,8 +58,10 @@ defmodule Sykli.Condition do
     cond do
       pattern == "" ->
         %__MODULE__{expr: "tag != ''"}
+
       String.contains?(pattern, "*") ->
         %__MODULE__{expr: "tag matches '#{pattern}'"}
+
       true ->
         %__MODULE__{expr: "tag == '#{pattern}'"}
     end

@@ -112,7 +112,10 @@ defmodule Sykli.Template do
   end
 
   defp maybe_set_container(task, nil), do: task
-  defp maybe_set_container(%{container: nil} = task, container), do: %{task | container: container}
+
+  defp maybe_set_container(%{container: nil} = task, container),
+    do: %{task | container: container}
+
   defp maybe_set_container(task, _), do: task
 
   defp maybe_set_workdir(task, nil), do: task

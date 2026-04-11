@@ -13,23 +13,34 @@ defmodule Sykli.Task do
             outputs: %{},
             depends_on: [],
             condition: nil,
-            when_cond: nil,         # Type-safe condition (alternative to string)
+            # Type-safe condition (alternative to string)
+            when_cond: nil,
             secrets: [],
-            secret_refs: [],        # v2-style typed secret references
+            # v2-style typed secret references
+            secret_refs: [],
             matrix: %{},
             services: [],
             retry: nil,
             timeout: nil,
             task_inputs: [],
-            target_name: nil,       # Per-task target override
-            k8s: nil,               # Kubernetes-specific options
-            requires: [],           # Node labels required for mesh placement
-            semantic: nil,          # AI-native: semantic metadata (covers, intent, criticality)
-            ai_hooks: nil,          # AI-native: behavioral hooks (on_fail, select)
-            provides: [],           # Capability-based: what this task provides
-            needs: [],              # Capability-based: what this task needs
-            gate: nil,              # Gate config: %{strategy, timeout, message, env_var, file_path}
-            verify: nil             # Cross-platform verification mode: "cross_platform", "always", "never"
+            # Per-task target override
+            target_name: nil,
+            # Kubernetes-specific options
+            k8s: nil,
+            # Node labels required for mesh placement
+            requires: [],
+            # AI-native: semantic metadata (covers, intent, criticality)
+            semantic: nil,
+            # AI-native: behavioral hooks (on_fail, select)
+            ai_hooks: nil,
+            # Capability-based: what this task provides
+            provides: [],
+            # Capability-based: what this task needs
+            needs: [],
+            # Gate config: %{strategy, timeout, message, env_var, file_path}
+            gate: nil,
+            # Cross-platform verification mode: "cross_platform", "always", "never"
+            verify: nil
 
   @type secret_source :: :env | :file | :vault
 

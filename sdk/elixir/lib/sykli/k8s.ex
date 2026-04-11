@@ -163,10 +163,11 @@ defmodule Sykli.K8s do
   """
   @spec validate(t()) :: {:ok, t()} | {:error, [ValidationError.t()]}
   def validate(opts) do
-    errors = List.flatten([
-      validate_memory(opts.memory),
-      validate_cpu(opts.cpu)
-    ])
+    errors =
+      List.flatten([
+        validate_memory(opts.memory),
+        validate_cpu(opts.cpu)
+      ])
 
     case errors do
       [] -> {:ok, opts}
@@ -186,37 +187,45 @@ defmodule Sykli.K8s do
   end
 
   defp validate_memory(nil), do: []
+
   defp validate_memory(value) do
     if Regex.match?(@memory_pattern, value) do
       []
     else
       # Provide helpful suggestions for common mistakes
       lower = String.downcase(value)
-      suggestion = cond do
-        String.ends_with?(lower, "gb") -> " (did you mean 'Gi'?)"
-        String.ends_with?(lower, "mb") -> " (did you mean 'Mi'?)"
-        String.ends_with?(lower, "kb") -> " (did you mean 'Ki'?)"
-        true -> ""
-      end
 
-      [%ValidationError{
-        field: "memory",
-        value: value,
-        message: "invalid memory format, use Ki/Mi/Gi/Ti (e.g., '512Mi', '4Gi')#{suggestion}"
-      }]
+      suggestion =
+        cond do
+          String.ends_with?(lower, "gb") -> " (did you mean 'Gi'?)"
+          String.ends_with?(lower, "mb") -> " (did you mean 'Mi'?)"
+          String.ends_with?(lower, "kb") -> " (did you mean 'Ki'?)"
+          true -> ""
+        end
+
+      [
+        %ValidationError{
+          field: "memory",
+          value: value,
+          message: "invalid memory format, use Ki/Mi/Gi/Ti (e.g., '512Mi', '4Gi')#{suggestion}"
+        }
+      ]
     end
   end
 
   defp validate_cpu(nil), do: []
+
   defp validate_cpu(value) do
     if Regex.match?(@cpu_pattern, value) do
       []
     else
-      [%ValidationError{
-        field: "cpu",
-        value: value,
-        message: "invalid CPU format, use cores or millicores (e.g., '500m', '0.5', '2')"
-      }]
+      [
+        %ValidationError{
+          field: "cpu",
+          value: value,
+          message: "invalid CPU format, use cores or millicores (e.g., '500m', '0.5', '2')"
+        }
+      ]
     end
   end
 
