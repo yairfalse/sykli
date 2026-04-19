@@ -36,8 +36,7 @@ defmodule Sykli.Occurrence.SerializerTest do
       occ = Occurrence.task_started("run-1", "test")
       map = Serializer.to_map(occ)
 
-      # encode_data uses Map.from_struct → atom keys
-      assert map["data"][:task_name] == "test"
+      assert map["data"]["task_name"] == "test"
     end
 
     test "omits nil fields" do
