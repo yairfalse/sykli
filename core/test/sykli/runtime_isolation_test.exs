@@ -50,11 +50,30 @@ defmodule Sykli.RuntimeIsolationTest do
     path
     |> File.stream!([], :line)
     |> Stream.with_index(1)
-    |> Enum.flat_map(fn {line, lineno} ->
-      case Regex.run(pattern, line) do
-        nil -> []
-        [_match | _] -> [{path, lineno, line |> String.trim() |> String.slice(0, 120)}]
-      end
+    |> Enum.map_reduce(false, fn {line, lineno}, in_docstring? ->
+      in_next = toggle_docstring(line, in_docstring?)
+      skip? = in_docstring? or in_next or comment_only?(line)
+
+      match =
+        case Regex.run(pattern, line) do
+          nil -> nil
+          [_ | _] when skip? -> nil
+          [_ | _] -> {path, lineno, line |> String.trim() |> String.slice(0, 120)}
+        end
+
+      {match, in_next}
     end)
+    |> elem(0)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp toggle_docstring(line, in_docstring?) do
+    # Count unmatched `"""` markers on the line (ignoring string interpolation).
+    triple_count = line |> String.split(~s(""")) |> length() |> Kernel.-(1)
+    if rem(triple_count, 2) == 1, do: not in_docstring?, else: in_docstring?
+  end
+
+  defp comment_only?(line) do
+    String.match?(line, ~r/^\s*#/)
   end
 end

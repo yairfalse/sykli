@@ -53,4 +53,52 @@ defmodule Sykli.Target.LocalCharacterizationTest do
       Local.teardown(state)
     end
   end
+
+  describe "containerless composition (RC.4c)" do
+    test "by default, containerless_runtime is Sykli.Runtime.Shell" do
+      {:ok, state} = Local.setup(workdir: System.tmp_dir!())
+
+      assert state.containerless_runtime == Sykli.Runtime.Shell
+
+      Local.teardown(state)
+    end
+
+    test "containerless_runtime opt overrides the default" do
+      {:ok, state} =
+        Local.setup(
+          workdir: System.tmp_dir!(),
+          containerless_runtime: Sykli.Runtime.Fake
+        )
+
+      assert state.containerless_runtime == Sykli.Runtime.Fake
+
+      Local.teardown(state)
+    end
+
+    test "a task with container: nil dispatches to the containerless runtime" do
+      # Uses Fake as containerless. Fake.run/4 returns {:ok, 0, 0, ""} for any
+      # input; if the dispatch were still going through Shell (pre-RC.4c
+      # behaviour), this nonsense command would fail with exit code /= 0 and
+      # run_task would return {:error, _}. Success therefore proves the
+      # containerless_runtime field is what's being dispatched to.
+      {:ok, state} =
+        Local.setup(
+          workdir: System.tmp_dir!(),
+          runtime: Sykli.Runtime.Fake,
+          containerless_runtime: Sykli.Runtime.Fake
+        )
+
+      task = %Sykli.Graph.Task{
+        name: "containerless-fake",
+        command: "/nonexistent/binary --proves-fake-was-hit",
+        container: nil,
+        mounts: [],
+        env: %{}
+      }
+
+      assert {:ok, _} = Local.run_task(task, state, [])
+
+      Local.teardown(state)
+    end
+  end
 end
