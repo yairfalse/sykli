@@ -75,6 +75,11 @@ defmodule Sykli.Runtime.ResolverTest do
       assert Resolver.resolve([]) == Sykli.Runtime.Shell
     end
 
+    test "SYKLI_RUNTIME=podman resolves to Podman" do
+      System.put_env("SYKLI_RUNTIME", "podman")
+      assert Resolver.resolve([]) == Sykli.Runtime.Podman
+    end
+
     test "SYKLI_RUNTIME accepts fully-qualified module names" do
       System.put_env("SYKLI_RUNTIME", "Elixir.Sykli.Runtime.Shell")
       assert Resolver.resolve([]) == Sykli.Runtime.Shell

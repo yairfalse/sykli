@@ -18,14 +18,19 @@ defmodule Sykli.MixProject do
 
   def cli do
     [
-      preferred_envs: ["test.docker": :test, "test.integration": :test]
+      preferred_envs: [
+        "test.docker": :test,
+        "test.integration": :test,
+        "test.podman": :test
+      ]
     ]
   end
 
   defp aliases do
     [
       "test.docker": ["test --only docker"],
-      "test.integration": ["test --only integration"]
+      "test.integration": ["test --only integration"],
+      "test.podman": ["test --only podman"]
     ]
   end
 
