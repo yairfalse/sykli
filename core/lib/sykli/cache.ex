@@ -14,6 +14,21 @@ defmodule Sykli.Cache do
     │   └── <key>.json          # task metadata
     └── blobs/
         └── <sha256>            # content-addressed files
+
+  ## Project identity
+
+  A project's identity is a SHA256 fingerprint of its origin. For projects inside
+  a git repository with an origin remote, the fingerprint is derived from
+  "git:<origin_url>|<repo_relative_workdir>". For projects without git or without
+  an origin remote, the fingerprint is derived from "path:<absolute_path>".
+
+  Consequences:
+  - Two subdirectories of the same monorepo have different fingerprints.
+  - The same project cloned to different absolute paths shares a fingerprint
+    (origin URL wins).
+  - Moving a non-git project to a different path invalidates its cache.
+  - Changing this scheme requires bumping `cache_key_version` in
+    `task_cached` and `cache_miss` occurrence payloads.
   """
 
   alias Sykli.Cache.Entry
@@ -293,17 +308,24 @@ defmodule Sykli.Cache do
   # on every cache key computation.
   @doc false
   def project_fingerprint(workdir) do
-    key = {:sykli_project_fingerprint, workdir}
+    abs_workdir = Path.expand(workdir)
+    key = {:sykli_project_fingerprint, abs_workdir}
 
     case safe_persistent_get(key) do
       {:ok, fingerprint} ->
         fingerprint
 
       :error ->
-        fingerprint = compute_fingerprint(workdir)
+        fingerprint = compute_fingerprint(abs_workdir)
         :persistent_term.put(key, fingerprint)
         fingerprint
     end
+  end
+
+  @doc false
+  def project_root(workdir) do
+    abs_workdir = Path.expand(workdir)
+    find_project_root(abs_workdir, abs_workdir)
   end
 
   defp safe_persistent_get(key) do
@@ -313,12 +335,97 @@ defmodule Sykli.Cache do
   end
 
   defp compute_fingerprint(workdir) do
-    case Sykli.Git.remote_url(cd: workdir) do
-      {:ok, url} when is_binary(url) and url != "" ->
-        :crypto.hash(:sha256, url) |> Base.encode16(case: :lower)
+    case project_root(workdir) do
+      {:git, origin_url, root_path} ->
+        relative = Path.relative_to(workdir, root_path)
+        hash_fingerprint_input("git:#{origin_url}|#{relative}")
 
-      _ ->
-        :crypto.hash(:sha256, workdir) |> Base.encode16(case: :lower)
+      {:non_git, absolute_path} ->
+        hash_fingerprint_input("path:#{absolute_path}")
+    end
+  end
+
+  defp hash_fingerprint_input(input) do
+    :crypto.hash(:sha256, input)
+    |> Base.encode16(case: :lower)
+  end
+
+  defp find_project_root(path, original_workdir) do
+    git_path = Path.join(path, ".git")
+
+    cond do
+      File.dir?(git_path) ->
+        case read_git_origin(git_path) do
+          {:ok, origin_url} -> {:git, origin_url, path}
+          :error -> {:non_git, original_workdir}
+        end
+
+      File.regular?(git_path) ->
+        case resolve_gitdir(git_path) do
+          {:ok, gitdir} ->
+            case read_git_origin(gitdir) do
+              {:ok, origin_url} -> {:git, origin_url, path}
+              :error -> {:non_git, original_workdir}
+            end
+
+          :error ->
+            {:non_git, original_workdir}
+        end
+
+      true ->
+        parent = Path.dirname(path)
+
+        if parent == path do
+          {:non_git, original_workdir}
+        else
+          find_project_root(parent, original_workdir)
+        end
+    end
+  end
+
+  defp resolve_gitdir(git_file_path) do
+    with {:ok, content} <- File.read(git_file_path),
+         [gitdir] <- Regex.run(~r/^gitdir:\s*(.+)\s*$/m, content, capture: :all_but_first) do
+      {:ok, Path.expand(gitdir, Path.dirname(git_file_path))}
+    else
+      _ -> :error
+    end
+  end
+
+  defp read_git_origin(git_dir) do
+    config_path = Path.join(git_dir, "config")
+
+    with {:ok, config} <- File.read(config_path),
+         {:ok, origin_url} <- parse_origin_url(config) do
+      {:ok, origin_url}
+    else
+      _ -> :error
+    end
+  end
+
+  defp parse_origin_url(config) do
+    config
+    |> String.split("\n")
+    |> Enum.reduce_while(false, fn line, in_origin ->
+      trimmed = String.trim(line)
+
+      cond do
+        String.starts_with?(trimmed, "[") ->
+          {:cont, trimmed == ~s([remote "origin"])}
+
+        not in_origin ->
+          {:cont, in_origin}
+
+        true ->
+          case Regex.run(~r/^url\s*=\s*(.+)$/i, trimmed, capture: :all_but_first) do
+            [url] when url != "" -> {:halt, {:ok, String.trim(url)}}
+            _ -> {:cont, in_origin}
+          end
+      end
+    end)
+    |> case do
+      {:ok, origin_url} -> {:ok, origin_url}
+      _ -> :error
     end
   end
 

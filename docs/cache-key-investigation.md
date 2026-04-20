@@ -78,3 +78,56 @@ I would **not** change the test first. The test is protecting a real correctness
 One migration caveat:
 
 - changing `cache_key/2` changes cache namespace layout, so existing entries become cold misses unless a migration or dual-read strategy is added.
+
+## Persistence implications
+
+S1.5b added the required grep pass before implementing the fix. That pass found meaningful uses of cache keys outside the cache module, so the fix should not land as a local cache-only change yet.
+
+Meaningful hits:
+
+- [core/lib/sykli/occurrence/task_cached.ex](/home/yair/projects/sykli/core/lib/sykli/occurrence/task_cached.ex)
+  - `TaskCached` persists `cache_key` in the occurrence payload struct.
+- [core/lib/sykli/occurrence/cache_miss.ex](/home/yair/projects/sykli/core/lib/sykli/occurrence/cache_miss.ex)
+  - `CacheMiss` persists `cache_key` in the occurrence payload struct.
+- [core/lib/sykli/occurrence/pubsub.ex](/home/yair/projects/sykli/core/lib/sykli/occurrence/pubsub.ex)
+  - occurrence pubsub publishes those payloads with cache keys.
+- [core/lib/sykli/occurrence.ex](/home/yair/projects/sykli/core/lib/sykli/occurrence.ex)
+  - `task_cached/4` and `cache_miss/5` build persisted occurrences containing the key.
+- [core/lib/sykli/executor.ex](/home/yair/projects/sykli/core/lib/sykli/executor.ex)
+  - executor emits those occurrences on cache hit and miss paths.
+
+Non-blocking / not meaningful for this decision:
+
+- [core/lib/sykli/attestation.ex](/home/yair/projects/sykli/core/lib/sykli/attestation.ex)
+  - calls `Cache.cache_key/2` for lookup, but the grep did not show the key being serialized into persisted attestation output.
+- `sdk/typescript/node_modules/rollup/dist/rollup.d.ts`
+  - third-party dependency type definition mentioning `cacheKey`; not a Sykli SDK output contract.
+
+Conclusion:
+
+- cache keys are part of emitted occurrence payloads, so changing fingerprint semantics changes externally visible identifiers
+- this is enough to give the fix migration and compatibility implications
+- per S1.5b, Step 2 should not execute until that design is reviewed
+
+## Resolution (2026-04-20)
+
+Accepted the breaking change. Implemented the fingerprint fix in S1.5c without
+a migration path.
+
+Rationale:
+- Sykli has no production users whose historical occurrences matter.
+- The correctness bug (cross-project cache collisions in monorepos) is
+  unacceptable to carry forward.
+- Migration infrastructure (~2-3 agent-weeks) is not justified at the current
+  stage.
+
+Effects:
+- Occurrences emitted before this change reference cache keys computed under
+  the v1 scheme. Those keys cannot be recomputed and do not resolve to current
+  cache entries.
+- `cache_key_version` field added to `task_cached` and `cache_miss` payloads
+  to distinguish schemes if the scheme changes again.
+- Existing on-disk cache entries become unreachable. This is intentional;
+  they were potentially collision-contaminated under v1.
+
+Investigation closed.

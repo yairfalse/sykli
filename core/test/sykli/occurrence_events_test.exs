@@ -202,6 +202,7 @@ defmodule Sykli.OccurrenceEventsTest do
       assert occ.severity == :info
       assert occ.data.task_name == "lint"
       assert occ.data.cache_key == "sha256:abc123"
+      assert occ.data.cache_key_version == "2"
     end
 
     test "constructs ci.task.cached without cache key" do
@@ -218,6 +219,15 @@ defmodule Sykli.OccurrenceEventsTest do
       assert decoded["type"] == "ci.task.cached"
       assert decoded["data"]["task_name"] == "format"
       assert decoded["data"]["cache_key"] == "sha256:deadbeef"
+      assert decoded["data"]["cache_key_version"] == "2"
+    end
+
+    test "JSON round-trip preserves cache_key_version" do
+      occ = Occurrence.task_cached("run-tcv", "lint", "sha256:deadbeef")
+
+      decoded = occ |> Serializer.to_json() |> Jason.decode!()
+
+      assert decoded["data"]["cache_key_version"] == "2"
     end
   end
 
@@ -301,6 +311,7 @@ defmodule Sykli.OccurrenceEventsTest do
       assert occ.data.task_name == "build"
       assert occ.data.cache_key == "sha256:abc"
       assert occ.data.reason == "key_changed"
+      assert occ.data.cache_key_version == "2"
     end
 
     test "constructs ci.cache.miss with minimal fields" do
@@ -320,6 +331,15 @@ defmodule Sykli.OccurrenceEventsTest do
       assert decoded["data"]["task_name"] == "lint"
       assert decoded["data"]["cache_key"] == "sha256:ff"
       assert decoded["data"]["reason"] == "no_entry"
+      assert decoded["data"]["cache_key_version"] == "2"
+    end
+
+    test "JSON round-trip preserves cache_key_version" do
+      occ = Occurrence.cache_miss("run-cmv", "lint", "sha256:ff", "no_entry")
+
+      decoded = occ |> Serializer.to_json() |> Jason.decode!()
+
+      assert decoded["data"]["cache_key_version"] == "2"
     end
   end
 
