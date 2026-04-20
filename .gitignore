@@ -57,9 +57,10 @@ temp/
 *.tmp
 *.pid
 
-# Documentation (research notes - not for commit, but allow ADRs)
+# Documentation (research notes - not for commit, but allow ADRs and committed guides)
 docs/*
 !docs/adr/
+!docs/runtimes.md
 
 # Sykli runtime data (AI context, run history, logs)
 .sykli/

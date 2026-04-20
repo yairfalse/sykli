@@ -42,16 +42,30 @@ mix escript.build
 
 ## Testing
 
+The suite is split into three tiers by runtime requirement:
+
 ```bash
-# Run all tests
+# Unit tier — no container runtime needed (runs against the Fake runtime)
 mix test
 
-# Run with coverage
-mix test --cover
+# Docker tier — exercises real Docker behaviour
+mix test.docker
 
-# Run specific test file
-mix test test/sykli/executor
+# Integration tier — cross-system tests (some require Docker)
+mix test.integration
+
+# Coverage / specific files
+mix test --cover
+mix test test/sykli/executor_test.exs
 ```
+
+Runtime selection priority (see `Sykli.Runtime.Resolver`):
+
+1. `opts[:runtime]` / `--runtime <name>`
+2. `config :sykli, :default_runtime` (`:test` env sets this to `Sykli.Runtime.Fake`)
+3. `SYKLI_RUNTIME` env var (`docker` / `podman` / `shell` / `fake`)
+4. Auto-detect Docker → Podman
+5. Fall back to `Sykli.Runtime.Shell`
 
 ## Development
 

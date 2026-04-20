@@ -18,6 +18,7 @@ mix test test/sykli/executor_test.exs           # single test file
 mix test test/sykli/executor_test.exs:42        # single test at line
 mix test --only integration                      # tagged tests
 mix format                # format code
+mix credo                 # lint (includes custom NoWallClock check)
 mix escript.build         # build the sykli binary → core/sykli
 ./sykli --help            # smoke test the binary
 ```
@@ -92,6 +93,10 @@ sykli.go ──emit──▶ JSON task graph (stdout) ──▶ Elixir engine �
 | `Occurrence.Store` | `occurrence/store.ex` | Three-tier storage: ETS (hot) → ETF (warm) → JSON (cold) |
 | `Cache` | `cache.ex` + `cache/*.ex` | Content-addressed caching (SHA256), tiered repository (local + S3) |
 | `Error` | `error.ex` | Structured error types with formatter |
+| `Mesh` | `mesh.ex` + `mesh/transport/*.ex` | Distributed task dispatch across BEAM nodes (libcluster); pluggable transport (simulator + real) |
+| `Runtime.Resolver` | `runtime/resolver.ex` | Priority-chain runtime selection (opts → app env → SYKLI_RUNTIME → auto-detect → Shell); single place runtimes are named |
+| `Runtime.Fake` | `runtime/fake.ex` | Deterministic in-memory runtime for tests; no external binaries, no processes |
+| `Runtime.Podman` | `runtime/podman.ex` | Rootless Podman runtime |
 
 Other modules in `lib/sykli/`: Context, Explain, Fix, Plan, Query, Delta, MCP.Server, SCM, Services, Telemetry, HTTP, Attestation, Target.K8s.
 
@@ -166,10 +171,11 @@ Key env vars (see `cli.ex` and module docs for full details):
 
 ## Testing Patterns
 
-- Tests exclude `:integration` tag by default — run with `mix test --only integration`
-- `@tag :docker` marks tests requiring Docker daemon (1 test, skipped when unavailable)
-- Some tests use `async: false` due to GenServer state (coordinator, events, delta, watch)
-- No global test helpers — each test file is self-contained
+- Default excludes: `:integration`, `:docker`, `:podman` — all require a real container runtime.
+- Run the tiers: `mix test` (unit, against `Sykli.Runtime.Fake`), `mix test.docker`, `mix test.podman`, `mix test.integration`.
+- `:test` env sets `config :sykli, :default_runtime, Sykli.Runtime.Fake` so unit tests need no external binaries.
+- Some tests use `async: false` due to GenServer state (coordinator, events, delta, watch) or Application/env manipulation (resolver).
+- No global test helpers — each test file is self-contained.
 
 ## Patterns & Conventions
 
@@ -189,6 +195,8 @@ Key env vars (see `cli.ex` and module docs for full details):
 - **TLS everywhere** — all `:httpc` calls must include `Sykli.HTTP.ssl_opts/1` (OIDC, S3, SCM, webhooks)
 - **Elixir heredoc gotcha** — `"""` embeds literal newlines that break JSON. Use `~s()` for single-line JSON in test fixtures
 - **~s() with parens gotcha** — `~s()` uses `()` as delimiters, so `~s(matches(x, "y"))` breaks. Use `~s[]` or `~S||` instead
+- **No wall-clock or global RNG in simulator-facing code** — the custom `CredoSykli.Check.NoWallClock` check (`core/lib/credo_sykli/check/no_wall_clock.ex`) fails on `System.monotonic_time/os_time/system_time`, `DateTime.utc_now`, `NaiveDateTime.utc_now`, `:os.system_time`, `:erlang.now`, and bare `:rand.uniform`. Route time through transport APIs (e.g. `now_ms/0`) and randomness through explicit seeded state
+- **Runtime isolation** — no module outside `core/lib/sykli/runtime/` may name a specific runtime implementation (`Sykli.Runtime.Docker`, `Podman`, `Shell`, `Fake`, `Containerd`). Selection flows through `Sykli.Runtime.Resolver`. Enforced by `core/test/sykli/runtime_isolation_test.exs` — the test greps the source tree and fails on any offender
 
 ## Git Workflow
 

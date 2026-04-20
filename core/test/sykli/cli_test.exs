@@ -32,6 +32,26 @@ defmodule Sykli.CLITest do
       assert opts[:allow_dirty] == true
     end
 
+    test "parses --runtime=fake into opts[:runtime]" do
+      {_path, opts} = Sykli.CLI.parse_run_args(["--runtime=fake"])
+      assert opts[:runtime] == Sykli.Runtime.Fake
+    end
+
+    test "parses --runtime shell (space-separated)" do
+      {_path, opts} = Sykli.CLI.parse_run_args(["--runtime", "shell"])
+      assert opts[:runtime] == Sykli.Runtime.Shell
+    end
+
+    test "parses -r fake short form" do
+      {_path, opts} = Sykli.CLI.parse_run_args(["-r", "fake"])
+      assert opts[:runtime] == Sykli.Runtime.Fake
+    end
+
+    test "parses --runtime=Elixir.Sykli.Runtime.Shell (fully qualified)" do
+      {_path, opts} = Sykli.CLI.parse_run_args(["--runtime=Elixir.Sykli.Runtime.Shell"])
+      assert opts[:runtime] == Sykli.Runtime.Shell
+    end
+
     test "parses --git-ssh-secret=NAME" do
       {_path, opts} = Sykli.CLI.parse_run_args(["--git-ssh-secret=my-deploy-key"])
 

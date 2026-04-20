@@ -241,6 +241,20 @@ sykli mcp                 # MCP server for AI tools
 
 ---
 
+## Runtime
+
+Sykli supports multiple container runtimes. Auto-detect picks Docker or Podman when available; override per-invocation:
+
+```bash
+SYKLI_RUNTIME=podman sykli run build
+# or
+sykli --runtime podman run build
+```
+
+Available runtimes: **Docker**, **Podman** (rootless), **Shell** (no isolation), **Fake** (tests). See [docs/runtimes.md](docs/runtimes.md) for selection priority and how to add a new runtime.
+
+---
+
 ## Project status
 
 | Component | Status |

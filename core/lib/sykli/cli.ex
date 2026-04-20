@@ -340,6 +340,17 @@ defmodule Sykli.CLI do
   defp do_parse_run_args(["--continue-on-failure" | tail], opts, rest),
     do: do_parse_run_args(tail, [{:continue_on_failure, true} | opts], rest)
 
+  defp do_parse_run_args(["--runtime=" <> name | tail], opts, rest),
+    do: do_parse_run_args(tail, [{:runtime, parse_runtime(name)} | opts], rest)
+
+  defp do_parse_run_args(["--runtime", name | tail], opts, rest)
+       when is_binary(name) and binary_part(name, 0, 1) != "-",
+       do: do_parse_run_args(tail, [{:runtime, parse_runtime(name)} | opts], rest)
+
+  defp do_parse_run_args(["-r", name | tail], opts, rest)
+       when is_binary(name) and binary_part(name, 0, 1) != "-",
+       do: do_parse_run_args(tail, [{:runtime, parse_runtime(name)} | opts], rest)
+
   defp do_parse_run_args(["--timeout=" <> timeout_str | tail], opts, rest),
     do: do_parse_run_args(tail, [{:timeout, parse_timeout(timeout_str)} | opts], rest)
 
@@ -373,6 +384,14 @@ defmodule Sykli.CLI do
   defp parse_target("k8s"), do: :k8s
   defp parse_target("local"), do: :local
   defp parse_target(_), do: :local
+
+  defp parse_runtime(name) do
+    Sykli.Runtime.Resolver.from_name!(name)
+  rescue
+    e in ArgumentError ->
+      IO.puts(:stderr, "Error: --runtime: #{Exception.message(e)}")
+      halt(1)
+  end
 
   # Parse timeout string like "10m", "30s", "2h", "1d", "300", "0" (infinity)
   defp parse_timeout("0"), do: :infinity

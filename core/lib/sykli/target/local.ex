@@ -27,17 +27,22 @@ defmodule Sykli.Target.Local do
   ## State
 
   - `workdir`: Base working directory
-  - `runtime`: Module implementing Runtime.Behaviour (Docker or Shell)
+  - `runtime`: Module implementing `Sykli.Runtime.Behaviour`, used for tasks
+    that declare a container image. Resolved via `Sykli.Runtime.Resolver`.
+  - `containerless_runtime`: Module implementing `Sykli.Runtime.Behaviour`,
+    used for tasks with `container: nil`. Resolved via
+    `Sykli.Runtime.Resolver.resolve_containerless/1`. Defaults to
+    `Sykli.Runtime.Shell`.
 
   ## Example
 
-      # Setup with Docker runtime (default)
+      # Setup with the resolved default runtime (see `Sykli.Runtime.Resolver`).
       {:ok, state} = Sykli.Target.Local.setup(workdir: "/tmp/build")
 
-      # Setup with Shell runtime (no containers)
+      # Setup with an explicit runtime override.
       {:ok, state} = Sykli.Target.Local.setup(
         workdir: "/tmp/build",
-        runtime: Sykli.Runtime.Shell
+        runtime: runtime_module
       )
 
       # Run a task
@@ -49,9 +54,7 @@ defmodule Sykli.Target.Local do
 
   @behaviour Sykli.Target.Behaviour
 
-  defstruct [:workdir, :runtime, :timeout_ms]
-
-  @default_runtime Sykli.Runtime.Docker
+  defstruct [:workdir, :runtime, :containerless_runtime, :timeout_ms]
 
   # ─────────────────────────────────────────────────────────────────────────────
   # STATELESS CONVENIENCE (for RPC / Mesh)
@@ -68,7 +71,7 @@ defmodule Sykli.Target.Local do
 
   Same as `setup/1`:
   - `:workdir` - Working directory (default: ".")
-  - `:runtime` - Runtime module (default: Docker)
+  - `:runtime` - Runtime module (default: resolved via `Sykli.Runtime.Resolver`)
 
   ## Example
 
@@ -99,17 +102,12 @@ defmodule Sykli.Target.Local do
 
   @impl true
   def available? do
-    # Check if at least one runtime is available
-    case @default_runtime.available?() do
-      {:ok, info} ->
-        {:ok, %{runtime: @default_runtime.name(), info: info}}
+    # Delegate runtime selection to the Resolver (priority chain + fallback).
+    runtime = Sykli.Runtime.Resolver.resolve([])
 
-      {:error, _} ->
-        # Fall back to shell
-        case Sykli.Runtime.Shell.available?() do
-          {:ok, info} -> {:ok, %{runtime: "shell", info: info}}
-          error -> error
-        end
+    case runtime.available?() do
+      {:ok, info} -> {:ok, %{runtime: runtime.name(), info: info}}
+      {:error, _} = err -> err
     end
   end
 
@@ -120,7 +118,8 @@ defmodule Sykli.Target.Local do
   @impl true
   def setup(opts) do
     workdir = Keyword.get(opts, :workdir, ".")
-    runtime = Keyword.get(opts, :runtime, @default_runtime)
+    runtime = Sykli.Runtime.Resolver.resolve(opts)
+    containerless_runtime = Sykli.Runtime.Resolver.resolve_containerless(opts)
 
     # Verify runtime is available
     case runtime.available?() do
@@ -132,7 +131,12 @@ defmodule Sykli.Target.Local do
         timeout_ms = Keyword.get(opts, :timeout)
 
         {:ok,
-         %__MODULE__{workdir: Path.expand(workdir), runtime: runtime, timeout_ms: timeout_ms}}
+         %__MODULE__{
+           workdir: Path.expand(workdir),
+           runtime: runtime,
+           containerless_runtime: containerless_runtime,
+           timeout_ms: timeout_ms
+         }}
 
       {:error, reason} ->
         {:error, reason}
@@ -349,9 +353,10 @@ defmodule Sykli.Target.Local do
   # EXECUTION PARAMS
   # ─────────────────────────────────────────────────────────────────────────────
 
-  defp build_execution_params(%{container: nil, command: command}, _workdir, _state) do
-    # No container specified - use shell runtime regardless of configured runtime
-    {Sykli.Runtime.Shell, nil, [], command}
+  defp build_execution_params(%{container: nil, command: command}, _workdir, state) do
+    # No container image — run via the containerless runtime (composed at
+    # setup/1 time, defaults to Sykli.Runtime.Shell via Resolver).
+    {state.containerless_runtime, nil, [], command}
   end
 
   defp build_execution_params(task, workdir, state) do

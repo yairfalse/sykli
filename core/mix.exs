@@ -11,7 +11,26 @@ defmodule Sykli.MixProject do
       start_permanent: Mix.env() == :prod,
       escript: [main_module: Sykli.CLI],
       releases: releases(),
-      deps: deps()
+      deps: deps(),
+      aliases: aliases()
+    ]
+  end
+
+  def cli do
+    [
+      preferred_envs: [
+        "test.docker": :test,
+        "test.integration": :test,
+        "test.podman": :test
+      ]
+    ]
+  end
+
+  defp aliases do
+    [
+      "test.docker": ["test --only docker"],
+      "test.integration": ["test --only integration"],
+      "test.podman": ["test --only podman"]
     ]
   end
 
