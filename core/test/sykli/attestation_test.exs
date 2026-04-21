@@ -50,6 +50,28 @@ defmodule Sykli.AttestationTest do
       assert String.length(subject["digest"]["sha256"]) == 64
     end
 
+    test "falls back to hashing declared output files when no cache entry exists", %{
+      workdir: workdir
+    } do
+      occ = build_occurrence_with_data()
+      graph = parse_graph!([%{"name" => "build", "command" => "make", "outputs" => ["out/app"]}])
+
+      out_dir = Path.join(workdir, "out")
+      File.mkdir_p!(out_dir)
+      File.write!(Path.join(out_dir, "app"), "binary content")
+
+      assert {:ok, att} = Attestation.generate(occ, graph, workdir)
+
+      assert att["subject"] == [
+               %{
+                 "name" => "out/app",
+                 "digest" => %{
+                   "sha256" => "93a0b24644f2e0fd11d6b422c90275c482b0cc20be4a4e3f62148ed2932b4792"
+                 }
+               }
+             ]
+    end
+
     test "resolvedDependencies includes git source with branch annotation", %{workdir: workdir} do
       occ = build_occurrence_with_data()
       graph = parse_graph!([%{"name" => "build", "command" => "make", "outputs" => ["out/app"]}])
@@ -175,6 +197,20 @@ defmodule Sykli.AttestationTest do
       tasks = att["predicate"]["buildDefinition"]["externalParameters"]["tasks"]
       assert length(tasks) == 1
       assert hd(tasks)["name"] == "build"
+    end
+
+    test "per-task attestation falls back to direct output hashing when cache is unavailable", %{
+      workdir: workdir
+    } do
+      occ = build_occurrence_with_data()
+      graph = parse_graph!([%{"name" => "build", "command" => "make", "outputs" => ["out/app"]}])
+
+      out_dir = Path.join(workdir, "out")
+      File.mkdir_p!(out_dir)
+      File.write!(Path.join(out_dir, "app"), "binary content")
+
+      assert [{"build", att}] = Attestation.generate_per_task(occ, graph, workdir)
+      assert [%{"name" => "out/app"}] = att["subject"]
     end
   end
 

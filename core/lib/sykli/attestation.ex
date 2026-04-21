@@ -119,6 +119,8 @@ defmodule Sykli.Attestation do
     if task_outputs(task) == [] do
       []
     else
+      outputs = task_outputs(task)
+
       case Cache.cache_key(task, workdir) |> Cache.get_entry() do
         {:ok, entry} ->
           (entry.outputs || [])
@@ -128,7 +130,7 @@ defmodule Sykli.Attestation do
           |> Enum.reject(fn s -> is_nil(s["name"]) or is_nil(s["digest"]["sha256"]) end)
 
         _ ->
-          []
+          collect_live_subjects(outputs, workdir)
       end
     end
   end
@@ -140,6 +142,51 @@ defmodule Sykli.Attestation do
     do: outputs
 
   defp task_outputs(_), do: []
+
+  defp collect_live_subjects(outputs, workdir) do
+    abs_workdir = Path.expand(workdir)
+
+    outputs
+    |> Enum.flat_map(&expand_output_pattern(&1, abs_workdir))
+    |> Enum.uniq()
+    |> Enum.map(&subject_from_file(&1, abs_workdir))
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp expand_output_pattern(pattern, workdir) do
+    full_path = Path.join(workdir, pattern)
+
+    cond do
+      File.regular?(full_path) ->
+        [full_path]
+
+      File.dir?(full_path) ->
+        Path.wildcard(Path.join(full_path, "**/*"), match_dot: false)
+        |> Enum.filter(&File.regular?/1)
+
+      String.contains?(pattern, ["*", "?", "["]) ->
+        Path.wildcard(full_path, match_dot: false)
+        |> Enum.filter(&File.regular?/1)
+
+      true ->
+        []
+    end
+  end
+
+  defp subject_from_file(abs_path, workdir) do
+    case File.read(abs_path) do
+      {:ok, content} ->
+        %{
+          "name" => Path.relative_to(abs_path, workdir),
+          "digest" => %{
+            "sha256" => :crypto.hash(:sha256, content) |> Base.encode16(case: :lower)
+          }
+        }
+
+      {:error, _} ->
+        nil
+    end
+  end
 
   # ─────────────────────────────────────────────────────────────────────────────
   # BUILD DEFINITION — what was supposed to happen
