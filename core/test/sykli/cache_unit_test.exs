@@ -24,6 +24,22 @@ defmodule Sykli.CacheUnitTest do
     }
   end
 
+  defp sha256_hex(input) do
+    :crypto.hash(:sha256, input)
+    |> Base.encode16(case: :lower)
+  end
+
+  defp init_git_repo!(dir, opts \\ []) do
+    File.mkdir_p!(dir)
+    {_, 0} = System.cmd("git", ["init", "-b", "main"], cd: dir)
+
+    if origin = opts[:origin] do
+      {_, 0} = System.cmd("git", ["config", "remote.origin.url", origin], cd: dir)
+    end
+
+    dir
+  end
+
   # ---------------------------------------------------------------------------
   # 1. Cache.cache_key/2 — deterministic SHA256 keys from task metadata
   # ---------------------------------------------------------------------------
@@ -99,6 +115,63 @@ defmodule Sykli.CacheUnitTest do
       key2 = Cache.cache_key(task, other_dir)
 
       assert key1 != key2
+    end
+
+    @tag :tmp_dir
+    test "monorepo subdirectories produce different fingerprints", %{tmp_dir: dir} do
+      repo = init_git_repo!(Path.join(dir, "mono"), origin: "git@github.com:false/sykli.git")
+      frontend = Path.join(repo, "frontend")
+      backend = Path.join(repo, "backend")
+
+      File.mkdir_p!(frontend)
+      File.mkdir_p!(backend)
+
+      assert Cache.project_fingerprint(frontend) != Cache.project_fingerprint(backend)
+    end
+
+    @tag :tmp_dir
+    test "same project cloned to different absolute paths produces same fingerprint", %{
+      tmp_dir: dir
+    } do
+      origin = "git@github.com:false/sykli.git"
+      repo1 = init_git_repo!(Path.join(dir, "clone_a"), origin: origin)
+      repo2 = init_git_repo!(Path.join(dir, "clone_b"), origin: origin)
+
+      assert Cache.project_fingerprint(repo1) == Cache.project_fingerprint(repo2)
+    end
+
+    @tag :tmp_dir
+    test "non-git directory uses absolute-path fallback", %{tmp_dir: dir} do
+      original = Path.join(dir, "plain_project")
+      moved = Path.join(dir, "moved_project")
+
+      File.mkdir_p!(original)
+
+      fingerprint_before = Cache.project_fingerprint(original)
+      File.rename!(original, moved)
+      fingerprint_after = Cache.project_fingerprint(moved)
+
+      assert fingerprint_before != fingerprint_after
+    end
+
+    @tag :tmp_dir
+    test "non-git directory with same absolute path produces same fingerprint across invocations",
+         %{
+           tmp_dir: dir
+         } do
+      project = Path.join(dir, "plain_project")
+      File.mkdir_p!(project)
+
+      assert Cache.project_fingerprint(project) == Cache.project_fingerprint(project)
+    end
+
+    @tag :tmp_dir
+    test "git repo without origin remote uses absolute-path fallback", %{tmp_dir: dir} do
+      repo = init_git_repo!(Path.join(dir, "no_origin"))
+      expected = sha256_hex("path:#{Path.expand(repo)}")
+
+      assert Cache.project_root(repo) == {:non_git, Path.expand(repo)}
+      assert Cache.project_fingerprint(repo) == expected
     end
 
     @tag :tmp_dir

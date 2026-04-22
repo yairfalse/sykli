@@ -121,25 +121,23 @@ defmodule Sykli.Target.Local do
     runtime = Sykli.Runtime.Resolver.resolve(opts)
     containerless_runtime = Sykli.Runtime.Resolver.resolve_containerless(opts)
 
-    # Verify runtime is available
-    case runtime.available?() do
-      {:ok, info} ->
-        IO.puts(
-          "#{IO.ANSI.faint()}Target: local (#{runtime.name()}: #{format_runtime_info(info)})#{IO.ANSI.reset()}"
-        )
+    with {:ok, info} <- runtime.available?(),
+         {:ok, _containerless_info} <- containerless_runtime.available?() do
+      IO.puts(
+        "#{IO.ANSI.faint()}Target: local (#{runtime.name()}: #{format_runtime_info(info)})#{IO.ANSI.reset()}"
+      )
 
-        timeout_ms = Keyword.get(opts, :timeout)
+      timeout_ms = Keyword.get(opts, :timeout)
 
-        {:ok,
-         %__MODULE__{
-           workdir: Path.expand(workdir),
-           runtime: runtime,
-           containerless_runtime: containerless_runtime,
-           timeout_ms: timeout_ms
-         }}
-
-      {:error, reason} ->
-        {:error, reason}
+      {:ok,
+       %__MODULE__{
+         workdir: Path.expand(workdir),
+         runtime: runtime,
+         containerless_runtime: containerless_runtime,
+         timeout_ms: timeout_ms
+       }}
+    else
+      {:error, reason} -> {:error, reason}
     end
   end
 

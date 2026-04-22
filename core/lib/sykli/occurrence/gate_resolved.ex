@@ -1,6 +1,7 @@
 defmodule Sykli.Occurrence.GateResolved do
   @moduledoc "Typed payload for ci.gate.resolved occurrences."
 
+  @derive Jason.Encoder
   defstruct [:gate_name, :outcome, :approver, :duration_ms]
 
   @type outcome :: :approved | :denied | :timed_out

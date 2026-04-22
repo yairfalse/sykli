@@ -48,7 +48,7 @@ defmodule Sykli.ExecutorAiHooksTest do
         timeout: 300_000
       }
 
-      assert config.max_parallel == :infinity
+      assert config.max_parallel == nil
       assert config.continue_on_failure == false
       assert config.run_id == nil
     end

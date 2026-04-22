@@ -12,6 +12,9 @@ defmodule Sykli.Runtime.ResolverTest do
 
   alias Sykli.Runtime.Resolver
 
+  defmodule NotARuntime do
+  end
+
   setup do
     original_sys_env = System.get_env("SYKLI_RUNTIME")
     original_default = Application.get_env(:sykli, :default_runtime)
@@ -53,11 +56,37 @@ defmodule Sykli.Runtime.ResolverTest do
       assert Resolver.resolve(runtime: Sykli.Runtime.Shell) == Sykli.Runtime.Shell
     end
 
+    test "opts[:runtime] must resolve to a loaded runtime module" do
+      assert_raise ArgumentError, ~r/opts\[:runtime\].*not loaded/, fn ->
+        Resolver.resolve(runtime: Sykli.Runtime.Missing)
+      end
+    end
+
+    test "opts[:runtime] must implement the runtime behaviour" do
+      assert_raise ArgumentError, ~r/opts\[:runtime\].*does not implement/, fn ->
+        Resolver.resolve(runtime: NotARuntime)
+      end
+    end
+
+    test "opts[:runtime] rejects non-module values with a clear error" do
+      assert_raise ArgumentError, ~r/invalid :runtime option/, fn ->
+        Resolver.resolve(runtime: "shell")
+      end
+    end
+
     test "Application.get_env(:default_runtime) wins over SYKLI_RUNTIME" do
       Application.put_env(:sykli, :default_runtime, Sykli.Runtime.Fake)
       System.put_env("SYKLI_RUNTIME", "docker")
 
       assert Resolver.resolve([]) == Sykli.Runtime.Fake
+    end
+
+    test "Application.get_env(:default_runtime) must implement the runtime behaviour" do
+      Application.put_env(:sykli, :default_runtime, NotARuntime)
+
+      assert_raise ArgumentError, ~r/default_runtime.*does not implement/, fn ->
+        Resolver.resolve([])
+      end
     end
 
     test "SYKLI_RUNTIME=fake resolves to Fake" do
@@ -174,6 +203,18 @@ defmodule Sykli.Runtime.ResolverTest do
     test "defaults to Shell" do
       Application.delete_env(:sykli, :containerless_runtime)
       assert Resolver.resolve_containerless([]) == Sykli.Runtime.Shell
+    end
+
+    test "validates containerless runtime modules from opts" do
+      assert_raise ArgumentError, ~r/containerless_runtime.*does not implement/, fn ->
+        Resolver.resolve_containerless(containerless_runtime: NotARuntime)
+      end
+    end
+
+    test "rejects invalid containerless runtime option types clearly" do
+      assert_raise ArgumentError, ~r/invalid :containerless_runtime option/, fn ->
+        Resolver.resolve_containerless(containerless_runtime: "shell")
+      end
     end
   end
 end

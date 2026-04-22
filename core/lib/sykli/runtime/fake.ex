@@ -8,8 +8,9 @@ defmodule Sykli.Runtime.Fake do
 
   ## Recording calls
 
-  If `opts[:fake_recorder]` is a pid, every call sends a message of the
-  form `{:sykli_runtime_fake, {op, args...}}` to it. Tests use
+  If `opts[:fake_recorder]` is a pid, callbacks that accept `opts`
+  (`run/4` and `start_service/4`) send a message of the form
+  `{:sykli_runtime_fake, {op, args...}}` to it. Tests use
   `assert_receive` to inspect what the runtime saw:
 
       Sykli.Runtime.Fake.run("echo hi", "alpine", [], fake_recorder: self())
@@ -17,7 +18,9 @@ defmodule Sykli.Runtime.Fake do
 
   ## Scripting responses
 
-  `opts[:fake_script]` is a map keyed by operation atom. When the key is
+  `opts[:fake_script]` is a map keyed by operation atom for the callbacks
+  in this fake runtime that accept `opts` and consult scripted responses:
+  currently `run/4` and `start_service/4`. When one of those keys is
   present the mapped value is returned verbatim, letting tests exercise
   error paths:
 

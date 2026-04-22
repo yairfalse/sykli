@@ -13,7 +13,17 @@ defmodule Sykli.Runtime.BehaviourTest do
 
   use ExUnit.Case, async: true
 
-  @implementations [Sykli.Runtime.Docker, Sykli.Runtime.Shell]
+  @runtime_dir Path.expand("../../../lib/sykli/runtime", __DIR__)
+  @implementations @runtime_dir
+                   |> Path.join("*.ex")
+                   |> Path.wildcard()
+                   |> Enum.reject(&(Path.basename(&1) in ["behaviour.ex", "resolver.ex"]))
+                   |> Enum.map(fn path ->
+                     path
+                     |> Path.basename(".ex")
+                     |> Macro.camelize()
+                     |> then(&Module.concat([Sykli, Runtime, &1]))
+                   end)
 
   describe "behaviour declarations" do
     for impl <- @implementations do

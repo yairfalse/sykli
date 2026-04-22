@@ -315,7 +315,7 @@ defmodule Sykli.Services.OIDCService do
   end
 
   defp extract_xml_value(xml, tag) do
-    tag_atom = String.to_atom(tag)
+    _tag_atom = String.to_atom(tag)
 
     try do
       {doc, _} = :xmerl_scan.string(String.to_charlist(xml), quiet: true)

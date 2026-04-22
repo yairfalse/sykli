@@ -43,7 +43,7 @@ defmodule Sykli.Occurrence.Serializer do
       "context" => context
     }
     |> maybe_add("outcome", occ.outcome)
-    |> maybe_add("data", encode_data(occ.data))
+    |> maybe_add("data", encode_json_data(occ.data))
     |> maybe_add("error", occ.error)
     |> maybe_add("reasoning", occ.reasoning)
     |> maybe_add("history", occ.history)
@@ -241,8 +241,25 @@ defmodule Sykli.Occurrence.Serializer do
   defp encode_data(data) when is_struct(data), do: Map.from_struct(data)
   defp encode_data(data) when is_map(data), do: data
 
+  defp encode_json_data(nil), do: nil
+
+  defp encode_json_data(data) when is_struct(data),
+    do: data |> Map.from_struct() |> stringify_keys()
+
+  defp encode_json_data(data) when is_map(data), do: stringify_keys(data)
+
   defp maybe_add(map, _key, nil), do: map
   defp maybe_add(map, key, value), do: Map.put(map, key, value)
+
+  defp stringify_keys(map) when is_map(map) do
+    Map.new(map, fn {key, value} ->
+      {to_string(key), stringify_value(value)}
+    end)
+  end
+
+  defp stringify_value(value) when is_map(value), do: stringify_keys(value)
+  defp stringify_value(value) when is_list(value), do: Enum.map(value, &stringify_value/1)
+  defp stringify_value(value), do: value
 
   defp remove_nil_values(map) when is_map(map) do
     map

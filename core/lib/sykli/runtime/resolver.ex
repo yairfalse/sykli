@@ -87,12 +87,21 @@ defmodule Sykli.Runtime.Resolver do
 
   # ─── priority-chain helpers ─────────────────────────────────────────────
 
-  defp from_opts(opts, key), do: Keyword.get(opts, key)
+  defp from_opts(opts, key) do
+    case Keyword.get(opts, key) do
+      nil -> nil
+      module when is_atom(module) -> ensure_runtime_module!(module, "opts[:#{key}]")
+      value -> bad_option!(key, value)
+    end
+  end
 
   defp from_app_env(key) do
     case Application.get_env(:sykli, key) do
-      nil -> nil
-      module when is_atom(module) -> module
+      nil ->
+        nil
+
+      module when is_atom(module) ->
+        ensure_runtime_module!(module, "Application.get_env(:sykli, :#{key})")
     end
   end
 
@@ -107,7 +116,7 @@ defmodule Sykli.Runtime.Resolver do
   defp env_to_module(name) do
     case Map.get(@shorthand, name) do
       nil -> module_from_string(name)
-      module -> ensure_loaded!(module, name)
+      module -> ensure_runtime_module!(module, "SYKLI_RUNTIME=#{name}")
     end
   end
 
@@ -119,7 +128,7 @@ defmodule Sykli.Runtime.Resolver do
         ArgumentError -> bad_env!(name)
       end
 
-    ensure_loaded!(module, name)
+    ensure_runtime_module!(module, "SYKLI_RUNTIME=#{name}")
   end
 
   defp module_from_string(name), do: bad_env!(name)
@@ -130,12 +139,35 @@ defmodule Sykli.Runtime.Resolver do
             "Use one of: docker, podman, shell, fake, or Elixir.Fully.Qualified.Module"
   end
 
-  defp ensure_loaded!(module, name) do
-    if Code.ensure_loaded?(module) do
-      module
-    else
-      raise ArgumentError,
-            "SYKLI_RUNTIME=#{name} resolves to #{inspect(module)}, which is not loaded."
+  defp bad_option!(key, value) do
+    raise ArgumentError,
+          "invalid #{inspect(key)} option: expected a module atom implementing " <>
+            "Sykli.Runtime.Behaviour, got: #{inspect(value)}"
+  end
+
+  defp ensure_runtime_module!(module, source) do
+    cond do
+      not Code.ensure_loaded?(module) ->
+        raise ArgumentError,
+              "#{source} resolves to #{inspect(module)}, which is not loaded."
+
+      not function_exported?(module, :name, 0) ->
+        raise ArgumentError,
+              "#{source} resolves to #{inspect(module)}, which does not implement " <>
+                "Sykli.Runtime.Behaviour."
+
+      not function_exported?(module, :available?, 0) ->
+        raise ArgumentError,
+              "#{source} resolves to #{inspect(module)}, which does not implement " <>
+                "Sykli.Runtime.Behaviour."
+
+      not function_exported?(module, :run, 4) ->
+        raise ArgumentError,
+              "#{source} resolves to #{inspect(module)}, which does not implement " <>
+                "Sykli.Runtime.Behaviour."
+
+      true ->
+        module
     end
   end
 

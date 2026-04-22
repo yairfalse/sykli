@@ -2,28 +2,33 @@ defmodule Sykli.RuntimeIsolationTest do
   @moduledoc """
   Regression guard: no module outside `core/lib/sykli/runtime/` may name a
   specific runtime implementation. Implementations must be selected through
-  `Sykli.Runtime.Resolver` (once it exists — RC.3).
+  `Sykli.Runtime.Resolver`.
 
   If this test fails, you probably hardcoded `Sykli.Runtime.Docker` (or a
   sibling). Route the selection through `Sykli.Runtime.Resolver` instead.
 
-  Tagged `:regression_guard` and excluded by default until RC.4c completes —
-  at which point the pre-refactor hardcoding in `target/local.ex` has been
-  removed and this test turns green. Opt in early with:
-
-      mix test --include regression_guard
-
-  The moment this test can be un-tagged and still pass is the objective
-  signal that the runtime decoupling is complete.
+  This test is tagged `:regression_guard` to document its role as a
+  decoupling guard, but it is intended to pass in the default test suite.
+  A failure here is the signal that runtime-selection logic has leaked
+  outside `core/lib/sykli/runtime/` and needs to be routed back through the
+  resolver abstraction.
   """
 
   use ExUnit.Case, async: true
 
   @moduletag :regression_guard
 
-  @runtime_modules ~w(Docker Podman Shell Fake Containerd)
   @repo_root Path.expand("../../..", __DIR__)
   @runtime_dir Path.join(@repo_root, "core/lib/sykli/runtime")
+  @runtime_modules @runtime_dir
+                   |> Path.join("*.ex")
+                   |> Path.wildcard()
+                   |> Enum.reject(&(Path.basename(&1) in ["behaviour.ex", "resolver.ex"]))
+                   |> Enum.map(fn path ->
+                     path
+                     |> Path.basename(".ex")
+                     |> Macro.camelize()
+                   end)
 
   test "no module outside core/lib/sykli/runtime/ names a runtime implementation" do
     offenders =

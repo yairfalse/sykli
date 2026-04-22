@@ -21,7 +21,7 @@ All four implement `Sykli.Runtime.Behaviour`.
 
 1. `--runtime <name>` / `-r <name>` CLI flag
 2. `opts[:runtime]` — when Sykli is called as a library
-3. `config :sykli, :default_runtime` — from `config/<env>.exs`
+3. `config :sykli, :default_runtime` — from `core/config/<env>.exs`
 4. `SYKLI_RUNTIME` env var (`docker` / `podman` / `shell` / `fake`, or `Elixir.Fully.Qualified.Module`)
 5. Auto-detect: first of Docker, Podman whose `available?/0` succeeds
 6. Fall back to `Sykli.Runtime.Shell` (a warning logs once per VM boot)
@@ -64,8 +64,8 @@ prints the resolved container and containerless runtimes plus availability of ea
    - Required: `name/0`, `available?/0`, `run/4`
    - Optional: `start_service/4`, `stop_service/1`, `create_network/1`, `remove_network/1`
 2. If you want shorthand `SYKLI_RUNTIME=<name>` to resolve to it, add an entry to `@shorthand` in `Sykli.Runtime.Resolver`.
-3. Write tests mirroring `test/sykli/runtime/podman_test.exs`. Tag them `:<name>` (e.g. `:containerd`) and add the tag to `test_helper.exs`'s default exclude list.
-4. Add `test.<name>` alias + `preferred_cli_env` entry to `mix.exs`.
-5. The regression guard `test/sykli/runtime_isolation_test.exs` automatically covers the new module (it fails if anyone names the new runtime outside `core/lib/sykli/runtime/`).
+3. Write tests mirroring `core/test/sykli/runtime/podman_test.exs`. Tag them `:<name>` (e.g. `:containerd`) and add the tag to `core/test/test_helper.exs`'s default exclude list.
+4. Add the `test.<name>` alias in `mix.exs` and update `cli/0` so `preferred_envs` includes it.
+5. No extra guard wiring is needed for the existing regression guards: they auto-discover runtime implementations from `core/lib/sykli/runtime/*.ex`.
 
-No other file changes are needed.
+These are the required repo updates for wiring in a new runtime.

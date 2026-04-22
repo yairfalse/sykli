@@ -18,6 +18,19 @@ defmodule Sykli.Target.LocalCharacterizationTest do
 
   alias Sykli.Target.Local
 
+  defmodule UnavailableRuntime do
+    @behaviour Sykli.Runtime.Behaviour
+
+    @impl true
+    def name, do: "unavailable"
+
+    @impl true
+    def available?, do: {:error, :unavailable}
+
+    @impl true
+    def run(_command, _image, _mounts, _opts), do: {:ok, 0, 0, ""}
+  end
+
   describe "setup/1 — runtime selection (characterization)" do
     test "with no opts, under :test config, resolves to Sykli.Runtime.Fake" do
       {:ok, state} = Local.setup(workdir: System.tmp_dir!())
@@ -73,6 +86,15 @@ defmodule Sykli.Target.LocalCharacterizationTest do
       assert state.containerless_runtime == Sykli.Runtime.Fake
 
       Local.teardown(state)
+    end
+
+    test "setup fails early when the containerless runtime is unavailable" do
+      assert {:error, :unavailable} =
+               Local.setup(
+                 workdir: System.tmp_dir!(),
+                 runtime: Sykli.Runtime.Fake,
+                 containerless_runtime: UnavailableRuntime
+               )
     end
 
     test "a task with container: nil dispatches to the containerless runtime" do

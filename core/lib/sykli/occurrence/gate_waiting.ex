@@ -1,6 +1,7 @@
 defmodule Sykli.Occurrence.GateWaiting do
   @moduledoc "Typed payload for ci.gate.waiting occurrences."
 
+  @derive Jason.Encoder
   defstruct [:gate_name, :strategy, :message, :timeout]
 
   @type t :: %__MODULE__{

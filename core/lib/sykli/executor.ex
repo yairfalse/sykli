@@ -67,6 +67,7 @@ defmodule Sykli.Executor do
       :target,
       :timeout,
       :run_id,
+      # nil means unconstrained on a bare struct; run/3 replaces it with the computed default.
       max_parallel: nil,
       continue_on_failure: false
     ]
