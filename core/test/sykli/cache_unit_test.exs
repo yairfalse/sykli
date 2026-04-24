@@ -443,6 +443,7 @@ defmodule Sykli.CacheUnitTest do
     test "circuit opens after reaching failure threshold" do
       # Reset state
       :persistent_term.put(:sykli_s3_circuit, %{failures: 0, open_until: 0})
+      now = System.monotonic_time(:millisecond)
 
       # Simulate 5 consecutive failures (the @failure_threshold)
       # by manually incrementing the failure counter.
@@ -465,12 +466,11 @@ defmodule Sykli.CacheUnitTest do
 
       state_after = :persistent_term.get(:sykli_s3_circuit)
       assert state_after.failures == 5
-      assert state_after.open_until > 0
+      assert state_after.open_until > now
 
       # The circuit is now open: open_until is in the future and
       # failures >= threshold (5).
       # Verify the state represents an open circuit:
-      now = System.monotonic_time(:millisecond)
       assert state_after.failures >= 5
       assert state_after.open_until > now
     end
