@@ -196,7 +196,11 @@ Key env vars (see `cli.ex` and module docs for full details):
 - **Occurrence emission** uses `maybe_emit_*` helpers that pattern-match `nil` run_id to no-op
 - **Services** are stateless modules in `services/` — no GenServers, just functions
 - **Structured errors** via `Sykli.Error` — never bare strings. Use `Sykli.Error.task_failed/5`, etc.
-- **JSON output** — most commands support `--json` for machine-readable output
+- **JSON output** — most commands support `--json`. All `--json` output flows through `Sykli.CLI.JsonResponse`, which wraps results in a shared envelope so agents can parse a single shape across commands:
+  - Success: `{"ok": true,  "version": "1", "data": <payload>, "error": null}`
+  - Error: `{"ok": false, "version": "1", "data": null, "error": {"code", "message", "hints"}}`
+  - Failure-with-data (e.g. `validate` finding errors): `{"ok": false, "version": "1", "data": <payload>, "error": null}` — distinguishes a domain-level "no" from an infrastructure-level error
+  When adding a new `--json` path, use `JsonResponse.ok/1`, `error/1`, or `error_with_data/1` — never hand-roll an envelope
 - **Executor.Config** — executor options flow through `%Executor.Config{}` struct (target, timeout, run_id, max_parallel, continue_on_failure)
 - **HTTP with TLS** — all `:httpc` callers use `Sykli.HTTP.ssl_opts/1` for `verify_peer` + hostname checking
 - **Cache backend selection** — `Sykli.Cache.repo/0` dynamically selects FileRepository or TieredRepository (L1 local + L2 S3) based on env vars
