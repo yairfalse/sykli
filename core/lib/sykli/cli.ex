@@ -3,7 +3,7 @@ defmodule Sykli.CLI do
   CLI entry point for escript.
   """
 
-  alias Sykli.CLI.JsonResponse
+  alias Sykli.CLI.{JsonResponse, Live, Renderer, FixRenderer}
   alias Sykli.Delta
   alias Sykli.Error
   alias Sykli.Error.Formatter
@@ -139,8 +139,8 @@ defmodule Sykli.CLI do
     start_time = System.monotonic_time(:millisecond)
     json_output = Keyword.get(opts, :json, false)
 
-    # Suppress stdout before any work so target setup lines don't leak
-    original_gl = if json_output, do: suppress_stdout(), else: nil
+    # Suppress stdout before any work so target setup and executor progress do not leak.
+    original_gl = suppress_stdout()
 
     try do
       run_opts = []
@@ -233,12 +233,15 @@ defmodule Sykli.CLI do
           IO.puts(JsonResponse.ok(run_json_data("passed", results, duration, path)))
         else
           IO.puts(
-            "\n#{IO.ANSI.green()}✓ All tasks completed in #{format_duration(duration)}#{IO.ANSI.reset()}"
+            Renderer.render_run(
+              pipeline_label(path),
+              target_label(opts),
+              @version,
+              results,
+              duration,
+              ansi?: Live.ansi?()
+            )
           )
-
-          Enum.each(results, fn %Sykli.Executor.TaskResult{name: name} ->
-            IO.puts("  ✓ #{name}")
-          end)
         end
 
         halt(0)
@@ -247,10 +250,15 @@ defmodule Sykli.CLI do
         if json_output do
           IO.puts(JsonResponse.ok(run_json_data("failed", results, duration, path)))
         else
-          IO.puts("\n#{IO.ANSI.red()}Build failed#{IO.ANSI.reset()}")
-
           IO.puts(
-            "\n  #{IO.ANSI.faint()}💡 Ask your AI: \"read .sykli/occurrence.json and fix the failure\"#{IO.ANSI.reset()}"
+            Renderer.render_run(
+              pipeline_label(path),
+              target_label(opts),
+              @version,
+              results,
+              duration,
+              ansi?: Live.ansi?()
+            )
           )
         end
 
@@ -274,6 +282,20 @@ defmodule Sykli.CLI do
       tasks: Enum.map(results, &task_result_to_map/1),
       occurrence_path: Path.join([path, ".sykli", "occurrence.json"])
     }
+  end
+
+  defp pipeline_label(path) do
+    case Sykli.Detector.find(path) do
+      {:ok, {sdk_file, _runner}} -> sdk_file
+      _ -> path
+    end
+  end
+
+  defp target_label(opts) do
+    case Keyword.get(opts, :target, :local) do
+      :k8s -> "k8s"
+      _ -> "local"
+    end
   end
 
   defp task_result_to_map(%Sykli.Executor.TaskResult{} = r) do
@@ -1449,7 +1471,7 @@ defmodule Sykli.CLI do
         if json_output do
           IO.puts(JsonResponse.ok(Sykli.Fix.to_map(result)))
         else
-          IO.puts("#{IO.ANSI.green()}Nothing to fix — last run passed.#{IO.ANSI.reset()}")
+          IO.puts(FixRenderer.render(result, ansi?: Live.ansi?()))
         end
 
         halt(0)
@@ -1459,7 +1481,7 @@ defmodule Sykli.CLI do
           IO.puts(JsonResponse.ok(Sykli.Fix.to_map(result)))
         else
           IO.puts("")
-          IO.puts(Sykli.Fix.Output.format(result))
+          IO.puts(FixRenderer.render(result, ansi?: Live.ansi?()))
           IO.puts("")
         end
 
