@@ -1,18 +1,12 @@
-<div align="center">
+# sykli
 
-# SYKLI
+Local-first CI for the next generation of software developers.
 
-**CI pipelines as real code. AI reads the results. Supply chain signed.**
-
-[![GitHub Release](https://img.shields.io/github/v/release/yairfalse/sykli?style=flat-square&color=blue)](https://github.com/yairfalse/sykli/releases)
-[![crates.io](https://img.shields.io/crates/v/sykli?style=flat-square&color=orange)](https://crates.io/crates/sykli)
-[![Hex.pm](https://img.shields.io/hexpm/v/sykli?style=flat-square&color=purple)](https://hex.pm/packages/sykli)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](LICENSE)
-
-</div>
+For developers who chose Bun over npm, Linear over Jira, and Vercel over raw AWS.
+Write pipelines as real code, run them on hardware you control, and keep network optional.
+When a task fails, Sykli emits structured context your AI agent can act on directly.
 
 ```go
-// sykli.go — your CI config is a Go program
 package main
 
 import sykli "github.com/yairfalse/sykli/sdk/go"
@@ -26,17 +20,13 @@ func main() {
 ```
 
 ```
-$ sykli
-▶ test   go test ./...
-✓ test   124ms
+sykli · parallel_tasks.exs                         local · 0.5.3
 
-▶ build  go build -o app
-✓ build  1.2s
+  ●  task_a    echo a                                  108ms
+  ●  task_b    echo b                                  112ms
 
-✓ 2 passed in 1.4s
+  ─  2 passed                                          111ms
 ```
-
-No YAML. No DSL. No vendor lock-in. Write pipelines in **Go**, **Rust**, **TypeScript**, **Elixir**, or **Python**.
 
 ---
 
