@@ -33,7 +33,16 @@ defmodule Sykli.CLI.Renderer do
 
   def render_task_row(%TaskResult{} = result, opts \\ []) do
     command = result_command(result)
-    left = ["  ", glyph_for(result.status, opts), "  ", pad(result.name, @name_width), command]
+
+    left = [
+      "  ",
+      glyph_for(result.status, opts),
+      "  ",
+      pad(result.name, @name_width),
+      "  ",
+      command
+    ]
+
     right = task_suffix(result)
 
     [align(left, right), "\n"]
@@ -44,7 +53,7 @@ defmodule Sykli.CLI.Renderer do
         frame \\ Theme.glyph(:running),
         opts \\ []
       ) do
-    left = ["  ", color(frame, :accent, opts), "  ", pad(name, @name_width), command || ""]
+    left = ["  ", color(frame, :accent, opts), "  ", pad(name, @name_width), "  ", command || ""]
     [left, "\n"]
   end
 
@@ -155,7 +164,7 @@ defmodule Sykli.CLI.Renderer do
 
   defp pad(value, width) do
     value = to_string(value || "")
-    value <> String.duplicate(" ", max(1, width - visible_length(value)))
+    value <> String.duplicate(" ", max(0, width - visible_length(value)))
   end
 
   defp failed?(%TaskResult{status: status}), do: status in [:failed, :errored]

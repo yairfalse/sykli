@@ -88,7 +88,7 @@
       "fixture": "retry_succeeds",
       "command": "sykli",
       "expect_exit": 0,
-      "expect_stdout": "passed"
+      "expect_stdout": "1 passed"
     },
     {
       "id": "POS-010",
@@ -492,7 +492,7 @@
       "fixture": "sdk_go",
       "command": "sykli",
       "expect_exit": 0,
-      "expect_stdout": "passed",
+      "expect_stdout": "1 passed",
       "requires": "go"
     },
     {
@@ -501,7 +501,7 @@
       "fixture": "sdk_ts",
       "command": "sykli",
       "expect_exit": 0,
-      "expect_stdout": "passed",
+      "expect_stdout": "1 passed",
       "requires": "node"
     },
     {
