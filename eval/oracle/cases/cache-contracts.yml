@@ -1,0 +1,19 @@
+id: ORACLE-CACHE-001
+category: cache
+source: "README.md §Content-addressed caching; CLAUDE.md §TaskResult Status Values"
+validated_by: "If a cached task re-executes its command, CACHE-001 and CACHE-004 fail by observing side-effect files."
+fixture: "test/blackbox/fixtures/cache_side_effect.exs"
+command: "test/blackbox/run.sh --filter=CACHE-001"
+assertions:
+  - "The second identical run does not execute the task command."
+  - "The second identical run reports task status cached, not passed."
+---
+id: ORACLE-CACHE-002
+category: cache
+source: "CLAUDE.md §JSON output"
+validated_by: "If cache subcommands bypass JsonResponse, CACHE-006 fails with no JSON object."
+finding: "CACHE-006 currently fails: `sykli cache stats --json` prints command help instead of a shared JSON envelope."
+fixture: "test/blackbox/fixtures/single_task.exs"
+command: "sykli cache stats --json"
+assertions:
+  - "The command emits exactly the shared JSON envelope keys."

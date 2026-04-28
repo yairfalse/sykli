@@ -9,7 +9,13 @@
     "INT": "Integration - SDK-to-engine interaction",
     "PERF": "Performance - speed and resource usage",
     "LOAD": "Load - volume handling",
-    "ABN": "Abnormal - unexpected inputs"
+    "ABN": "Abnormal - unexpected inputs",
+    "CACHE": "Cache - contract and isolation",
+    "JSON": "JSON - envelope contract",
+    "DET": "Determinism - replay and wall-clock contract",
+    "SDK": "SDK - cross-language parity contract",
+    "UI": "UI - visual reset contract",
+    "GH": "GitHub - native receiver security contract"
   },
   "cases": [
     {
@@ -894,6 +900,650 @@
         "ok": false,
         "version": "1"
       }
+    },
+    {
+      "id": "CACHE-001",
+      "name": "Cache hit does not re-run side-effect command",
+      "fixture": "cache_side_effect",
+      "command": "sykli >/dev/null && sykli >/dev/null && test \"$(wc -l < side_effect.log | tr -d ' ')\" = 1",
+      "shell": true,
+      "expect_exit": 0,
+      "source": "README.md §Content-addressed caching; CLAUDE.md .sykli/ Directory",
+      "validated_by": "Would fail if cache hit still executes the command body.",
+      "findings": "Currently fails: second run executes command again instead of producing a cache hit."
+    },
+    {
+      "id": "CACHE-002",
+      "name": "Second identical input run renders cache-hit glyph",
+      "fixture": "cache_side_effect",
+      "command": "sykli >/dev/null && sykli",
+      "shell": true,
+      "expect_exit": 0,
+      "expect_stdout": "○",
+      "source": "ADR-020 §Glyph language; README.md §Content-addressed caching",
+      "validated_by": "Would fail if cached tasks use the pass glyph or execute again.",
+      "findings": "Currently fails: identical second run renders passed glyph, not cache-hit glyph."
+    },
+    {
+      "id": "CACHE-003",
+      "name": "Changing declared input re-executes task",
+      "fixture": "cache_input_sensitive",
+      "command": "sykli >/dev/null && printf \"// changed\\n\" >> main.go && sykli >/dev/null && test \"$(wc -l < input_runs.log | tr -d ' ')\" = 2",
+      "shell": true,
+      "expect_exit": 0,
+      "source": "README.md §Content-addressed caching",
+      "validated_by": "Injected bug: ignore task inputs in cache key; second run would stay cached and line count would be 1."
+    },
+    {
+      "id": "CACHE-004",
+      "name": "Identical declared input keeps stable cache key",
+      "fixture": "cache_input_sensitive",
+      "command": "sykli >/dev/null && sykli >/dev/null && test \"$(wc -l < input_runs.log | tr -d ' ')\" = 1",
+      "shell": true,
+      "expect_exit": 0,
+      "source": "ADR-020 §What local-first commits us to; README.md §Content-addressed caching",
+      "validated_by": "Would fail if cache fingerprint changes between identical runs.",
+      "findings": "Currently fails: identical run executes again."
+    },
+    {
+      "id": "CACHE-005",
+      "name": "Identical graph in sibling workdirs does not share local cache",
+      "fixture": "cache_side_effect",
+      "command": "mkdir a b && cp sykli.exs a/ && cp sykli.exs b/ && (cd a && sykli >/dev/null) && (cd b && sykli >../b.out) && ! grep -q \"○\" b.out",
+      "shell": true,
+      "expect_exit": 0,
+      "source": "CLAUDE.md Recent changes; cache fingerprint includes repo-relative workdir",
+      "validated_by": "Injected bug: remove workdir from cache fingerprint; second sibling run would show cache hit."
+    },
+    {
+      "id": "CACHE-006",
+      "name": "Cache stats stays parseable after failed cache candidate",
+      "fixture": "cache_side_effect",
+      "command": "sykli cache stats --json",
+      "shell": true,
+      "expect_exit": 0,
+      "expect_json_keys": [
+        "data",
+        "error",
+        "ok",
+        "version"
+      ],
+      "source": "CLAUDE.md §JSON output; README.md §Content-addressed caching",
+      "validated_by": "Injected bug: hand-roll cache stats JSON without shared envelope; key assertion fails."
+    },
+    {
+      "id": "CACHE-007",
+      "name": "Cache clean does not remove run occurrence memory",
+      "fixture": "single_task",
+      "command": "sykli >/dev/null && test -f .sykli/occurrence.json && sykli cache clean >/dev/null && test -f .sykli/occurrence.json",
+      "shell": true,
+      "expect_exit": 0,
+      "source": "CLAUDE.md §.sykli/ Directory; README.md §Observe",
+      "validated_by": "Injected bug: cache clean removes all of .sykli; occurrence file assertion fails."
+    },
+    {
+      "id": "CACHE-008",
+      "name": "Cache stats emits no ANSI in JSON mode",
+      "fixture": "single_task",
+      "command": "sykli cache stats --json",
+      "expect_exit": 0,
+      "expect_no_ansi": true,
+      "source": "CLAUDE.md §JSON output",
+      "validated_by": "Injected bug: route JSON through TTY renderer; ANSI assertion fails."
+    },
+    {
+      "id": "CACHE-009",
+      "name": "Cache hit is not reported as passed in JSON task status",
+      "fixture": "cache_side_effect",
+      "command": "sykli >/dev/null && sykli --json",
+      "shell": true,
+      "expect_exit": 0,
+      "expect_json_jq": [
+        ".data.tasks[0].status == \"cached\""
+      ],
+      "source": "CLAUDE.md §TaskResult Status Values; README.md §Content-addressed caching",
+      "validated_by": "Would fail if cached results collapse into passed.",
+      "findings": "Currently fails: second run reports status passed."
+    },
+    {
+      "id": "CACHE-010",
+      "name": "Cache miss leaves command stdout hidden by default",
+      "fixture": "stdout_hidden_marker",
+      "command": "sykli",
+      "expect_exit": 0,
+      "expect_stdout_not_contains": [
+        "VISIBLE_STDOUT_SHOULD_BE_HIDDEN"
+      ],
+      "source": "ADR-020 §Output rules item 4",
+      "validated_by": "Injected bug: always stream task stdout; forbidden-output assertion fails."
+    },
+    {
+      "id": "CACHE-011",
+      "name": "Cache-sensitive input change does not corrupt occurrence JSON",
+      "fixture": "cache_input_sensitive",
+      "command": "sykli >/dev/null && printf \"// changed\\n\" >> main.go && sykli >/dev/null && jq -e . .sykli/occurrence.json >/dev/null",
+      "shell": true,
+      "expect_exit": 0,
+      "source": "CLAUDE.md §.sykli/ Directory",
+      "validated_by": "Injected bug: write partial occurrence on cache invalidation; jq assertion fails."
+    },
+    {
+      "id": "CACHE-012",
+      "name": "Cache metadata must not expose absolute temp workspace path",
+      "fixture": "cache_input_sensitive",
+      "command": "sykli >/dev/null && if [ -d .sykli/cache ]; then ! grep -R \"$(pwd)\" .sykli/cache 2>/dev/null; else true; fi",
+      "shell": true,
+      "expect_exit": 0,
+      "source": "ADR-020 §local-first; CHANGELOG 0.5.0 Security OIDC temp files cleanup",
+      "validated_by": "Injected bug: persist absolute workspace path in cache metadata; grep assertion fails."
+    },
+    {
+      "id": "NEG-016",
+      "name": "Command non-zero is failed, not errored",
+      "fixture": "failing_task",
+      "command": "sykli --json",
+      "expect_exit": 1,
+      "expect_json_jq": [
+        ".data.tasks[0].status == \"failed\"",
+        ".data.tasks[0].status != \"errored\""
+      ],
+      "source": "CLAUDE.md §TaskResult Status Values",
+      "validated_by": "Injected bug: map non-zero exits to errored; jq assertion fails."
+    },
+    {
+      "id": "NEG-017",
+      "name": "Missing secret is errored, not failed",
+      "fixture": "missing_secret",
+      "command": "sykli --json",
+      "expect_exit": 1,
+      "expect_json_jq": [
+        ".data.tasks[0].status == \"errored\"",
+        ".data.tasks[0].status != \"failed\""
+      ],
+      "source": "CLAUDE.md §TaskResult Status Values; CHANGELOG 0.5.0 OIDC/secret validation",
+      "validated_by": "Injected bug: treat secret resolution as command failure; jq assertion fails."
+    },
+    {
+      "id": "NEG-018",
+      "name": "Blocked dependent task never executes command side effect",
+      "fixture": "blocked_side_effect",
+      "command": "sykli >/dev/null 2>&1 || true; test ! -f blocked_side_effect.log",
+      "shell": true,
+      "expect_exit": 0,
+      "source": "CLAUDE.md §TaskResult Status Values",
+      "validated_by": "Injected bug: schedule blocked downstream anyway; side-effect file assertion fails."
+    },
+    {
+      "id": "NEG-019",
+      "name": "Blocked dependent task is blocked in JSON",
+      "fixture": "fail_blocks_downstream",
+      "command": "sykli --json",
+      "expect_exit": 1,
+      "expect_json_jq": [
+        ".data.tasks[] | select(.name == \"downstream\") | .status == \"blocked\""
+      ],
+      "source": "CLAUDE.md §TaskResult Status Values",
+      "validated_by": "Injected bug: report dependency-blocked task as skipped; jq assertion fails."
+    },
+    {
+      "id": "NEG-020",
+      "name": "Validation cycle uses failure-with-data envelope",
+      "fixture": "cycle_ab",
+      "command": "sykli validate --json",
+      "expect_exit": 1,
+      "expect_json_jq": [
+        ".ok == false",
+        ".data.errors | length > 0",
+        ".error == null"
+      ],
+      "source": "CLAUDE.md §JSON output failure-with-data",
+      "validated_by": "Injected bug: return structured Error for domain validation; .error null assertion fails."
+    },
+    {
+      "id": "NEG-021",
+      "name": "Self-dependency error names the offending task",
+      "fixture": "self_dep",
+      "command": "sykli validate --json",
+      "expect_exit": 1,
+      "expect_json_jq": [
+        "(.data.errors | tostring) | contains(\"self\")"
+      ],
+      "source": "README.md §Pipelines are real code; CLAUDE.md §Graph validation",
+      "validated_by": "Injected bug: generic validation message; offending task assertion fails."
+    },
+    {
+      "id": "ABN-015",
+      "name": "Task timeout is errored, not failed",
+      "fixture": "task_timeout",
+      "command": "sykli --json",
+      "expect_exit": 1,
+      "expect_json_jq": [
+        ".data.tasks[0].status == \"errored\""
+      ],
+      "source": "CLAUDE.md §TaskResult Status Values",
+      "validated_by": "Injected bug: map timeouts to command failures; jq assertion catches it.",
+      "findings": "Currently fails: timeout reports status failed."
+    },
+    {
+      "id": "ABN-016",
+      "name": "Conditional skip is skipped and not cached",
+      "fixture": "condition_skip",
+      "command": "sykli --json",
+      "expect_exit": 0,
+      "expect_json_jq": [
+        ".data.tasks[] | select(.name == \"deploy\") | .status == \"skipped\"",
+        ".data.tasks[] | select(.name == \"deploy\") | .cached == false"
+      ],
+      "source": "CLAUDE.md §TaskResult Status Values",
+      "validated_by": "Injected bug: skipped tasks pass through cache layer; jq assertion fails."
+    },
+    {
+      "id": "JSON-001",
+      "name": "validate --json has exact shared envelope keys",
+      "fixture": "single_task",
+      "command": "sykli validate --json",
+      "expect_exit": 0,
+      "expect_json_keys": [
+        "data",
+        "error",
+        "ok",
+        "version"
+      ],
+      "source": "CLAUDE.md §JSON output",
+      "validated_by": "Injected bug: omit error key on success; exact-key assertion fails."
+    },
+    {
+      "id": "JSON-002",
+      "name": "run --json pass has exact shared envelope keys",
+      "fixture": "single_task",
+      "command": "sykli --json",
+      "expect_exit": 0,
+      "expect_json_keys": [
+        "data",
+        "error",
+        "ok",
+        "version"
+      ],
+      "source": "CLAUDE.md §JSON output",
+      "validated_by": "Injected bug: add ad-hoc top-level status; exact-key assertion fails."
+    },
+    {
+      "id": "JSON-003",
+      "name": "JSON version is string one",
+      "fixture": "single_task",
+      "command": "sykli validate --json",
+      "expect_exit": 0,
+      "expect_json_jq": [
+        ".version == \"1\"",
+        "(.version | type) == \"string\""
+      ],
+      "source": "CLAUDE.md §JSON output",
+      "validated_by": "Injected bug: serialize version as number; type assertion fails."
+    },
+    {
+      "id": "JSON-004",
+      "name": "JSON stdout is exactly one object and newline",
+      "fixture": "single_task",
+      "command": "sykli validate --json | tee json.out >/dev/null; test \"$(grep -c \"^{\" json.out)\" = 1 && tail -c 1 json.out | od -An -t u1 | grep -q 10",
+      "shell": true,
+      "expect_exit": 0,
+      "source": "CLAUDE.md §JSON output",
+      "validated_by": "Injected bug: print banner before JSON; object-count assertion fails."
+    },
+    {
+      "id": "JSON-005",
+      "name": "JSON mode emits no ANSI escapes",
+      "fixture": "single_task",
+      "command": "sykli --json",
+      "expect_exit": 0,
+      "expect_no_ansi": true,
+      "source": "CLAUDE.md §JSON output; ADR-020 §Output rules",
+      "validated_by": "Injected bug: pass JSON through visual renderer; ANSI assertion fails."
+    },
+    {
+      "id": "JSON-006",
+      "name": "Malformed SDK output returns namespaced error code",
+      "fixture": "invalid_json",
+      "command": "sykli validate --json",
+      "expect_exit": 1,
+      "expect_json_jq": [
+        ".error.code | test(\"^[a-z0-9_]+(\\\\.[a-z0-9_]+)*$\")"
+      ],
+      "source": "CLAUDE.md §Structured errors; JSON output",
+      "validated_by": "Injected bug: use prose error code; regex assertion fails."
+    },
+    {
+      "id": "JSON-007",
+      "name": "validate domain errors keep error null and data present",
+      "fixture": "duplicate_names",
+      "command": "sykli validate --json",
+      "expect_exit": 1,
+      "expect_json_jq": [
+        ".ok == false",
+        ".data != null",
+        ".error == null"
+      ],
+      "source": "CLAUDE.md §JSON output failure-with-data",
+      "validated_by": "Injected bug: return infrastructure error for duplicate names; assertion fails."
+    },
+    {
+      "id": "JSON-008",
+      "name": "history --json returns shared envelope without ANSI",
+      "fixture": "single_task",
+      "command": "sykli >/dev/null && sykli history --json",
+      "shell": true,
+      "expect_exit": 0,
+      "expect_json_keys": [
+        "data",
+        "error",
+        "ok",
+        "version"
+      ],
+      "expect_no_ansi": true,
+      "source": "CLAUDE.md §JSON output",
+      "validated_by": "Injected bug: history prints table in JSON mode; key/no-ANSI assertions fail."
+    },
+    {
+      "id": "DET-001",
+      "name": "Two identical validate JSON outputs are byte-identical",
+      "fixture": "dependency_chain",
+      "command": "sykli validate --json > a.json && sykli validate --json > b.json && cmp -s a.json b.json",
+      "shell": true,
+      "expect_exit": 0,
+      "source": "ADR-020 §Determinism and reproducibility",
+      "validated_by": "Injected bug: include wall-clock in validate payload; cmp assertion fails."
+    },
+    {
+      "id": "DET-002",
+      "name": "Graph DOT output is byte-identical across runs",
+      "fixture": "dependency_chain",
+      "command": "sykli graph --dot > a.dot && sykli graph --dot > b.dot && cmp -s a.dot b.dot",
+      "shell": true,
+      "expect_exit": 0,
+      "source": "ADR-020 §Determinism and reproducibility",
+      "validated_by": "Injected bug: include generated timestamp in graph output; cmp assertion fails."
+    },
+    {
+      "id": "DET-003",
+      "name": "Occurrence shape is stable after stripping variable fields",
+      "fixture": "single_task",
+      "command": "sykli >/dev/null && jq 'del(.id,.timestamp,.context.labels[\"sykli.run_id\"],.data.tasks[].duration_ms,.data.duration_ms,.history.duration_ms,.history.steps[].duration_ms,.history.steps[].timestamp)' .sykli/occurrence.json > a.json && sykli >/dev/null && jq 'del(.id,.timestamp,.context.labels[\"sykli.run_id\"],.data.tasks[].duration_ms,.data.duration_ms,.history.duration_ms,.history.steps[].duration_ms,.history.steps[].timestamp)' .sykli/occurrence.json > b.json && cmp -s a.json b.json",
+      "shell": true,
+      "expect_exit": 0,
+      "source": "CLAUDE.md §FALSE Protocol Occurrences; ADR-020 §Determinism",
+      "validated_by": "Injected bug: persist random field in occurrence data; normalized cmp fails.",
+      "findings": "Currently fails: normalized occurrence payloads differ across identical runs beyond declared variable fields."
+    },
+    {
+      "id": "DET-004",
+      "name": "No wall-clock timestamp appears in validate JSON",
+      "fixture": "single_task",
+      "command": "if sykli validate --json | grep -Eq \"20[0-9]{2}-[0-9]{2}-[0-9]{2}T\"; then exit 1; else exit 0; fi",
+      "shell": true,
+      "expect_exit": 0,
+      "source": "CLAUDE.md §No wall-clock or global RNG",
+      "validated_by": "Injected bug: include DateTime.utc_now in validate payload; grep assertion fails."
+    },
+    {
+      "id": "DET-005",
+      "name": "No wall-clock timestamp appears in graph output",
+      "fixture": "dependency_chain",
+      "command": "if sykli graph | grep -Eq \"20[0-9]{2}-[0-9]{2}-[0-9]{2}T\"; then exit 1; else exit 0; fi",
+      "shell": true,
+      "expect_exit": 0,
+      "source": "CLAUDE.md §No wall-clock or global RNG; ADR-010 reproducibility via ADR-020",
+      "validated_by": "Injected bug: stamp graph generation time; grep assertion fails."
+    },
+    {
+      "id": "DET-006",
+      "name": "Credo NoWallClock rejects DateTime.utc_now fixture",
+      "fixture": "single_task",
+      "command": "tmp=\"SYKLI_ROOT/core/lib/sykli/phase_2_5_wall_clock_violation.ex\"; printf \"defmodule Sykli.Phase25WallClockViolation do\\n  def now, do: DateTime.utc_now()\\nend\\n\" > \"$tmp\"; (cd SYKLI_ROOT/core && mix credo --strict >/tmp/sykli_credo_wall_clock.out 2>&1); status=$?; rm -f \"$tmp\"; test \"$status\" != 0 && grep -q \"DateTime.utc_now\" /tmp/sykli_credo_wall_clock.out",
+      "shell": true,
+      "expect_exit": 0,
+      "requires": "mix",
+      "source": "CLAUDE.md §No wall-clock or global RNG",
+      "validated_by": "Injected bug: remove NoWallClock check; credo would pass and status assertion fails.",
+      "findings": "Currently fails: the configured credo run did not reject a DateTime.utc_now file under lib/sykli."
+    },
+    {
+      "id": "SDK-001",
+      "name": "Conformance basic pipeline passes all SDKs",
+      "fixture": "single_task",
+      "command": "cd SYKLI_ROOT && tests/conformance/run.sh 01-basic >/dev/null",
+      "shell": true,
+      "expect_exit": 0,
+      "source": "CLAUDE.md §SDKs; sdk/*/README.md public surface parity",
+      "validated_by": "Injected bug: change one SDK basic JSON key; conformance runner fails."
+    },
+    {
+      "id": "SDK-002",
+      "name": "Conformance capabilities pass all SDKs",
+      "fixture": "single_task",
+      "command": "cd SYKLI_ROOT && tests/conformance/run.sh 02-capabilities >/dev/null",
+      "shell": true,
+      "expect_exit": 0,
+      "source": "CHANGELOG 0.5.0 Capability-based dependencies; SDK READMEs",
+      "validated_by": "Injected bug: drop provides value in one SDK; conformance runner fails."
+    },
+    {
+      "id": "SDK-003",
+      "name": "Conformance gates pass all SDKs",
+      "fixture": "single_task",
+      "command": "cd SYKLI_ROOT && tests/conformance/run.sh 04-gate >/dev/null",
+      "shell": true,
+      "expect_exit": 0,
+      "source": "CHANGELOG 0.5.0 Gate tasks; SDK READMEs",
+      "validated_by": "Injected bug: omit gate timeout serialization; conformance runner fails."
+    },
+    {
+      "id": "SDK-004",
+      "name": "Conformance task inputs pass all SDKs",
+      "fixture": "single_task",
+      "command": "cd SYKLI_ROOT && tests/conformance/run.sh 10-task-inputs >/dev/null",
+      "shell": true,
+      "expect_exit": 0,
+      "source": "README.md §Content-addressed caching; SDK READMEs",
+      "validated_by": "Injected bug: serialize inputs under covers; conformance runner fails."
+    },
+    {
+      "id": "SDK-005",
+      "name": "Conformance duplicate-after edge is consistent",
+      "fixture": "single_task",
+      "command": "cd SYKLI_ROOT && tests/conformance/run.sh 20-edge-duplicate-after >/dev/null",
+      "shell": true,
+      "expect_exit": 0,
+      "source": "SDK READMEs; CLAUDE.md §SDKs",
+      "validated_by": "Injected bug: one SDK keeps duplicate deps; conformance runner fails."
+    },
+    {
+      "id": "SDK-006",
+      "name": "Conformance empty provides value is preserved",
+      "fixture": "single_task",
+      "command": "cd SYKLI_ROOT && tests/conformance/run.sh 18-edge-provides-empty >/dev/null",
+      "shell": true,
+      "expect_exit": 0,
+      "source": "CHANGELOG 0.5.0 TypeScript/Python provides empty string fix",
+      "validated_by": "Injected bug: treat empty provides as undefined; conformance runner fails."
+    },
+    {
+      "id": "SDK-007",
+      "name": "Go SDK rejects cycle pre-emit",
+      "fixture": "single_task",
+      "command": "cd SYKLI_ROOT && tests/conformance/run.sh --sdk go err-cycle >/dev/null",
+      "shell": true,
+      "expect_exit": 0,
+      "requires": "go",
+      "source": "sdk/go/README.md; CLAUDE.md §Graph validation",
+      "validated_by": "Injected bug: Go SDK emits cyclic graph; conformance error case fails."
+    },
+    {
+      "id": "SDK-008",
+      "name": "Python SDK rejects duplicate task names pre-emit",
+      "fixture": "single_task",
+      "command": "cd SYKLI_ROOT && tests/conformance/run.sh --sdk python err-duplicate >/dev/null",
+      "shell": true,
+      "expect_exit": 0,
+      "requires": "python3",
+      "source": "CHANGELOG 0.5.0 Python SDK validation",
+      "validated_by": "Injected bug: Python SDK accepts duplicate names; conformance error case fails."
+    },
+    {
+      "id": "SDK-009",
+      "name": "Rust SDK rejects missing command pre-emit",
+      "fixture": "single_task",
+      "command": "cd SYKLI_ROOT && tests/conformance/run.sh --sdk rust err-no-command >/dev/null",
+      "shell": true,
+      "expect_exit": 0,
+      "requires": "cargo",
+      "source": "sdk/rust/README.md; CLAUDE.md §SDKs",
+      "validated_by": "Injected bug: Rust SDK emits no-command task; conformance error case fails."
+    },
+    {
+      "id": "SDK-010",
+      "name": "TypeScript SDK rejects unknown dependency pre-emit",
+      "fixture": "single_task",
+      "command": "cd SYKLI_ROOT && tests/conformance/run.sh --sdk typescript err-unknown-dep >/dev/null",
+      "shell": true,
+      "expect_exit": 0,
+      "requires": "node",
+      "source": "sdk/typescript/README.md; CLAUDE.md §SDKs",
+      "validated_by": "Injected bug: TS SDK emits unknown dependency; conformance error case fails."
+    },
+    {
+      "id": "UI-001",
+      "name": "Failing run prints sykli fix hint verbatim",
+      "fixture": "failing_task",
+      "command": "sykli",
+      "expect_exit": 1,
+      "expect_stdout": "Run  sykli fix  for AI-readable analysis.",
+      "source": "ADR-020 §Output rules item 6",
+      "validated_by": "Injected bug: remove fix hint from failure renderer; string assertion fails."
+    },
+    {
+      "id": "UI-002",
+      "name": "Passing run contains no banned internal vocabulary",
+      "fixture": "parallel_tasks",
+      "command": "sykli",
+      "expect_exit": 0,
+      "expect_stdout_not_contains": [
+        "Level",
+        "1L",
+        "(first run)",
+        "Target: local (docker:",
+        "All tasks completed"
+      ],
+      "source": "ADR-020 §Output rules item 2",
+      "validated_by": "Injected bug: restore old level/debug output; forbidden-pattern assertion fails."
+    },
+    {
+      "id": "UI-003",
+      "name": "Passing run uses pass glyph",
+      "fixture": "single_task",
+      "command": "sykli",
+      "expect_exit": 0,
+      "expect_stdout": "●",
+      "source": "ADR-020 §Glyph language",
+      "validated_by": "Injected bug: replace pass glyph with checkmark; assertion fails."
+    },
+    {
+      "id": "UI-004",
+      "name": "Failure run uses fail glyph",
+      "fixture": "failing_task",
+      "command": "sykli",
+      "expect_exit": 1,
+      "expect_stdout": "✕",
+      "source": "ADR-020 §Glyph language",
+      "validated_by": "Injected bug: replace fail glyph with x; assertion fails."
+    },
+    {
+      "id": "UI-005",
+      "name": "Blocked run uses blocked glyph",
+      "fixture": "fail_blocks_downstream",
+      "command": "sykli",
+      "expect_exit": 1,
+      "expect_stdout": "─",
+      "source": "ADR-020 §Glyph language",
+      "validated_by": "Injected bug: render blocked as skipped text without glyph; assertion fails."
+    },
+    {
+      "id": "UI-006",
+      "name": "Piped run output contains no ANSI escapes",
+      "fixture": "parallel_tasks",
+      "command": "sykli",
+      "expect_exit": 0,
+      "expect_no_ansi": true,
+      "source": "ADR-020 §Output rules item 5; non-TTY fallback",
+      "validated_by": "Injected bug: emit ANSI unconditionally; no-ANSI assertion fails."
+    },
+    {
+      "id": "UI-007",
+      "name": "Passing five-task run has single summary line",
+      "fixture": "five_tasks",
+      "command": "sykli > out.txt && test \"$(grep -cE \"^  ─  5 passed\" out.txt)\" = 1",
+      "shell": true,
+      "expect_exit": 0,
+      "source": "ADR-020 §Output rules item 1",
+      "validated_by": "Injected bug: print both old and new summaries; count assertion fails."
+    },
+    {
+      "id": "UI-008",
+      "name": "Successful task stdout is hidden by default",
+      "fixture": "stdout_hidden_marker",
+      "command": "sykli",
+      "expect_exit": 0,
+      "expect_stdout_not_contains": [
+        "VISIBLE_STDOUT_SHOULD_BE_HIDDEN"
+      ],
+      "source": "ADR-020 §Output rules item 4",
+      "validated_by": "Injected bug: stream stdout by default; forbidden-pattern assertion fails."
+    },
+    {
+      "id": "GH-001",
+      "name": "Receiver refuses to start without webhook role",
+      "fixture": "single_task",
+      "command": "SYKLI_GITHUB_RECEIVER_ENABLED=true SYKLI_LABELS= sykli --help >/dev/null",
+      "shell": true,
+      "expect_exit": 0,
+      "source": "ADR-021 §Topology; receiver is node role, not service",
+      "validated_by": "Injected bug: always start Bandit listener; --help would fail or bind unexpectedly."
+    },
+    {
+      "id": "GH-002",
+      "name": "Legacy GitHub status fallback remains available",
+      "fixture": "single_task",
+      "command": "GITHUB_TOKEN=placeholder sykli validate --json",
+      "shell": true,
+      "expect_exit": 0,
+      "expect_json_jq": [
+        ".ok == true"
+      ],
+      "source": "ADR-021 §Fallback; ADR-004 superseded fallback path",
+      "validated_by": "Injected bug: require GitHub App env for all GitHub-aware commands; validate would fail."
+    },
+    {
+      "id": "GH-003",
+      "name": "GitHub App env vars are not required for local-first run",
+      "fixture": "single_task",
+      "command": "env -u SYKLI_GITHUB_APP_ID -u SYKLI_GITHUB_APP_PRIVATE_KEY -u SYKLI_GITHUB_WEBHOOK_SECRET sykli --json",
+      "shell": true,
+      "expect_exit": 0,
+      "expect_json_jq": [
+        ".ok == true"
+      ],
+      "source": "ADR-020 §Network is opt-in; ADR-021 §Why this is local-first",
+      "validated_by": "Injected bug: make App credentials mandatory at boot; local run fails."
+    },
+    {
+      "id": "GH-004",
+      "name": "Absolute host path read from task command fails safely",
+      "fixture": "path_traversal_command",
+      "command": "sykli >/dev/null 2>&1 || true; test ! -s escaped.txt",
+      "shell": true,
+      "expect_exit": 0,
+      "source": "CLAUDE.md §Runtime isolation and path containment; CHANGELOG 0.2.0 path traversal vulnerability fix",
+      "validated_by": "Injected bug: execute task commands directly on host with unrestricted absolute paths; escaped file assertion fails.",
+      "findings": "Currently fails under local shell runtime if task commands can read /etc/passwd into the workspace."
     }
   ]
 }

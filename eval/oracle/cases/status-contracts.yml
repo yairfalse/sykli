@@ -1,0 +1,19 @@
+id: ORACLE-STATUS-001
+category: status
+source: "CLAUDE.md §TaskResult Status Values"
+validated_by: "If command non-zero exits are mapped to errored, NEG-016 fails."
+fixture: "test/blackbox/fixtures/failing_task.exs"
+command: "sykli --json"
+assertions:
+  - "Command exit 1 is status failed."
+  - "Command exit 1 is not status errored."
+---
+id: ORACLE-STATUS-002
+category: status
+source: "CLAUDE.md §TaskResult Status Values"
+validated_by: "If timeout handling is mapped to failed, ABN-015 fails."
+finding: "ABN-015 currently fails: task timeout reports status failed instead of errored."
+fixture: "test/blackbox/fixtures/task_timeout.exs"
+command: "sykli --json"
+assertions:
+  - "Infrastructure timeout is status errored."

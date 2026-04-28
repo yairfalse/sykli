@@ -1,0 +1,9 @@
+id: ORACLE-SDK-001
+category: sdk
+source: "CLAUDE.md §SDKs; sdk/*/README.md public API parity"
+validated_by: "If any SDK emits a non-normalized JSON graph for the same logical fixture, SDK-001 through SDK-006 fail."
+finding: "SDK-001..SDK-006 currently fail through the conformance runner for non-Go SDK execution/parity."
+fixture: "tests/conformance/fixtures/*/01-basic.*"
+command: "tests/conformance/run.sh 01-basic"
+assertions:
+  - "Equivalent pipelines in all five SDKs emit normalized-equivalent JSON."

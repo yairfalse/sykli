@@ -1,0 +1,19 @@
+id: ORACLE-DET-001
+category: determinism
+source: "ADR-020 §What local-first commits us to; CLAUDE.md §FALSE Protocol Occurrences"
+validated_by: "If occurrences contain undeclared volatile fields, DET-003 fails after stripping known variable fields."
+finding: "DET-003 currently fails: normalized occurrence payloads differ across identical runs."
+fixture: "test/blackbox/fixtures/single_task.exs"
+command: "test/blackbox/run.sh --filter=DET-003"
+assertions:
+  - "Two identical runs produce equivalent occurrence payloads after declared variable fields are removed."
+---
+id: ORACLE-DET-002
+category: determinism
+source: "CLAUDE.md §No wall-clock or global RNG"
+validated_by: "If the Credo NoWallClock check is disabled or not wired for lib/sykli files, DET-006 fails."
+finding: "DET-006 currently fails: a temporary DateTime.utc_now file under lib/sykli is not rejected by the configured credo run."
+fixture: "test/blackbox/fixtures/single_task.exs"
+command: "test/blackbox/run.sh --filter=DET-006"
+assertions:
+  - "The shipped Credo configuration rejects direct wall-clock access."

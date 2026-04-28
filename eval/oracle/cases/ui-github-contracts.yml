@@ -1,0 +1,18 @@
+id: ORACLE-UI-001
+category: ui
+source: "ADR-020 §Output rules"
+validated_by: "If the old renderer vocabulary returns, UI-002 fails on banned strings."
+fixture: "test/blackbox/fixtures/parallel_tasks.exs"
+command: "sykli"
+assertions:
+  - "Passing output contains no banned internal vocabulary."
+---
+id: ORACLE-GH-001
+category: github
+source: "CLAUDE.md §Runtime isolation and path containment; CHANGELOG 0.2.0 path traversal vulnerability fix"
+validated_by: "If task execution can read absolute host paths, GH-004 fails by observing an escaped file."
+finding: "GH-004 currently fails under local shell execution: a task can copy `/etc/passwd` into the workspace."
+fixture: "test/blackbox/fixtures/path_traversal_command/sykli.exs"
+command: "sykli"
+assertions:
+  - "A task command cannot read absolute host paths into the project workspace."
