@@ -21,7 +21,7 @@ defmodule Sykli.Mesh.Transport.Erlang do
   def demonitor(_reference), do: raise("not implemented")
 
   @impl true
-  def now_ms, do: raise("not implemented")
+  def now_ms, do: :os.system_time(:millisecond)
 
   @impl true
   def emit(_event), do: raise("not implemented")
