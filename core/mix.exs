@@ -45,6 +45,8 @@ defmodule Sykli.MixProject do
     [
       {:jason, "~> 1.4"},
       {:phoenix_pubsub, "~> 2.2"},
+      {:bandit, "~> 1.5"},
+      {:joken, "~> 2.6"},
       {:libcluster, "~> 3.3"},
       {:burrito, "~> 1.5"},
       {:yaml_elixir, "~> 2.9"},
