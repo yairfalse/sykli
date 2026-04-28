@@ -3,6 +3,12 @@
 # sykli black-box test runner
 # Reads dataset.json, creates temp fixtures, runs tests, reports results.
 #
+# Additional Phase 2.5 predicates are backward-compatible:
+#   expect_stdout_not_contains: ["text"]   fail if combined output contains any string
+#   expect_no_ansi: true                   fail if stdout/stderr contains ANSI CSI escapes
+#   expect_json_keys: ["ok", ...]          require exact top-level keys in JSON output
+#   expect_json_jq: [".ok == true"]        require every jq expression to evaluate to true
+#
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -39,7 +45,7 @@ for arg in "$@"; do
     --help|-h)
       echo "Usage: $0 [options]"
       echo "  --filter=PATTERN   Only run tests matching PATTERN (e.g. POS, NEG-001)"
-      echo "  --category=CAT     Only run tests in category (POS, NEG, SYS, INT, PERF, LOAD, ABN)"
+  echo "  --category=CAT     Only run tests in a category prefix"
       echo "  --verbose, -v      Show command output for all tests"
       exit 0
       ;;
@@ -141,6 +147,10 @@ run_test() {
   local requires="${11}"
   local use_shell="${12}"
   local expect_dir="${13}"
+  local expect_stdout_not_contains="${14}"
+  local expect_no_ansi="${15}"
+  local expect_json_keys="${16}"
+  local expect_json_jq="${17}"
 
   TOTAL=$((TOTAL + 1))
 
@@ -175,7 +185,8 @@ run_test() {
   local test_dir="$WORKSPACE/$id"
 
   # Replace 'sykli' in command with actual binary path
-  local full_cmd="${cmd//sykli/$SYKLI_BIN}"
+  local full_cmd="${cmd//SYKLI_ROOT/$SYKLI_ROOT}"
+  full_cmd=$(SYKLI_BIN_REPL="$SYKLI_BIN" perl -pe 's/(?<![A-Za-z0-9_.\/-])sykli(?![A-Za-z0-9_.-])/$ENV{SYKLI_BIN_REPL}/g' <<< "$full_cmd")
 
   # Execute
   local start_ms=$(now_ms)
@@ -234,6 +245,29 @@ $stderr_clean"
     fi
   fi
 
+  # Stdout must not contain multiple strings
+  if [ $failed -eq 0 ] && [ -n "$expect_stdout_not_contains" ] && [ "$expect_stdout_not_contains" != "null" ]; then
+    local forbidden_patterns
+    forbidden_patterns=$(echo "$expect_stdout_not_contains" | jq -r '.[]' 2>/dev/null || true)
+    if [ -n "$forbidden_patterns" ]; then
+      while IFS= read -r pattern; do
+        if echo "$all_output" | grep -qF -- "$pattern"; then
+          failed=1
+          fail_reason="stdout contained forbidden pattern: '$pattern'"
+          break
+        fi
+      done <<< "$forbidden_patterns"
+    fi
+  fi
+
+  # Raw stdout/stderr must not contain ANSI CSI escapes
+  if [ $failed -eq 0 ] && [ "$expect_no_ansi" = "true" ]; then
+    if LC_ALL=C grep -q "$(printf '\033')\\[" "$stdout_file" "$stderr_file" 2>/dev/null; then
+      failed=1
+      fail_reason="output contained ANSI escape codes"
+    fi
+  fi
+
   # JSON exact match (subset)
   if [ $failed -eq 0 ] && [ -n "$expect_json" ] && [ "$expect_json" != "null" ]; then
     local actual_json
@@ -276,6 +310,45 @@ $stderr_clean"
           break
         fi
       done <<< "$keys"
+    else
+      failed=1
+      fail_reason="no JSON found in output"
+    fi
+  fi
+
+  # JSON top-level keys must match exactly
+  if [ $failed -eq 0 ] && [ -n "$expect_json_keys" ] && [ "$expect_json_keys" != "null" ]; then
+    local actual_json
+    actual_json=$(jq '.' "$stdout_file" 2>/dev/null || jq '.' "$stderr_file" 2>/dev/null || true)
+    if [ -n "$actual_json" ]; then
+      local expected_keys actual_keys
+      expected_keys=$(echo "$expect_json_keys" | jq -r 'sort | join(",")')
+      actual_keys=$(echo "$actual_json" | jq -r 'keys | sort | join(",")' 2>/dev/null || true)
+      if [ "$expected_keys" != "$actual_keys" ]; then
+        failed=1
+        fail_reason="JSON keys: expected=$expected_keys actual=$actual_keys"
+      fi
+    else
+      failed=1
+      fail_reason="no JSON found in output"
+    fi
+  fi
+
+  # JSON jq expressions must all evaluate to true
+  if [ $failed -eq 0 ] && [ -n "$expect_json_jq" ] && [ "$expect_json_jq" != "null" ]; then
+    local actual_json
+    actual_json=$(jq '.' "$stdout_file" 2>/dev/null || jq '.' "$stderr_file" 2>/dev/null || true)
+    if [ -n "$actual_json" ]; then
+      local expressions
+      expressions=$(echo "$expect_json_jq" | jq -r '.[]' 2>/dev/null || true)
+      while IFS= read -r expression; do
+        if [ -z "$expression" ]; then continue; fi
+        if ! echo "$actual_json" | jq -e "$expression" >/dev/null 2>&1; then
+          failed=1
+          fail_reason="JSON jq assertion failed: $expression"
+          break
+        fi
+      done <<< "$expressions"
     else
       failed=1
       fail_reason="no JSON found in output"
@@ -327,7 +400,7 @@ echo -e "${DIM}Dataset: $(jq '.cases | length' "$DATASET") test cases${RESET}"
 echo ""
 
 # Run categories in order
-for category in POS NEG SYS INT PERF LOAD ABN; do
+for category in POS NEG SYS INT PERF LOAD ABN CACHE JSON DET SDK UI GH; do
   cases=$(jq -c ".cases[] | select(.id | startswith(\"$category\"))" "$DATASET")
   if [ -z "$cases" ]; then continue; fi
 
@@ -348,11 +421,16 @@ for category in POS NEG SYS INT PERF LOAD ABN; do
     requires=$(echo "$case_json" | jq -r '.requires // empty')
     use_shell=$(echo "$case_json" | jq -r '.shell // empty')
     expect_dir=$(echo "$case_json" | jq -r '.expect_dir // empty')
+    expect_stdout_not_contains=$(echo "$case_json" | jq -c '.expect_stdout_not_contains // empty')
+    expect_no_ansi=$(echo "$case_json" | jq -r '.expect_no_ansi // empty')
+    expect_json_keys=$(echo "$case_json" | jq -c '.expect_json_keys // empty')
+    expect_json_jq=$(echo "$case_json" | jq -c '.expect_json_jq // empty')
 
     run_test "$id" "$name" "$fixture" "$cmd" "$expect_exit" \
       "$expect_stdout" "$expect_stdout_contains" "$expect_json" \
       "$expect_json_contains" "$max_duration_ms" "$requires" \
-      "$use_shell" "$expect_dir"
+      "$use_shell" "$expect_dir" "$expect_stdout_not_contains" \
+      "$expect_no_ansi" "$expect_json_keys" "$expect_json_jq"
   done <<< "$cases"
 
   echo ""
