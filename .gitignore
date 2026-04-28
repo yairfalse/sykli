@@ -60,6 +60,7 @@ temp/
 # Documentation (research notes - not for commit, but allow ADRs and committed guides)
 docs/*
 !docs/adr/
+!docs/releases/
 !docs/runtimes.md
 
 # Sykli runtime data (AI context, run history, logs)

@@ -9,7 +9,7 @@ defmodule Sykli.CLI.RendererTest do
       Renderer.render_run(
         "parallel_tasks.exs",
         "local",
-        "0.5.3",
+        "0.6.0",
         [
           %TaskResult{name: "task_a", command: "echo a", status: :passed, duration_ms: 108},
           %TaskResult{name: "task_b", command: "echo b", status: :passed, duration_ms: 112}
@@ -34,7 +34,7 @@ defmodule Sykli.CLI.RendererTest do
       Renderer.render_run(
         "build.exs",
         "local",
-        "0.5.3",
+        "0.6.0",
         [
           %TaskResult{name: "test", command: "go test ./...", status: :passed, duration_ms: 1800},
           %TaskResult{

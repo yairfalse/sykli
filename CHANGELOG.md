@@ -5,6 +5,136 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-04-29
+
+This release crystallizes the v0.6 line: a Nordic-minimal CLI, a fully decoupled runtime layer with deterministic-test defaults, SLSA v1.0 supply-chain attestations, an oracle-based AI agent evaluation harness, the FALSE-Protocol-first-class internal model, and the foundation for v0.7's GitHub-native CI integration. v0.5.1, v0.5.2, and v0.5.3 were development tags without CHANGELOG entries; their changes are folded in here.
+
+**Positioning lock-in.** ADR-020 names the project: *local-first CI for the next generation of software developers*. Every architectural decision in this release flows from that thesis. ADR-021 supersedes ADR-004 and frames the next line of work — sykli replaces GitHub Actions instead of running inside it, with a webhook receiver running on the user's own mesh.
+
+### Added
+
+#### CLI & user-facing
+- **v0.6 visual reset** — Nordic-minimal CLI per ADR-020. New modules `Sykli.CLI.Renderer`, `Theme`, `Live`, `FixRenderer`. One accent color (cold cyan-teal), glyph-driven status (`● ○ ✕ ─ ⠋`), right-aligned timing column, single redraw region for animations, hidden task stdout by default, single summary per run.
+- **`sykli mcp`** — MCP server for AI assistant integration (Claude Code, Cursor, Copilot). 5 tools, stdio transport.
+- **`sykli fix`** — AI-readable failure analysis with source context and git diff. Renders inline causality, "where it changed", and proposed remediation.
+- **`sykli query`** — structured queries against pipeline / history / health data without an LLM.
+- **`sykli plan`** — dry-run execution planning with git-diff-driven task selection.
+- **`sykli explain --pipeline`** — AI-readable pipeline structure (levels, critical path).
+- **`sykli run --json`** — structured machine-readable output for AI agents and tooling.
+- **Shared JSON envelope** — `Sykli.CLI.JsonResponse` provides `{ok, version, data, error}` across every `--json` command, including the `error_with_data` variant for validate-style failures. Agents parse one shape across all commands.
+- **`--runtime` CLI flag** + `mix sykli.runtime.info` task for inspecting runtime selection.
+- **Improved no-pipeline-found UX** with quick-start hint, language detection across all 5 SDKs, monorepo support (subdirectory detection).
+- **README rewrite** for the v0.6 thesis (650 → 220 lines, then re-cut for the visual reset hero).
+
+#### Runtime decoupling (RC.0–RC.7)
+- **`Sykli.Runtime.Resolver`** — single source of truth for runtime selection via priority chain (CLI flag → opts → app env → `SYKLI_RUNTIME` env → auto-detect → Shell fallback).
+- **`Sykli.Runtime.Fake`** — deterministic in-memory runtime; default for `:test` env so unit tests need no Docker.
+- **`Sykli.Runtime.Podman`** — rootless Podman runtime, full parity with the Docker runtime.
+- **Runtime isolation invariant** — no module outside `core/lib/sykli/runtime/` may name a specific runtime. Enforced by `core/test/sykli/runtime_isolation_test.exs` which greps the source tree.
+- **Test tiers** — `mix test` (unit, against Fake), `mix test.docker`, `mix test.podman`, `mix test.integration`. Default-excludes `:docker`, `:podman`, `:integration` tags.
+
+#### Supply chain & verification
+- **SLSA v1.0 provenance attestation** with DSSE envelope signing (`Sykli.Attestation`). Per-run and per-task envelopes.
+- **`SYKLI_SIGNING_KEY` / `SYKLI_ATTESTATION_KEY_FILE`** for HMAC and file-based signing keys.
+- **`Sykli.HTTP.ssl_opts/1`** — shared TLS verification options for all `:httpc` callers (OIDC, S3, SCM, webhooks).
+
+#### GitHub-native foundation (ADR-021 Phase 1)
+- **`Sykli.GitHub.App`** — JWT-signed App authentication, installation token acquisition, behaviour split (Real + Fake) with token caching (`Sykli.GitHub.App.Cache`).
+- **`Sykli.GitHub.Webhook.Receiver`** — Plug pipeline on Bandit; `/healthz` and `/webhook` endpoints; HMAC-SHA256 signature verification (`Sykli.GitHub.Webhook.Signature`); replay protection via `X-GitHub-Delivery` LRU (`Sykli.GitHub.Webhook.Deliveries`).
+- **`Sykli.GitHub.Checks`** — Checks API client (`create_suite/3`, `create_run/4`, `update_run/4`).
+- **`Sykli.GitHub.Clock`** + **`Sykli.GitHub.HttpClient`** — behaviour-split time and HTTP layers for deterministic testing.
+- **`Sykli.Mesh.Roles`** — single-node-per-role capability registry. New role `:webhook_receiver` placed by capability rules.
+- **New occurrence types** — `ci.github.webhook.received`, `ci.github.check_suite.opened`.
+- **`docs/github-native.md`** — App registration walkthrough.
+
+#### Mesh & determinism foundation
+- **`Sykli.Mesh.Transport.Sim`** — deterministic in-memory mesh transport for simulation testing. Includes `EventQueue`, `Network`, `Rng`, `SimNode`, `State`, `PidRef` submodules.
+- **`Sykli.Mesh.Transport.Erlang`** — production OTP-distribution transport.
+- **`CredoSykli.Check.NoWallClock`** — custom Credo check; fails on `System.monotonic_time`, `System.os_time`, `System.system_time`, `DateTime.utc_now`, `NaiveDateTime.utc_now`, `:os.system_time`, `:erlang.now`, and bare `:rand.uniform`.
+
+#### Evaluation & quality
+- **Oracle eval suite** — 55 ground-truth cases (20 initial + 20 adversarial + 15 mean) for AI-agent CI behavior validation. Run via `eval/oracle/run.sh`.
+- **Eval harness** — full Claude Code → build → oracle → report loop via `eval/harness/run.sh` for AI agent regression evaluation.
+
+#### FALSE Protocol & observability
+- **FALSE Protocol first-class** — internal events ARE `Sykli.Occurrence` structs (refactor; previously occurrences wrapped events).
+- **`chain_id`** — correlates retry chains across occurrences.
+- **Configurable `source` URI** via `SYKLI_SOURCE_URI` env or `:sykli, :source` app env.
+- **`:errored` task status** — distinct from `:failed` for infrastructure failures (timeouts, OIDC, missing secrets, process crashes). `:failed` gets causality analysis; `:errored` gets infrastructure diagnostics.
+- **`.sykli/context.json`** — added project + health sections; documented optional schema.
+- **Per-task log paths** in occurrence task entries.
+- **ULID run IDs** — monotonic, sortable, replace older random IDs.
+
+#### ADRs
+- **ADR-020** — Positioning, Audience, and Visual Direction (the local-first thesis).
+- **ADR-021** — GitHub-Native Integration via Webhook + Mesh Receiver (supersedes ADR-004).
+
+### Changed
+
+- **Cache fingerprint includes repo-relative workdir.** Project-scoped cache keys prevent cross-project pollution. **Breaking for occurrences from before this change** — old `.sykli/occurrence.json` payloads are not backward-compatible with the new cache-key format. Re-run pipelines to rebuild local cache state.
+- **Dead code removal** — −1102 lines of compiler warnings + unused modules + stale `Sykli.Executor.Server` references.
+- **`README.md`** — rewritten for the v0.6 thesis; broken `crates.io` and `hex.pm` badges removed.
+- **CLAUDE.md** — extensively updated: supervision tree, errored status, env vars, runtime isolation rule, NoWallClock rule, S3 circuit breaker, async SCM, JSON envelope shape.
+
+### Fixed
+
+- **K8s job lifecycle namespace handling** — uses manifest namespace, not coordinator default; prevents leaks across namespaces.
+- **Race condition in `execute_sync`** for fast-completing tasks.
+- **Gate occurrence JSON serialization** — gate fields now round-trip through JSON cleanly.
+- **Attestation generation without cache metadata** — no longer crashes when cache backend is unconfigured.
+- **Circuit breaker monotonic time assertion** — used the wrong time source.
+- **xmerl warning configuration** — silenced the noise on stderr.
+- **Cache fingerprint collisions** across projects sharing similar task graphs.
+- **35+ PR review comments** addressed across the release (Copilot + human reviewers).
+
+### Security
+
+- **SEC-001** — OIDC token requests now verify TLS (was using `:verify_none`).
+- **SEC-002** — `secret_refs` file source validates path containment, prevents host-path traversal.
+- **SEC-003** — Docker mount paths use `String.starts_with?(path, base <> "/")` to prevent prefix-trick traversals.
+- **SEC-004** — Webhook delivery has SSRF guard; rejects internal IP ranges and metadata endpoints.
+- **SEC-006** — `SecretMasker` now matches broader env var patterns (`_TOKEN`, `_SECRET`, `_KEY`, `_PASSWORD`, `_URL`, `_DSN`, `_URI`, `_CONN`).
+- **SEC-007** — Cache key now includes OIDC-derived runtime secrets to prevent cache leak across credentialed runs.
+- **OIDC JWT verification** — full RS256 verification against the provider's JWKS, not just decoding.
+- **S3 circuit breaker** — `TieredRepository` tracks consecutive failures in `persistent_term`; after 5, L2 writes skip for 60s cooldown.
+- **Async SCM status calls** (REL-005) — status posts fire via `Task.Supervisor.async_nolink` and never block the executor.
+- **Webhook signature verification** — HMAC-SHA256, constant-time comparison, body never logged on mismatch.
+- **Webhook replay protection** — bounded LRU of `X-GitHub-Delivery` IDs.
+
+### Reliability
+
+- **REL-002** — Graceful shutdown (SIGTERM) drains in-flight tasks within `SYKLI_DRAIN_TIMEOUT_MS` (default 30s).
+- **REL-003** — Concurrent runs no longer race on `.sykli/occurrence.json`; writes go through `Occurrence.Store` with three-tier persistence (ETS hot → ETF warm → JSON cold).
+- **REL-004** — S3 cache timeout no longer blocks executor; calls are bounded and circuit-broken.
+- **REL-006** — PubSub failures no longer silently swallow occurrence emission; structured warning logged.
+- **REL-007** — `RunRegistry` evicts terminated runs (was leaking).
+- **REL-008** — Telemetry duration units corrected (was emitting microseconds when contract said milliseconds).
+
+### Documentation
+
+- `docs/adr/020-positioning-and-visual-direction.md`
+- `docs/adr/021-github-native-via-webhook-mesh-receiver.md`
+- `docs/deep-dive-findings.md` — 37 tracked issues across security/reliability/architecture/test coverage; the SEC and REL series above are the closure.
+- `docs/runtimes.md` — runtime selection priority chain.
+- `docs/cache-key-investigation.md` — determinism investigation behind the cache fingerprint change.
+- `docs/eventqueue-flake-investigation.md` — property-test triage.
+- `docs/github-native.md` — Phase 1 setup walkthrough.
+- `CODEX_PROMPT_PHASE_1.md` and `CODEX_PROMPT_PHASE_2.md` — kickoff prompts for AI coding agents driving the GitHub-native rollout.
+
+### SDK & ecosystem
+
+- All five SDKs (Go, Rust, TypeScript, Elixir, Python) bumped to 0.6.0 in lockstep.
+- Python SDK adds `verify()` for cross-platform verification parity.
+- TypeScript, Rust, and Elixir SDKs gain gate support.
+- Comprehensive cross-SDK conformance suite added (`tests/conformance/`); resolves cross-SDK divergences.
+
+### Migration notes
+
+- **Old `.sykli/occurrence.json` payloads** are not backward-compatible with the new cache-key format. The first run after upgrading rebuilds cache state automatically; no user action required beyond expecting one cold run.
+- **GitHub integration**: ADR-004's "run inside GitHub Actions + Commit Status API" path remains supported as a documented fallback. The new GitHub-native path (ADR-021 Phase 1+) is opt-in via App registration.
+- **Tests requiring Docker** are now excluded by default. Run with `mix test.docker` (or `--include docker`) to execute them.
+- **`SYKLI_RUNTIME`** env var is the new way to force a specific runtime. CLI `--runtime` takes precedence.
+
 ## [0.5.0] - 2026-02-07
 
 ### Added
