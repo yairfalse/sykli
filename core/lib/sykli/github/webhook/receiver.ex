@@ -9,7 +9,10 @@ defmodule Sykli.GitHub.Webhook.Receiver do
   alias Sykli.Occurrence.PubSub, as: OccPubSub
 
   @role :webhook_receiver
-  @max_body_bytes 1_000_000
+  # GitHub's documented webhook payload ceiling is 25 MB; 10 MB covers
+  # large-PR `pull_request` and many-commit `push` payloads with headroom
+  # while still bounding worst-case memory per request.
+  @max_body_bytes 10_000_000
   @read_timeout_ms 15_000
 
   def init(opts), do: opts
@@ -33,7 +36,7 @@ defmodule Sykli.GitHub.Webhook.Receiver do
   def call(conn, _opts), do: send_text(conn, 404, "not found")
 
   defp handle_webhook(conn, opts) do
-    with {:ok, body, conn} <- read_full_body(conn),
+    with {:ok, body, conn} <- read_full_body(conn, opts),
          :ok <- verify_signature(conn, body, opts),
          :ok <- accept_delivery(conn, opts) do
       case process_accepted(conn, body, opts) do
@@ -93,8 +96,12 @@ defmodule Sykli.GitHub.Webhook.Receiver do
     })
   end
 
-  defp read_full_body(conn) do
-    case read_body(conn, length: @max_body_bytes, read_timeout: @read_timeout_ms) do
+  defp read_full_body(conn, opts \\ []) do
+    # `max_body_bytes` is overridable via opts so tests can exercise the
+    # 413 path without allocating a real 10 MB request body.
+    max_bytes = Keyword.get(opts, :max_body_bytes, @max_body_bytes)
+
+    case read_body(conn, length: max_bytes, read_timeout: @read_timeout_ms) do
       {:ok, body, conn} ->
         {:ok, body, conn}
 

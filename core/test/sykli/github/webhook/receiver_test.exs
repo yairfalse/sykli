@@ -126,6 +126,23 @@ defmodule Sykli.GitHub.Webhook.ReceiverTest do
     assert Jason.decode!(conn.resp_body)["error"]["code"] == "github.webhook.missing_signature"
   end
 
+  test "request body over the configured size limit returns 413" do
+    :ok = Roles.acquire(:webhook_receiver)
+
+    oversized_body = String.duplicate("x", 10_000)
+
+    conn =
+      :post
+      |> conn("/webhook", oversized_body)
+      |> put_req_header("x-hub-signature-256", Signature.sign(@secret, oversized_body))
+      |> put_req_header("x-github-delivery", "delivery-too-big")
+      |> put_req_header("x-github-event", "pull_request")
+      |> Receiver.call(webhook_secret: @secret, max_body_bytes: 10)
+
+    assert conn.status == 413
+    assert Jason.decode!(conn.resp_body)["error"]["code"] == "github.webhook.body_too_large"
+  end
+
   test "duplicate delivery is rejected" do
     :ok = Roles.acquire(:webhook_receiver)
 
