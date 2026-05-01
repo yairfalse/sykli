@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is Sykli?
 
-AI-native CI engine. Pipelines are written as real code (Go/Rust/TypeScript/Elixir/Python SDKs), emitted as JSON task graphs, and executed by an Elixir/BEAM engine. Every run produces structured context (FALSE Protocol occurrences) that AI assistants can read directly — no log parsing.
+sykli is a compiler for programmable execution graphs. Graphs are written as real code (Go/Rust/TypeScript/Elixir/Python SDKs), emitted as JSON task plans, and executed by an Elixir/BEAM engine. CI is one use case of the graph model; every run also produces structured context (FALSE Protocol occurrences) that agents and downstream tools can read directly — no log parsing.
 
 ## Build & Test Commands
 

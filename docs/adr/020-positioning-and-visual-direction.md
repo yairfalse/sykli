@@ -1,6 +1,8 @@
 # ADR-020: Positioning, Audience, and Visual Direction
 
 **Status:** Proposed
+> Positioning section superseded by ADR-022 (2026-05-01). Visual direction remains canonical.
+
 **Date:** 2026-04-27
 
 ---

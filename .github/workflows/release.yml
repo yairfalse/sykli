@@ -22,7 +22,7 @@ jobs:
             os: ubuntu-latest
             burrito_target: linux_aarch64
           - target: macos-x86_64
-            os: macos-15-large
+            os: macos-13
             burrito_target: macos_x86_64
           - target: macos-aarch64
             os: macos-14
@@ -40,7 +40,16 @@ jobs:
 
       - name: Install Zig (macOS)
         if: runner.os == 'macOS'
-        run: brew install zig xz
+        run: |
+          brew install xz
+          case "${{ matrix.burrito_target }}" in
+            macos_x86_64) zig_arch="x86_64-macos" ;;
+            macos_aarch64) zig_arch="aarch64-macos" ;;
+            *) echo "unsupported macOS target: ${{ matrix.burrito_target }}" && exit 1 ;;
+          esac
+          curl -fsSLO "https://ziglang.org/download/0.15.2/zig-$zig_arch-0.15.2.tar.xz"
+          tar -xf "zig-$zig_arch-0.15.2.tar.xz"
+          echo "$PWD/zig-$zig_arch-0.15.2" >> $GITHUB_PATH
 
       - name: Set up Elixir
         uses: erlef/setup-beam@v1
@@ -73,6 +82,8 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -97,4 +108,5 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: release/*
-          generate_release_notes: true
+          body_path: docs/releases/v0.6.0.md
+          make_latest: true

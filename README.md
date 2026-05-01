@@ -21,6 +21,7 @@ func main() {
         After("test").
         Outputs("app")
 
+    // roadmap: ships in 0.6.x — see Roadmap section
     s.Task("review").
         Run("sykli review --primitive api-breakage --diff main...HEAD").
         After("test").
@@ -31,7 +32,7 @@ func main() {
 ```
 
 ```
-sykli · pipeline.go                                local · 0.5.3
+sykli · pipeline.go                                local · 0.6.0
 
   ●  test     go test ./...                        108ms
   ●  build    go build -o app                      612ms
@@ -162,9 +163,9 @@ Requires Elixir 1.14+.
 | Language | Install | File |
 |----------|---------|------|
 | **Go** | `go get github.com/yairfalse/sykli/sdk/go@latest` | `sykli.go` |
-| **Rust** | `sykli = "0.5"` in Cargo.toml | `sykli.rs` |
+| **Rust** | `sykli = "0.6"` in Cargo.toml | `sykli.rs` |
 | **TypeScript** | `npm install sykli` | `sykli.ts` |
-| **Elixir** | `{:sykli_sdk, "~> 0.5.1"}` in mix.exs | `sykli.exs` |
+| **Elixir** | `{:sykli_sdk, "~> 0.6.0"}` in mix.exs | `sykli.exs` |
 | **Python** | `pip install sykli` | `sykli.py` |
 
 All SDKs share the same API surface. The file lives at the project root.
@@ -222,9 +223,12 @@ sykli delta               # only tasks affected by git changes
 sykli watch               # re-run on file changes
 sykli explain             # show last run as AI-readable report
 sykli fix                 # AI-readable failure analysis with source context
+sykli context             # generate AI context file (.sykli/context.json)
+sykli query               # query pipeline, history, and health data
 sykli graph               # mermaid / DOT diagram of the DAG
 sykli verify              # cross-platform verification via mesh
 sykli history             # recent runs
+sykli report              # show last run summary with task results
 sykli cache stats         # cache hit rates
 sykli daemon start        # start a mesh node on this host
 sykli mcp                 # MCP server (Claude Code, Cursor, Copilot)

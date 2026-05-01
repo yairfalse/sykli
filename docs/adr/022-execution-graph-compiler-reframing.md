@@ -1,6 +1,6 @@
 # ADR-022: Reframing sykli as an Execution Graph Compiler
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-05-01
 **Supersedes:** ADR-020 (positioning section only; visual direction preserved)
 

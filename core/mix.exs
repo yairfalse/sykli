@@ -52,7 +52,7 @@ defmodule Sykli.MixProject do
       {:yaml_elixir, "~> 2.9"},
       {:file_system, "~> 1.0"},
       {:telemetry, "~> 1.3"},
-      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:credo, "~> 1.7", runtime: false},
       {:mix_audit, "~> 2.1", only: :dev, runtime: false},
       {:stream_data, "~> 1.1", only: :test}
     ]
