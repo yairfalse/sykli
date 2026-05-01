@@ -1,10 +1,8 @@
 # sykli
 
-Local-first CI for the next generation of software developers.
+**Execution graphs as code.**
 
-For developers who chose Bun over npm, Linear over Jira, and Vercel over raw AWS.
-Write pipelines as real code, run them on hardware you control, and keep network optional.
-When a task fails, Sykli emits structured context your AI agent can act on directly.
+sykli lets you define tasks, dependencies, inputs, outputs, and execution logic in a real programming language — Go, Rust, TypeScript, Elixir, or Python — and emit an explicit execution plan that any runner can execute.
 
 ```go
 package main
@@ -13,68 +11,130 @@ import sykli "github.com/yairfalse/sykli/sdk/go"
 
 func main() {
     s := sykli.New()
-    s.Task("test").Run("go test ./...").Inputs("**/*.go")
-    s.Task("build").Run("go build -o app").After("test")
+
+    s.Task("test").
+        Run("go test ./...").
+        Inputs("**/*.go")
+
+    s.Task("build").
+        Run("go build -o app").
+        After("test").
+        Outputs("app")
+
+    s.Task("review").
+        Run("sykli review --primitive api-breakage --diff main...HEAD").
+        After("test").
+        Outputs("review.json")
+
     s.Emit()
 }
 ```
 
 ```
-sykli · parallel_tasks.exs                         local · 0.5.3
+sykli · pipeline.go                                local · 0.5.3
 
-  ●  task_a    echo a                                  108ms
-  ●  task_b    echo b                                  112ms
+  ●  test     go test ./...                        108ms
+  ●  build    go build -o app                      612ms
+  ●  review   sykli review --primitive ...         842ms
 
-  ─  2 passed                                          111ms
+  ─  3 passed                                      1.2s
 ```
+
+The `review` task is just another node in the graph. It can be executed locally, in GitHub Actions, in another CI provider, or by an agent-aware runtime. The graph doesn't care.
 
 ---
 
-## Three things that make Sykli different
+## sykli is not CI
 
-### 1. Pipelines are real code
+sykli is not a CI system in the narrow sense.
 
-Not YAML with string interpolation hacks. Real variables, real functions, real type checking.
+It is a compiler for execution graphs. Builds, tests, deployments, reviews, release checks, security analysis, and agent-driven reasoning can all be represented as nodes in the same graph. CI is simply the first obvious use case because CI already has the right primitives — tasks, dependencies, inputs, outputs, execution order.
+
+The important shift is that the pipeline is no longer hidden inside YAML and shell scripts. It becomes a real program that emits an explicit, inspectable execution plan.
+
+## Why YAML is not enough
+
+YAML pipelines fail at four things that get worse over time:
+
+- **No types.** A typo in a job name or a wrong parameter type fails at runtime, often inside the cloud provider's job log. There is no compiler.
+- **Poor reuse.** Anchors and includes paper over the gap. Real composition — pass values, build helpers, derive task lists from data — is impossible without escape-hatch shell.
+- **Hidden logic.** The actual decision tree is split across `if:` conditionals, `needs:` graphs, matrix expansions, environment files, and the runner's behavior. Reading what will run requires running it.
+- **Vendor lock-in.** GitHub Actions YAML doesn't run on GitLab, doesn't run on CircleCI, doesn't run on your laptop. The pipeline is property of the vendor, not the project.
+
+A pipeline is a program. It deserves a programming language.
+
+## How it works
+
+```
+sdk file (Go/Rust/TS/Elixir/Python)
+   │
+   │  --emit
+   ▼
+JSON task graph (stdout)
+   │
+   ▼
+sykli engine: validate DAG → schedule levels → execute → observe
+   │
+   ▼
+.sykli/ — structured occurrences, attestations, run history
+```
+
+1. **Define.** Write your graph in a real language. Use variables, functions, types.
+2. **Emit.** sykli runs your SDK file with `--emit` and reads the resulting JSON.
+3. **Execute.** The engine validates the DAG (cycle detection, schema, capability resolution), schedules tasks level-by-level in parallel, applies caching and retries.
+4. **Observe.** Every event becomes a [FALSE Protocol](https://github.com/false-systems) occurrence written to `.sykli/`. AI agents and downstream tools read structured data, not log scrolls.
+
+The engine runs on the BEAM VM. Same code on your laptop, in Docker, on Kubernetes, or across a mesh of nodes.
+
+## Agentic review as code
+
+Agentic workflows need primitives, not prompts. Asking an LLM to "review this PR" is too underspecified to be repeatable. Defining a review *task* with constrained inputs, expected outputs, and explicit rules is.
 
 ```go
-// Templates — define once, reuse everywhere
-src := s.Dir(".")
-golang := s.Template("golang").Container("golang:1.22").Mount(src, "/src")
+s.Task("review/api-breakage").
+    Run("sykli review --primitive api-breakage --diff main...HEAD").
+    Outputs("api-review.json")
 
-s.Task("test").From(golang).Run("go test ./...")
-s.Task("lint").From(golang).Run("go vet ./...")
-s.Task("build").From(golang).Run("go build -o app").After("test", "lint")
+s.Task("review/security").
+    Run("sykli review --primitive security --diff main...HEAD").
+    Outputs("security-review.json")
+
+s.Task("review/observability-regression").
+    Run("sykli review --primitive observability-regression").
+    Outputs("obs-review.json")
 ```
 
-### 2. AI reads the output — no log parsing
+A review primitive is a node with:
 
-Every run writes structured context to `.sykli/`. When your build fails, AI tools get:
+- **Constrained inputs.** A diff range, a directory, a manifest. Not "the whole repo, figure it out."
+- **Expected outputs.** A structured JSON report at a known path. Not freeform commentary.
+- **Explicit rules.** What counts as an api breakage, what counts as a coverage gap, what counts as an architecture-boundary violation.
 
-```json
-{
-  "error": {
-    "what_failed": "task 'test' command: go test ./...",
-    "why_it_matters": "blocks build, deploy",
-    "possible_causes": ["pkg/auth/handler.go changed and matches test inputs"],
-    "suggested_fix": "check recent changes to pkg/auth/"
-  },
-  "reasoning": {
-    "summary": "test failed — pkg/auth/handler.go changed and matches task inputs",
-    "confidence": 0.8
-  }
-}
-```
+Agents — Claude, Codex, local models, deterministic linters — are executors inside the graph. Different runtimes can fulfill the same primitive. The graph is the contract; the executor is an implementation detail.
 
-No scraping logs. No regex. Structured data from birth.
+Planned primitives: `review/security`, `review/api-breakage`, `review/observability-regression`, `review/test-coverage-gap`, `review/architecture-boundary`. The `sykli review` command is on the roadmap; the design above is the shape it will take.
 
-### 3. Supply chain provenance is automatic
+## Use cases
 
-Every run that produces artifacts generates [SLSA v1.0](https://slsa.dev) provenance attestations. Zero configuration.
+| Use case | What sykli gives you |
+|---|---|
+| **CI pipelines** | The whole CI graph as code, content-addressed cache, parallel-by-dependency-level execution, deterministic replay |
+| **PR reviews** | Reviews as graph nodes — agents and linters fulfill the same node contract |
+| **Release checks** | SLSA v1.0 provenance attestations per task, signed by the engine, verifiable downstream |
+| **Security validation** | Secret-scoped tasks, OIDC token exchange to cloud providers, SSRF-guarded webhooks |
+| **Infrastructure validation** | Same task graph against `local`, `k8s`, or a self-hosted mesh of nodes |
+| **Agentic workflows** | Agents are executors; the graph defines what runs, what it depends on, and what it outputs |
 
-```
-.sykli/attestation.json          # Per-run DSSE envelope (in-toto/SLSA v1)
-.sykli/attestations/build.json   # Per-task envelopes for artifact registries
-```
+## Design principles
+
+- **Real languages, not DSLs.** Pipelines are Go / Rust / TypeScript / Elixir / Python programs.
+- **Explicit dependencies.** No implicit ordering, no hidden state. The DAG is the source of truth.
+- **Typed APIs.** Each SDK is type-checked by its host language; cross-SDK behavior is enforced by a conformance suite.
+- **Portable execution.** Same graph on a laptop, in Docker, on Kubernetes, or across a mesh.
+- **Local-first.** The engine runs on hardware you control. Network features are additive, never required.
+- **No YAML-first.** YAML is a *projection* of the graph for tools that need it, never the source of truth.
+- **Agents are executors, not magic.** A review primitive is a node with constrained inputs and expected outputs. Whatever fulfills the contract — agent, linter, classifier — is interchangeable.
+- **Determinism is testable.** Time, randomness, and clock are routed through transport APIs; runs replay byte-identically given a seed.
 
 ---
 
@@ -97,15 +157,6 @@ sudo mv sykli /usr/local/bin/
 Requires Elixir 1.14+.
 </details>
 
----
-
-## Quick start
-
-```bash
-sykli init      # auto-detects language, generates sykli.go / .rs / .ts / .exs / .py
-sykli           # run the pipeline
-```
-
 ### Pick your SDK
 
 | Language | Install | File |
@@ -116,94 +167,41 @@ sykli           # run the pipeline
 | **Elixir** | `{:sykli_sdk, "~> 0.5.1"}` in mix.exs | `sykli.exs` |
 | **Python** | `pip install sykli` | `sykli.py` |
 
-All SDKs share the same API surface. The file must be in the project root.
+All SDKs share the same API surface. The file lives at the project root.
 
 ---
 
-## What you can do
-
-### Content-addressed caching
+## Capabilities
 
 ```go
+// Content-addressed cache
 s.Task("test").Run("go test ./...").Inputs("**/*.go", "go.mod")
-// Second run: ⊙ test  CACHED (no input changes)
-```
 
-### Docker containers
-
-```go
-s.Task("test").
+// Containers + cache mounts
+s.Task("build").
     Container("golang:1.22").
     Mount(s.Dir("."), "/src").
     MountCache(s.Cache("go-mod"), "/go/pkg/mod").
     Workdir("/src").
-    Run("go test ./...")
-```
+    Run("go build -o app")
 
-### Matrix builds
-
-```go
+// Matrix expansion
 s.Task("test").Run("go test ./...").Matrix("go", "1.21", "1.22", "1.23")
-// Expands to: test[go=1.21], test[go=1.22], test[go=1.23]
-```
 
-### Delta builds
-
-```bash
-sykli delta                # only tasks affected by git changes
-sykli delta --from=main    # compare against branch
-```
-
-### Gate tasks (approval points)
-
-```go
-s.Gate("approve-deploy").Message("Deploy to production?").Strategy("prompt")
+// Gates (approval points)
+s.Gate("approve-deploy").Message("Deploy?").Strategy("prompt")
 s.Task("deploy").Run("./deploy.sh").After("approve-deploy")
-```
 
-### Artifact passing
-
-```go
+// Artifact passing between tasks
 build := s.Task("build").Run("go build -o /out/app").Output("binary", "/out/app")
 s.Task("deploy").InputFrom(build, "binary", "/app/bin").Run("./deploy.sh /app/bin")
-```
 
-### Node placement
-
-```go
+// Capability-based placement
 s.Task("train").Requires("gpu").Run("python train.py")
-```
 
-```bash
-SYKLI_LABELS=gpu,team:ml sykli daemon start   # expose this machine to the mesh
-sykli --mesh                                    # distribute work across nodes
-```
-
-### Conditional execution
-
-```go
+// Conditional execution
 s.Task("deploy").Run("./deploy.sh").When("branch == 'main'").Secret("DEPLOY_TOKEN")
 ```
-
----
-
-## How it works
-
-```
-sykli.go ──emit──▶ JSON task graph ──▶ Elixir engine ──▶ .sykli/ (AI context)
-   SDK              (stdout)                  │
-                                    ┌─────────┼─────────┐
-                                    ▼         ▼         ▼
-                                 Target    Executor   Occurrence
-                                (where)    (how)     (what happened)
-```
-
-1. **Detect** — finds `sykli.*` in the current directory
-2. **Emit** — runs your SDK file to get a JSON task graph
-3. **Execute** — parallel by dependency level, with caching and retries
-4. **Observe** — writes structured occurrences + SLSA attestations to `.sykli/`
-
-The engine runs on the BEAM VM. Same code on your laptop, in Docker, on Kubernetes, or across a mesh cluster.
 
 ---
 
@@ -215,33 +213,51 @@ sykli --filter=test       # run matching tasks
 sykli --timeout=5m        # per-task timeout
 sykli --mesh              # distribute across mesh
 sykli --target=k8s        # run on Kubernetes
+sykli --runtime=podman    # pick a container runtime
 
-sykli init                # generate SDK file
-sykli validate            # check without running
-sykli delta               # git-affected tasks only
+sykli init                # generate SDK file (auto-detects language)
+sykli validate            # check graph without running
+sykli plan                # dry-run, git-diff-driven task selection
+sykli delta               # only tasks affected by git changes
 sykli watch               # re-run on file changes
-sykli explain             # show last run (AI-readable)
-sykli graph               # mermaid diagram
-sykli verify              # cross-platform verification
+sykli explain             # show last run as AI-readable report
+sykli fix                 # AI-readable failure analysis with source context
+sykli graph               # mermaid / DOT diagram of the DAG
+sykli verify              # cross-platform verification via mesh
 sykli history             # recent runs
 sykli cache stats         # cache hit rates
-sykli daemon start        # start mesh node
-sykli mcp                 # MCP server for AI tools
+sykli daemon start        # start a mesh node on this host
+sykli mcp                 # MCP server (Claude Code, Cursor, Copilot)
 ```
 
 ---
 
-## Runtime
+## Runtimes
 
-Sykli supports multiple container runtimes. Auto-detect picks Docker or Podman when available; override per-invocation:
+`Docker`, `Podman` (rootless), `Shell` (no isolation), `Fake` (deterministic, used for tests). Auto-detect picks the first available; override per invocation:
 
 ```bash
-SYKLI_RUNTIME=podman sykli run build
-# or
-sykli --runtime podman run build
+SYKLI_RUNTIME=podman sykli
+sykli --runtime=podman
 ```
 
-Available runtimes: **Docker**, **Podman** (rootless), **Shell** (no isolation), **Fake** (tests). See [docs/runtimes.md](docs/runtimes.md) for selection priority and how to add a new runtime.
+Selection priority and how to add a new runtime: [docs/runtimes.md](docs/runtimes.md).
+
+---
+
+## .sykli/ — what lands on disk
+
+```
+.sykli/
+├── occurrence.json       # latest run, FALSE Protocol structured event
+├── attestation.json      # DSSE envelope with SLSA v1.0 provenance (per-run)
+├── attestations/         # per-task DSSE envelopes (for artifact registries)
+├── occurrences_json/     # per-run JSON archive (last 20)
+├── context.json          # pipeline structure + health (via `sykli context`)
+└── runs/                 # run history manifests
+```
+
+This is the layer agents and downstream tools read. No log parsing, no regex, no scraping the runner UI.
 
 ---
 
@@ -249,26 +265,44 @@ Available runtimes: **Docker**, **Podman** (rootless), **Shell** (no isolation),
 
 | Component | Status |
 |-----------|--------|
-| Core Engine, Go/Rust/TS/Elixir SDKs, Local Execution, Containers, AI Context | **Stable** |
-| Python SDK, Mesh Distribution, K8s Target, Gates, SLSA, Remote Cache (S3) | **Beta** |
+| Core engine, Go / Rust / TS / Elixir SDKs, local execution, containers, FALSE Protocol output | **Stable** |
+| Python SDK, mesh distribution, K8s target, gates, SLSA attestations, remote cache (S3) | **Beta** |
+| GitHub-native receiver (App + webhook + Checks API), review primitives, multi-agent execution | **In development** |
+
+---
+
+## Roadmap
+
+- **Review primitives** — `review/security`, `review/api-breakage`, `review/observability-regression`, `review/test-coverage-gap`, `review/architecture-boundary` as first-class graph nodes
+- **Structured review outputs** — typed JSON schema per primitive, consumable by other graph nodes
+- **Multi-agent execution** — multiple executors fulfilling the same primitive, with disagreement surfaced as graph state
+- **GitHub-native integration** — App + webhook receiver running on the user's mesh, replacing the in-Actions integration ([ADR-021](docs/adr/021-github-native-via-webhook-mesh-receiver.md))
+- **FALSE Protocol output compatibility** — already the internal event model; expanding the public schema for downstream consumers
 
 ---
 
 ## Contributing
 
-MIT licensed. 1100+ tests.
+MIT licensed.
 
 ```bash
-cd core && mix test          # unit + integration tests
-test/blackbox/run.sh         # 84 black-box test cases
+cd core
+mix test                  # unit + integration tests
+mix credo                 # lint, includes the NoWallClock check
+mix escript.build         # build the binary
+
+test/blackbox/run.sh      # black-box suite against the built binary
+tests/conformance/run.sh  # cross-SDK JSON-output conformance
 ```
+
+See [CLAUDE.md](CLAUDE.md) for architecture notes, conventions, and the design rationale behind the engine.
 
 ---
 
 <div align="center">
 
-**Sykli** (Finnish: *cycle*) — built in Berlin, powered by BEAM.
+**sykli** (Finnish: *cycle*) — built in Berlin, powered by BEAM.
 
-**[Install](#install)** · **[Docs](docs/adr/)** · **[Issues](https://github.com/yairfalse/sykli/issues)**
+**[Install](#install)** · **[ADRs](docs/adr/)** · **[Issues](https://github.com/yairfalse/sykli/issues)**
 
 </div>
