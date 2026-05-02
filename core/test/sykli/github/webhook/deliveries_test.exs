@@ -24,4 +24,19 @@ defmodule Sykli.GitHub.Webhook.DeliveriesTest do
     assert :ok = Deliveries.accept("c", 1_002, limit: 2)
     assert :ok = Deliveries.accept("a", 1_003, limit: 2)
   end
+
+  test "evict removes a delivery_id so the next accept with the same id succeeds" do
+    assert :ok = Deliveries.accept("delivery-evict-1", 1_000)
+    assert {:error, :duplicate_delivery} = Deliveries.accept("delivery-evict-1", 1_100)
+
+    assert :ok = Deliveries.evict("delivery-evict-1")
+    assert :ok = Deliveries.accept("delivery-evict-1", 1_200)
+  end
+
+  test "evict is idempotent on missing keys and tolerant of non-binary input" do
+    assert :ok = Deliveries.evict("never-inserted")
+    assert :ok = Deliveries.evict("never-inserted")
+    assert :ok = Deliveries.evict(nil)
+    assert :ok = Deliveries.evict(:atom)
+  end
 end

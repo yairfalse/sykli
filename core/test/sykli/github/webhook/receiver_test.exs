@@ -42,7 +42,27 @@ defmodule Sykli.GitHub.Webhook.ReceiverTest do
              |> Receiver.call([])
   end
 
+  test "POST /webhook returns 503 when local node does not hold the receiver role" do
+    conn =
+      :post
+      |> conn("/webhook", @body)
+      |> put_req_header("x-hub-signature-256", Signature.sign(@secret, @body))
+      |> put_req_header("x-github-delivery", "delivery-not-receiver")
+      |> put_req_header("x-github-event", "pull_request")
+      |> Receiver.call(
+        webhook_secret: @secret,
+        clock: Sykli.GitHub.Clock.Fake,
+        app_client: __MODULE__.App,
+        checks_client: __MODULE__.Checks
+      )
+
+    assert conn.status == 503
+    assert conn.resp_body == "inactive"
+  end
+
   test "signed webhook opens queued GitHub checks and broadcasts occurrences" do
+    :ok = Roles.acquire(:webhook_receiver)
+
     conn =
       :post
       |> conn("/webhook", @body)
@@ -71,6 +91,8 @@ defmodule Sykli.GitHub.Webhook.ReceiverTest do
   end
 
   test "wrong signature is rejected without logging the raw body" do
+    :ok = Roles.acquire(:webhook_receiver)
+
     log =
       capture_log(fn ->
         conn =
@@ -82,6 +104,7 @@ defmodule Sykli.GitHub.Webhook.ReceiverTest do
           |> Receiver.call(webhook_secret: @secret)
 
         assert conn.status == 401
+        assert Jason.decode!(conn.resp_body)["error"]["code"] == "github.webhook.bad_signature"
       end)
 
     assert log =~ "request rejected"
@@ -89,7 +112,40 @@ defmodule Sykli.GitHub.Webhook.ReceiverTest do
     refute log =~ "abc123"
   end
 
+  test "missing signature header returns 400 with a distinct error code" do
+    :ok = Roles.acquire(:webhook_receiver)
+
+    conn =
+      :post
+      |> conn("/webhook", @body)
+      |> put_req_header("x-github-delivery", "delivery-no-sig")
+      |> put_req_header("x-github-event", "pull_request")
+      |> Receiver.call(webhook_secret: @secret)
+
+    assert conn.status == 400
+    assert Jason.decode!(conn.resp_body)["error"]["code"] == "github.webhook.missing_signature"
+  end
+
+  test "request body over the configured size limit returns 413" do
+    :ok = Roles.acquire(:webhook_receiver)
+
+    oversized_body = String.duplicate("x", 10_000)
+
+    conn =
+      :post
+      |> conn("/webhook", oversized_body)
+      |> put_req_header("x-hub-signature-256", Signature.sign(@secret, oversized_body))
+      |> put_req_header("x-github-delivery", "delivery-too-big")
+      |> put_req_header("x-github-event", "pull_request")
+      |> Receiver.call(webhook_secret: @secret, max_body_bytes: 10)
+
+    assert conn.status == 413
+    assert Jason.decode!(conn.resp_body)["error"]["code"] == "github.webhook.body_too_large"
+  end
+
   test "duplicate delivery is rejected" do
+    :ok = Roles.acquire(:webhook_receiver)
+
     opts = [
       webhook_secret: @secret,
       clock: Sykli.GitHub.Clock.Fake,
@@ -117,8 +173,43 @@ defmodule Sykli.GitHub.Webhook.ReceiverTest do
     assert second.status == 409
   end
 
+  test "upstream Checks API failure evicts the delivery so a retry can succeed" do
+    :ok = Roles.acquire(:webhook_receiver)
+
+    opts_failing = [
+      webhook_secret: @secret,
+      clock: Sykli.GitHub.Clock.Fake,
+      app_client: __MODULE__.App,
+      checks_client: __MODULE__.FailingChecks
+    ]
+
+    opts_ok = Keyword.put(opts_failing, :checks_client, __MODULE__.Checks)
+
+    failing =
+      :post
+      |> conn("/webhook", @body)
+      |> put_req_header("x-hub-signature-256", Signature.sign(@secret, @body))
+      |> put_req_header("x-github-delivery", "delivery-retry-me")
+      |> put_req_header("x-github-event", "pull_request")
+      |> Receiver.call(opts_failing)
+
+    assert failing.status == 502
+
+    retry =
+      :post
+      |> conn("/webhook", @body)
+      |> put_req_header("x-hub-signature-256", Signature.sign(@secret, @body))
+      |> put_req_header("x-github-delivery", "delivery-retry-me")
+      |> put_req_header("x-github-event", "pull_request")
+      |> Receiver.call(opts_ok)
+
+    assert retry.status == 202
+  end
+
   @tag :integration
   test "Phase 1 loop accepts signed webhook and rejects unsigned webhook" do
+    :ok = Roles.acquire(:webhook_receiver)
+
     signed =
       :post
       |> conn("/webhook", @body)
@@ -140,7 +231,10 @@ defmodule Sykli.GitHub.Webhook.ReceiverTest do
       |> Receiver.call(webhook_secret: @secret)
 
     assert signed.status == 202
-    assert unsigned.status == 401
+    assert unsigned.status == 400
+
+    assert Jason.decode!(unsigned.resp_body)["error"]["code"] ==
+             "github.webhook.missing_signature"
   end
 
   defmodule App do
@@ -161,5 +255,10 @@ defmodule Sykli.GitHub.Webhook.ReceiverTest do
           _opts
         ),
         do: {:ok, %{"id" => 202}}
+  end
+
+  defmodule FailingChecks do
+    def create_suite(_repo, _token, _opts), do: {:error, :upstream_5xx}
+    def create_run(_repo, _token, _opts), do: {:error, :upstream_5xx}
   end
 end

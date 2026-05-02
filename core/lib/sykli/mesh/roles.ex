@@ -1,5 +1,18 @@
 defmodule Sykli.Mesh.Roles do
-  @moduledoc "Ephemeral single-holder registry for mesh roles."
+  @moduledoc """
+  Ephemeral single-holder-per-node registry for mesh roles.
+
+  > **Local-only.** This registry is backed by a public ETS table on the
+  > local node. It enforces "at most one holder per role *on this node*",
+  > not cluster-wide uniqueness. Two nodes can both successfully `acquire/2`
+  > the same role; nothing here coordinates across the cluster.
+  >
+  > Multi-node deployments must therefore ensure only one node carries a
+  > given role label (see `Sykli.NodeProfile`). Callers that gate behavior
+  > on role ownership (e.g. the GitHub webhook receiver) use
+  > `held_by_local?/1` so misconfigured peers fall back to a 503/inactive
+  > response rather than racing on shared work.
+  """
 
   @table :sykli_mesh_roles
 

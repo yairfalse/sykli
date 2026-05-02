@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **GitHub webhook receiver — three Phase 1 (ADR-021) correctness gaps.**
+  - `POST /webhook` is now gated by `Sykli.Mesh.Roles.held_by_local?(:webhook_receiver)`. Previously only `GET /healthz` was gated; on a multi-node deployment every node would ingest deliveries, burn `delivery_id`s in their local replay caches, and create duplicate check suites/runs.
+  - The replay cache no longer permanently loses deliveries when a downstream call fails. Previously, `accept_delivery` inserted the `delivery_id` *before* `installation_token` / `create_suite` / `create_run`, so a transient GitHub 5xx left the entry in cache and GitHub's automatic retry hit `:duplicate_delivery` / 409. The receiver now evicts the `delivery_id` on any post-accept failure; concurrent dedup is preserved by the atomic `:ets.insert_new` in `Deliveries.accept/3`.
+  - Request body is bounded to 10 MB (with a 15s read timeout) instead of Plug's default unbounded read. Distinct error codes for `body_too_large` (413) and `body_read_failed` (408).
+
+### Changed
+
+- **GitHub webhook error responses now distinguish missing vs. bad signature.** Missing `X-Hub-Signature-256` returns 400 `github.webhook.missing_signature`; an invalid signature still returns 401 `github.webhook.bad_signature`. Operators can now tell a stripped-header proxy bug apart from a forgery attempt.
+- **GitHub webhook catch-all is now 502 `github.webhook.upstream_failure`** for raw upstream errors (was 400 `github.webhook.invalid`). GitHub does not retry 400s, so the previous response misclassified transient upstream failures as permanent client errors and silently dropped them.
+- **`Sykli.Mesh.Roles` moduledoc** clarified to make the local-only ETS semantics explicit. The "mesh" name was misleading — the registry is per-node single-holder enforcement, not cluster-coordinated. Multi-node deployments must ensure only one node carries a given role label.
+
 ## [0.6.0] - 2026-04-29
 
 This release crystallizes the v0.6 line: a Nordic-minimal CLI, a fully decoupled runtime layer with deterministic-test defaults, SLSA v1.0 supply-chain attestations, an oracle-based AI agent evaluation harness, the FALSE-Protocol-first-class internal model, and the foundation for v0.7's GitHub-native CI integration. v0.5.1, v0.5.2, and v0.5.3 were development tags without CHANGELOG entries; their changes are folded in here.

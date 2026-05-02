@@ -32,6 +32,23 @@ defmodule Sykli.GitHub.Webhook.Deliveries do
     :ok
   end
 
+  @doc """
+  Removes a delivery_id from the replay cache.
+
+  Used by the receiver to release a cache entry when downstream processing
+  failed after `accept/3` already inserted it, so GitHub's automatic retry
+  for the same delivery_id can succeed instead of hitting `:duplicate_delivery`.
+
+  Idempotent: deleting a missing key is a no-op.
+  """
+  def evict(delivery_id) when is_binary(delivery_id) do
+    ensure_table()
+    :ets.delete(@table, delivery_id)
+    :ok
+  end
+
+  def evict(_other), do: :ok
+
   defp prune(now_ms, ttl_ms) do
     threshold = now_ms - ttl_ms
 
