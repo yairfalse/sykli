@@ -52,8 +52,8 @@ defmodule Sykli.GitHub.Webhook.ReceiverTest do
       |> Receiver.call(
         webhook_secret: @secret,
         clock: Sykli.GitHub.Clock.Fake,
-        app_client: __MODULE__.App,
-        checks_client: __MODULE__.Checks
+        dispatcher: __MODULE__.Dispatcher,
+        test_pid: self()
       )
 
     assert conn.status == 503
@@ -72,8 +72,8 @@ defmodule Sykli.GitHub.Webhook.ReceiverTest do
       |> Receiver.call(
         webhook_secret: @secret,
         clock: Sykli.GitHub.Clock.Fake,
-        app_client: __MODULE__.App,
-        checks_client: __MODULE__.Checks
+        dispatcher: __MODULE__.Dispatcher,
+        test_pid: self()
       )
 
     assert conn.status == 202
@@ -84,10 +84,7 @@ defmodule Sykli.GitHub.Webhook.ReceiverTest do
       data: %{repo: "false-systems/sykli"}
     }
 
-    assert_receive %Sykli.Occurrence{
-      type: "ci.github.check_suite.opened",
-      data: %{check_suite_id: 101, check_run_id: 202}
-    }
+    assert_receive {:receiver_dispatch, %{repo: "false-systems/sykli", head_sha: "abc123"}}
   end
 
   test "wrong signature is rejected without logging the raw body" do
@@ -149,8 +146,8 @@ defmodule Sykli.GitHub.Webhook.ReceiverTest do
     opts = [
       webhook_secret: @secret,
       clock: Sykli.GitHub.Clock.Fake,
-      app_client: __MODULE__.App,
-      checks_client: __MODULE__.Checks
+      dispatcher: __MODULE__.Dispatcher,
+      test_pid: self()
     ]
 
     first =
@@ -173,17 +170,26 @@ defmodule Sykli.GitHub.Webhook.ReceiverTest do
     assert second.status == 409
   end
 
-  test "upstream Checks API failure evicts the delivery so a retry can succeed" do
+  test "post-accept dispatch failure evicts the delivery so a retry can succeed" do
     :ok = Roles.acquire(:webhook_receiver)
 
     opts_failing = [
       webhook_secret: @secret,
       clock: Sykli.GitHub.Clock.Fake,
-      app_client: __MODULE__.App,
-      checks_client: __MODULE__.FailingChecks
+      dispatcher: __MODULE__.Dispatcher,
+      test_pid: self(),
+      dispatch_result:
+        {:error,
+         %Sykli.Error{
+           code: "github.dispatch.failed",
+           type: :runtime,
+           message: "dispatch failed",
+           step: :run,
+           hints: []
+         }}
     ]
 
-    opts_ok = Keyword.put(opts_failing, :checks_client, __MODULE__.Checks)
+    opts_ok = Keyword.put(opts_failing, :dispatch_result, :ok)
 
     failing =
       :post
@@ -193,15 +199,18 @@ defmodule Sykli.GitHub.Webhook.ReceiverTest do
       |> put_req_header("x-github-event", "pull_request")
       |> Receiver.call(opts_failing)
 
-    assert failing.status == 502
+    assert failing.status == 202
+    assert_receive {:receiver_dispatch, %{delivery_id: "delivery-retry-me"}}
 
     retry =
-      :post
-      |> conn("/webhook", @body)
-      |> put_req_header("x-hub-signature-256", Signature.sign(@secret, @body))
-      |> put_req_header("x-github-delivery", "delivery-retry-me")
-      |> put_req_header("x-github-event", "pull_request")
-      |> Receiver.call(opts_ok)
+      eventually(fn ->
+        :post
+        |> conn("/webhook", @body)
+        |> put_req_header("x-hub-signature-256", Signature.sign(@secret, @body))
+        |> put_req_header("x-github-delivery", "delivery-retry-me")
+        |> put_req_header("x-github-event", "pull_request")
+        |> Receiver.call(opts_ok)
+      end)
 
     assert retry.status == 202
   end
@@ -219,8 +228,8 @@ defmodule Sykli.GitHub.Webhook.ReceiverTest do
       |> Receiver.call(
         webhook_secret: @secret,
         clock: Sykli.GitHub.Clock.Fake,
-        app_client: __MODULE__.App,
-        checks_client: __MODULE__.Checks
+        dispatcher: __MODULE__.Dispatcher,
+        test_pid: self()
       )
 
     unsigned =
@@ -237,28 +246,35 @@ defmodule Sykli.GitHub.Webhook.ReceiverTest do
              "github.webhook.missing_signature"
   end
 
-  defmodule App do
-    def installation_token(123, _opts), do: {:ok, "installation-token", 4_102_444_800}
+  defp eventually(fun, attempts \\ 20)
+
+  defp eventually(fun, attempts) when attempts > 0 do
+    case fun.() do
+      %{status: 409} ->
+        Process.sleep(10)
+        eventually(fun, attempts - 1)
+
+      result ->
+        result
+    end
   end
 
-  defmodule Checks do
-    def create_suite(
-          %{repo: "false-systems/sykli", head_sha: "abc123"},
-          "installation-token",
-          _opts
-        ),
-        do: {:ok, %{"id" => 101}}
+  defp eventually(fun, 0), do: fun.()
 
-    def create_run(
-          %{repo: "false-systems/sykli", head_sha: "abc123"},
-          "installation-token",
-          _opts
-        ),
-        do: {:ok, %{"id" => 202}}
-  end
+  defmodule Dispatcher do
+    def dispatch(context, opts) do
+      if pid = Keyword.get(opts, :test_pid) do
+        send(pid, {:receiver_dispatch, context})
+      end
 
-  defmodule FailingChecks do
-    def create_suite(_repo, _token, _opts), do: {:error, :upstream_5xx}
-    def create_run(_repo, _token, _opts), do: {:error, :upstream_5xx}
+      case Keyword.get(opts, :dispatch_result, :ok) do
+        {:error, _error} = error ->
+          Sykli.GitHub.Webhook.Deliveries.evict(context.delivery_id)
+          error
+
+        :ok ->
+          :ok
+      end
+    end
   end
 end

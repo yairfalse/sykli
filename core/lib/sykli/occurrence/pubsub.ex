@@ -32,6 +32,13 @@ defmodule Sykli.Occurrence.PubSub do
       "ci.gate.resolved"   — gate approved/denied/timed out
       "ci.github.webhook.received" — GitHub webhook accepted
       "ci.github.check_suite.opened" — GitHub check suite opened
+      "ci.github.run.dispatched" — GitHub webhook dispatch started
+      "ci.github.run.source_acquired" — GitHub source clone succeeded
+      "ci.github.run.source_failed" — GitHub source clone failed
+      "ci.github.check_run.created" — GitHub check run created
+      "ci.github.check_run.transitioned" — GitHub check run status changed
+      "ci.github.check_run.transition_failed" — GitHub check run update failed
+      "ci.github.check_suite.concluded" — GitHub check suite reached terminal state
   """
 
   alias Sykli.Occurrence
@@ -135,6 +142,55 @@ defmodule Sykli.Occurrence.PubSub do
   @doc "Broadcast a ci.github.check_suite.opened occurrence. Returns the Occurrence."
   def github_check_suite_opened(run_id, data) do
     occ = Occurrence.github_check_suite_opened(run_id, data)
+    broadcast(occ)
+    occ
+  end
+
+  @doc "Broadcast a ci.github.run.dispatched occurrence. Returns the Occurrence."
+  def github_run_dispatched(run_id, data) do
+    occ = Occurrence.github_run_dispatched(run_id, data)
+    broadcast(occ)
+    occ
+  end
+
+  @doc "Broadcast a ci.github.run.source_acquired occurrence. Returns the Occurrence."
+  def github_run_source_acquired(run_id, data) do
+    occ = Occurrence.github_run_source_acquired(run_id, data)
+    broadcast(occ)
+    occ
+  end
+
+  @doc "Broadcast a ci.github.run.source_failed occurrence. Returns the Occurrence."
+  def github_run_source_failed(run_id, data) do
+    occ = Occurrence.github_run_source_failed(run_id, data)
+    broadcast(occ)
+    occ
+  end
+
+  @doc "Broadcast a ci.github.check_run.created occurrence. Returns the Occurrence."
+  def github_check_run_created(run_id, data) do
+    occ = Occurrence.github_check_run_created(run_id, data)
+    broadcast(occ)
+    occ
+  end
+
+  @doc "Broadcast a ci.github.check_run.transitioned occurrence. Returns the Occurrence."
+  def github_check_run_transitioned(run_id, data) do
+    occ = Occurrence.github_check_run_transitioned(run_id, data)
+    broadcast(occ)
+    occ
+  end
+
+  @doc "Broadcast a ci.github.check_run.transition_failed occurrence. Returns the Occurrence."
+  def github_check_run_transition_failed(run_id, data) do
+    occ = Occurrence.github_check_run_transition_failed(run_id, data)
+    broadcast(occ)
+    occ
+  end
+
+  @doc "Broadcast a ci.github.check_suite.concluded occurrence. Returns the Occurrence."
+  def github_check_suite_concluded(run_id, data) do
+    occ = Occurrence.github_check_suite_concluded(run_id, data)
     broadcast(occ)
     occ
   end

@@ -62,21 +62,8 @@ defmodule Sykli.GitHub.Webhook.Receiver do
   defp process_accepted(conn, body, opts) do
     with {:ok, payload} <- decode_json(body),
          {:ok, context} <- webhook_context(conn, payload),
-         {:ok, token, _expires_at} <-
-           app_client(opts).installation_token(context.installation_id, opts),
-         {:ok, suite} <-
-           checks_client(opts).create_suite(
-             %{repo: context.repo, head_sha: context.head_sha},
-             token,
-             opts
-           ),
-         {:ok, run} <-
-           checks_client(opts).create_run(
-             %{repo: context.repo, head_sha: context.head_sha},
-             token,
-             Keyword.put(opts, :name, "sykli")
-           ) do
-      broadcast_success(context, suite, run)
+         :ok <- broadcast_received(context),
+         :ok <- start_dispatch(context, opts) do
       {:ok, send_json(conn, 202, %{ok: true, status: "queued"})}
     end
   end
@@ -102,7 +89,7 @@ defmodule Sykli.GitHub.Webhook.Receiver do
     })
   end
 
-  defp read_full_body(conn, opts \\ []) do
+  defp read_full_body(conn, opts) do
     # `max_body_bytes` is overridable via opts so tests can exercise the
     # 413 path without allocating a real 10 MB request body.
     max_bytes = Keyword.get(opts, :max_body_bytes, @max_body_bytes)
@@ -233,7 +220,7 @@ defmodule Sykli.GitHub.Webhook.Receiver do
   defp head_sha(_event, payload),
     do: payload["after"] || get_in(payload, ["pull_request", "head", "sha"])
 
-  defp broadcast_success(context, suite, run) do
+  defp broadcast_received(context) do
     run_id = "github:#{context.delivery_id}"
 
     OccPubSub.github_webhook_received(run_id, %{
@@ -243,23 +230,26 @@ defmodule Sykli.GitHub.Webhook.Receiver do
       head_sha: context.head_sha
     })
 
-    OccPubSub.github_check_suite_opened(run_id, %{
-      repo: context.repo,
-      head_sha: context.head_sha,
-      check_suite_id: suite["id"],
-      check_run_id: run["id"]
-    })
+    :ok
   end
 
-  defp app_client(opts),
-    do:
-      Keyword.get(
-        opts,
-        :app_client,
-        Application.get_env(:sykli, :github_app_impl, Sykli.GitHub.App)
-      )
+  defp start_dispatch(context, opts) do
+    dispatcher = Keyword.get(opts, :dispatcher, Sykli.GitHub.Dispatcher)
+    supervisor = Keyword.get(opts, :task_supervisor, Sykli.TaskSupervisor)
 
-  defp checks_client(opts), do: Keyword.get(opts, :checks_client, Sykli.GitHub.Checks)
+    case Task.Supervisor.start_child(supervisor, fn -> dispatcher.dispatch(context, opts) end) do
+      {:ok, _pid} ->
+        :ok
+
+      {:error, reason} ->
+        {:error,
+         webhook_error(
+           "github.webhook.dispatch_failed",
+           "GitHub webhook dispatch could not be started",
+           reason
+         )}
+    end
+  end
 
   defp status_for(%Sykli.Error{code: "github.webhook.bad_signature"}), do: 401
   defp status_for(%Sykli.Error{code: "github.webhook.missing_signature"}), do: 400
@@ -269,6 +259,7 @@ defmodule Sykli.GitHub.Webhook.Receiver do
   defp status_for(%Sykli.Error{code: "github.webhook.invalid_json"}), do: 400
   defp status_for(%Sykli.Error{code: "github.webhook.unsupported_payload"}), do: 400
   defp status_for(%Sykli.Error{code: "github.webhook.body_too_large"}), do: 413
+  defp status_for(%Sykli.Error{code: "github.webhook.dispatch_failed"}), do: 502
   # `body_read_failed` fires when Plug's read_body returns {:error, _} —
   # typically a timeout or transport IO error on the client connection,
   # not a malformed request. 408 (Request Timeout) is more honest than 400.

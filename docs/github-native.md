@@ -1,8 +1,6 @@
 # GitHub-native Sykli
 
-Sykli can receive GitHub webhooks on a node in your own mesh and report queued Checks API state back to GitHub. This keeps execution local-first: GitHub sends events to hardware you control, and Sykli never operates a hosted control plane.
-
-Phase 1 opens a queued check only. It does not dispatch a pipeline yet.
+Sykli can receive GitHub webhooks on a node in your own mesh, run the repository's execution graph locally, and report per-task Checks API state back to GitHub. This keeps execution local-first: GitHub sends events to hardware you control, and Sykli never operates a hosted control plane.
 
 ## 1. Label One Mesh Node
 
@@ -23,6 +21,7 @@ Create a GitHub App in your account or organization:
 - Webhook secret: generate a long random value.
 - Repository permissions:
   - Checks: Read and write
+  - Contents: Read-only
   - Metadata: Read-only
   - Pull requests: Read-only
 - Subscribe to events:
@@ -78,7 +77,11 @@ Expected result:
 2. Sykli verifies `X-Hub-Signature-256`.
 3. Sykli rejects duplicate `X-GitHub-Delivery` IDs.
 4. Sykli exchanges the App JWT for an installation token.
-5. Sykli creates a Check Suite and a placeholder Check Run with status `queued`.
+5. Sykli creates a Check Suite.
+6. Sykli clones the repository at the webhook head SHA with the installation token.
+7. Sykli detects the `sykli.{go,rs,ts,exs,py}` file and builds the task graph.
+8. Sykli creates one Check Run per task at `queued`.
+9. Sykli runs the graph locally and transitions each Check Run through `in_progress` to its terminal conclusion.
 
 You can inspect the queued suite with GitHub CLI:
 
@@ -86,4 +89,26 @@ You can inspect the queued suite with GitHub CLI:
 gh api /repos/OWNER/REPO/check-suites --jq '.check_suites[] | {id, status, head_sha}'
 ```
 
-The queued state is intentional in Phase 1. Pipeline dispatch and check-run lifecycle transitions land in Phase 2.
+Inspect the per-task runs with:
+
+```bash
+gh api /repos/OWNER/REPO/commits/HEAD/check-runs --jq '.check_runs[] | {name, status, conclusion}'
+```
+
+Task failures render the last task output lines in the Check Run summary. Infrastructure failures use the same `failure` conclusion as command failures, but the summary calls out the infrastructure failure explicitly.
+
+## Occurrences
+
+The receiver and dispatcher emit these GitHub-native occurrences:
+
+- `ci.github.webhook.received`
+- `ci.github.run.dispatched`
+- `ci.github.check_suite.opened`
+- `ci.github.run.source_acquired`
+- `ci.github.run.source_failed`
+- `ci.github.check_run.created`
+- `ci.github.check_run.transitioned`
+- `ci.github.check_run.transition_failed`
+- `ci.github.check_suite.concluded`
+
+These are regular Sykli occurrences and can be consumed through the same occurrence stream as local runs.
