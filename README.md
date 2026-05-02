@@ -93,6 +93,8 @@ The engine runs on the BEAM VM. Same code on your laptop, in Docker, on Kubernet
 
 SYKLI Reviews are experimental. A review node represents a structured review step in the execution graph; it does not yet run Codex, Claude, or any other provider directly. It models the review step so future runners can execute agents in a controlled, inspectable way.
 
+The builder API is currently available in the Go SDK only. Rust, TypeScript, Elixir, and Python SDK builders still need parity work; until then, review nodes are an experimental Go-first graph feature.
+
 Agentic workflows need primitives, not prompts. Asking an LLM to "review this PR" is too underspecified to be repeatable. Defining a review node with constrained inputs, expected outputs, and explicit rules is.
 
 ```go

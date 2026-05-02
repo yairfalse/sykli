@@ -170,26 +170,22 @@ defmodule Sykli.PlanTest do
           }
         ])
 
-      case Plan.generate(graph, from: "HEAD", path: ".") do
-        {:ok, plan} ->
-          review = Enum.find(plan.nodes, &(&1.id == "review:api-breakage"))
+      assert {:ok, plan} = Plan.generate(graph, from: "HEAD", path: ".")
 
-          assert review.kind == "review"
-          assert review.primitive == "api-breakage"
-          assert review.agent == "local"
-          assert review.inputs == ["main...HEAD"]
-          assert review.context == ["README.md", "docs/architecture.md"]
-          assert review.outputs == ["reviews/api-breakage.local.json"]
-          assert review.depends_on == ["test"]
-          assert review.deterministic == false
+      review = Enum.find(plan.nodes, &(&1.id == "review:api-breakage"))
 
-          task = Enum.find(plan.nodes, &(&1.id == "test"))
-          assert task.kind == "task"
-          assert task.deterministic == true
+      assert review.kind == "review"
+      assert review.primitive == "api-breakage"
+      assert review.agent == "local"
+      assert review.inputs == ["main...HEAD"]
+      assert review.context == ["README.md", "docs/architecture.md"]
+      assert review.outputs == ["reviews/api-breakage.local.json"]
+      assert review.depends_on == ["test"]
+      assert review.deterministic == false
 
-        {:error, _} ->
-          :ok
-      end
+      task = Enum.find(plan.nodes, &(&1.id == "test"))
+      assert task.kind == "task"
+      assert task.deterministic == true
     end
   end
 

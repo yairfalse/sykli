@@ -1015,7 +1015,7 @@ func (t *Task) After(tasks ...string) *Task {
 // The condition is evaluated at runtime based on CI context variables:
 //   - branch == 'main' - run only on main branch
 //   - branch != 'main' - run on all branches except main
-//   - tag != ” - run only when a tag is present
+//   - tag != '' - run only when a tag is present
 //   - event == 'push' - run only on push events
 //   - ci == true - run only in CI environment
 func (t *Task) When(condition string) *Task {
