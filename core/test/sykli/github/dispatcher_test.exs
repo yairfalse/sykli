@@ -87,4 +87,24 @@ defmodule Sykli.GitHub.DispatcherTest do
 
     assert :ok = Deliveries.accept(event.delivery_id, 2)
   end
+
+  test "GitHub App config failures do not evict the delivery", %{event: event} do
+    assert :ok = Deliveries.accept(event.delivery_id, 1)
+
+    assert {:error, %Sykli.Error{code: "github.app.missing_config"}} =
+             Dispatcher.dispatch(event,
+               app_client: Sykli.GitHub.App.Fake,
+               app_response:
+                 {:error,
+                  %Sykli.Error{
+                    code: "github.app.missing_config",
+                    type: :runtime,
+                    message: "SYKLI_GITHUB_APP_ID is required",
+                    step: :setup,
+                    hints: []
+                  }}
+             )
+
+    assert {:error, :duplicate_delivery} = Deliveries.accept(event.delivery_id, 2)
+  end
 end

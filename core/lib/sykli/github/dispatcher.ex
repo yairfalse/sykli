@@ -17,7 +17,10 @@ defmodule Sykli.GitHub.Dispatcher do
         :ok
 
       {:error, %Sykli.Error{} = error} = result ->
-        Deliveries.evict(delivery_id)
+        if retryable_dispatch_error?(error) do
+          Deliveries.evict(delivery_id)
+        end
+
         Logger.warning("[GitHub Dispatcher] dispatch failed", code: error.code)
         result
     end
@@ -372,6 +375,14 @@ defmodule Sykli.GitHub.Dispatcher do
 
   defp checks_client(opts), do: Keyword.get(opts, :checks_client, Sykli.GitHub.Checks)
   defp source_client(opts), do: Keyword.get(opts, :source_client, Sykli.GitHub.Source)
+
+  defp retryable_dispatch_error?(%Sykli.Error{code: code}) do
+    code not in [
+      "github.app.missing_config",
+      "github.app.private_key_not_found",
+      "github.app.jwt_failed"
+    ]
+  end
 
   defp dispatch_error(code, message, cause \\ nil) do
     %Sykli.Error{

@@ -16,10 +16,10 @@ defmodule Sykli.GitHub.Source.Real do
     repo_dir = Path.join(root, "repo")
 
     with :ok <- ensure_contained(root),
-         :ok <- File.rm_rf!(root) |> always_ok(),
+         :ok <- remove_tree(root),
          :ok <- File.mkdir_p(root),
-         :ok <- clone(repo, repo_dir, token),
-         :ok <- checkout(repo_dir, sha, token) do
+         :ok <- clone(repo, repo_dir, token, opts),
+         :ok <- checkout(repo, repo_dir, sha, token, opts) do
       {:ok, repo_dir}
     else
       {:error, %Sykli.Error{} = error} ->
@@ -40,8 +40,7 @@ defmodule Sykli.GitHub.Source.Real do
   def cleanup(path, _opts) when is_binary(path) do
     case run_root(path) do
       {:ok, root} ->
-        File.rm_rf!(root)
-        :ok
+        remove_tree(root)
 
       :error ->
         :ok
@@ -50,10 +49,10 @@ defmodule Sykli.GitHub.Source.Real do
 
   def cleanup(_path, _opts), do: :ok
 
-  defp clone(repo, repo_dir, token) do
-    url = auth_url(repo, token)
+  defp clone(repo, repo_dir, token, opts) do
+    url = repo_url(repo)
 
-    case System.cmd("git", ["clone", "--depth", "1", url, repo_dir], stderr_to_stdout: true) do
+    case git(repo, token, ["clone", "--depth", "1", url, repo_dir], opts) do
       {_out, 0} ->
         :ok
 
@@ -67,21 +66,19 @@ defmodule Sykli.GitHub.Source.Real do
     end
   end
 
-  defp checkout(repo_dir, sha, token) do
+  defp checkout(repo, repo_dir, sha, token, opts) do
     case System.cmd("git", ["-C", repo_dir, "checkout", sha], stderr_to_stdout: true) do
       {_out, 0} ->
         :ok
 
       {_out, _code} ->
-        fetch_and_checkout(repo_dir, sha, token)
+        fetch_and_checkout(repo, repo_dir, sha, token, opts)
     end
   end
 
-  defp fetch_and_checkout(repo_dir, sha, token) do
+  defp fetch_and_checkout(repo, repo_dir, sha, token, opts) do
     with {_out, 0} <-
-           System.cmd("git", ["-C", repo_dir, "fetch", "--depth", "1", "origin", sha],
-             stderr_to_stdout: true
-           ),
+           git(repo, token, ["-C", repo_dir, "fetch", "--depth", "1", "origin", sha], opts),
          {_out, 0} <- System.cmd("git", ["-C", repo_dir, "checkout", sha], stderr_to_stdout: true) do
       :ok
     else
@@ -95,8 +92,41 @@ defmodule Sykli.GitHub.Source.Real do
     end
   end
 
-  defp auth_url(repo, token),
-    do: "https://x-access-token:#{URI.encode_www_form(token)}@github.com/#{repo}.git"
+  defp git(repo, token, args, opts) do
+    runner = Keyword.get(opts, :git_runner, &System.cmd/3)
+
+    with_git_auth_config(repo, token, fn auth_config ->
+      runner.("git", args, stderr_to_stdout: true, env: git_auth_env(auth_config))
+    end)
+  end
+
+  defp with_git_auth_config(repo, token, fun) do
+    path =
+      Path.join(System.tmp_dir!(), "sykli-git-auth-#{System.unique_integer([:positive])}.config")
+
+    try do
+      File.write!(path, git_auth_config(repo, token))
+      File.chmod(path, 0o600)
+      fun.(path)
+    after
+      File.rm(path)
+    end
+  end
+
+  defp git_auth_config(repo, token) do
+    """
+    [http "#{repo_url(repo)}"]
+        extraheader = Authorization: Bearer #{token}
+    """
+  end
+
+  defp git_auth_env(auth_config) do
+    [
+      {"GIT_CONFIG_GLOBAL", auth_config}
+    ]
+  end
+
+  defp repo_url(repo), do: "https://github.com/#{repo}.git"
 
   defp run_root(path) do
     expanded = Path.expand(path)
@@ -133,7 +163,12 @@ defmodule Sykli.GitHub.Source.Real do
     |> String.replace(~r/[^A-Za-z0-9._:-]/, "-")
   end
 
-  defp always_ok(_), do: :ok
+  defp remove_tree(path) do
+    case File.rm_rf(path) do
+      {:ok, _files} -> :ok
+      {:error, file, reason} -> {:error, {file, reason}}
+    end
+  end
 
   defp source_error(code, message, cause \\ nil) do
     %Sykli.Error{
