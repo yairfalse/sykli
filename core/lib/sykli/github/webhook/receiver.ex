@@ -44,6 +44,12 @@ defmodule Sykli.GitHub.Webhook.Receiver do
           response_conn
 
         {:error, error} ->
+          # Evict on any post-accept failure, regardless of whether the eventual
+          # status is retryable (5xx) or terminal (4xx). For 5xx, eviction is
+          # load-bearing: it lets GitHub's automatic retry succeed. For 4xx,
+          # eviction is a no-op in practice (GitHub won't retry malformed
+          # payloads), so classifying retryable vs terminal here would add code
+          # without changing behavior.
           evict_delivery(conn)
           respond_error(conn, error)
       end
@@ -133,6 +139,9 @@ defmodule Sykli.GitHub.Webhook.Receiver do
     secret = Keyword.get(opts, :webhook_secret, System.get_env("SYKLI_GITHUB_WEBHOOK_SECRET"))
     signature = get_req_header(conn, "x-hub-signature-256") |> List.first()
 
+    # Order is intentional: `missing_secret` (server misconfig, 503) wins over
+    # `missing_signature` (client error, 400). Flipping this would make every
+    # request to a misconfigured server look like a client problem.
     cond do
       is_nil(secret) or secret == "" ->
         {:error,
@@ -260,7 +269,10 @@ defmodule Sykli.GitHub.Webhook.Receiver do
   defp status_for(%Sykli.Error{code: "github.webhook.invalid_json"}), do: 400
   defp status_for(%Sykli.Error{code: "github.webhook.unsupported_payload"}), do: 400
   defp status_for(%Sykli.Error{code: "github.webhook.body_too_large"}), do: 413
-  defp status_for(%Sykli.Error{code: "github.webhook.body_read_failed"}), do: 400
+  # `body_read_failed` fires when Plug's read_body returns {:error, _} —
+  # typically a timeout or transport IO error on the client connection,
+  # not a malformed request. 408 (Request Timeout) is more honest than 400.
+  defp status_for(%Sykli.Error{code: "github.webhook.body_read_failed"}), do: 408
   defp status_for(_), do: 502
 
   defp send_json(conn, status, body) do
