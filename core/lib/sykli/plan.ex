@@ -139,6 +139,7 @@ defmodule Sykli.Plan do
 
         base = %{
           name: name,
+          kind: Task.kind(task) |> Atom.to_string(),
           command: task.command,
           reason: reason_str,
           triggered_by: triggered_by,
@@ -146,8 +147,21 @@ defmodule Sykli.Plan do
           cache_reason: if(cache_info.reason, do: Atom.to_string(cache_info.reason)),
           level: level,
           depends_on: Task.depends_on(task),
+          deterministic: Task.deterministic?(task),
           blocks: task_blocks
         }
+
+        base =
+          if Task.review?(task) do
+            base
+            |> Map.put(:primitive, Task.primitive(task))
+            |> Map.put(:agent, Task.agent(task))
+            |> Map.put(:inputs, Task.inputs(task))
+            |> Map.put(:context, Task.context(task))
+            |> Map.put(:outputs, Task.outputs(task))
+          else
+            base
+          end
 
         # Add depends_on_affected for dependent tasks
         if affected_info.reason == :dependent do
@@ -188,6 +202,7 @@ defmodule Sykli.Plan do
     %{
       version: @schema_version,
       from: from,
+      nodes: build_nodes(graph),
       changed_files: changed_files,
       plan: %{
         task_count: length(plan_tasks),
@@ -204,6 +219,30 @@ defmodule Sykli.Plan do
   defp format_reason(:direct), do: "direct"
   defp format_reason(:dependent), do: "dependent"
   defp format_reason(other), do: to_string(other)
+
+  defp build_nodes(graph) do
+    graph
+    |> Enum.map(fn {name, task} ->
+      base = %{
+        id: name,
+        kind: Task.kind(task) |> Atom.to_string(),
+        inputs: Task.inputs(task),
+        outputs: Task.outputs(task),
+        depends_on: Task.depends_on(task),
+        deterministic: Task.deterministic?(task)
+      }
+
+      if Task.review?(task) do
+        base
+        |> Map.put(:primitive, Task.primitive(task))
+        |> Map.put(:agent, Task.agent(task))
+        |> Map.put(:context, Task.context(task))
+      else
+        Map.put(base, :command, task.command)
+      end
+    end)
+    |> Enum.sort_by(& &1.id)
+  end
 
   defp build_duration_map(nil), do: %{}
 

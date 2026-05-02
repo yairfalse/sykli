@@ -231,11 +231,14 @@ defmodule Sykli.Explain do
 
       history_hint = format_history_hint(task)
 
-      %{
+      base = %{
         name: task.name,
+        kind: Task.kind(task) |> Atom.to_string(),
         command: task.command,
         inputs: Task.inputs(task),
+        outputs: Task.outputs(task),
         depends_on: Task.depends_on(task),
+        deterministic: Task.deterministic?(task),
         blocks: task_blocks,
         cacheable: Task.cacheable?(task),
         level: Map.get(level_lookup, task.name, 0),
@@ -245,6 +248,15 @@ defmodule Sykli.Explain do
         estimated_duration_ms: Map.get(duration_map, task.name),
         history_hint: history_hint
       }
+
+      if Task.review?(task) do
+        base
+        |> Map.put(:primitive, Task.primitive(task))
+        |> Map.put(:agent, Task.agent(task))
+        |> Map.put(:context, Task.context(task))
+      else
+        base
+      end
     end)
     |> Enum.sort_by(& &1.level)
   end

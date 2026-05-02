@@ -68,6 +68,7 @@ func init() {
 // Pipeline represents a CI pipeline with tasks and resources.
 type Pipeline struct {
 	tasks       []*Task
+	reviews     []*Review
 	dirs        []*Directory
 	caches      []*CacheVolume
 	templates   map[string]*Template
@@ -99,6 +100,7 @@ func WithK8sDefaults(opts K8sOptions) PipelineOption {
 func New(opts ...PipelineOption) *Pipeline {
 	p := &Pipeline{
 		tasks:     make([]*Task, 0),
+		reviews:   make([]*Review, 0),
 		dirs:      make([]*Directory, 0),
 		caches:    make([]*CacheVolume, 0),
 		templates: make(map[string]*Template),
@@ -519,39 +521,52 @@ type gateConfig struct {
 
 // Task represents a single task in the pipeline.
 type Task struct {
-	pipeline     *Pipeline
-	name         string
-	command      string
-	container    string
-	workdir      string
-	env          map[string]string
-	mounts       []Mount
-	inputs       []string      // v1-style input file patterns
-	taskInputs   []TaskInput   // v2-style inputs from other tasks
-	outputs      map[string]string
-	dependsOn    []string
-	when         string
-	whenCond     Condition              // Type-safe condition (alternative to string)
-	secrets      []string               // v1-style secret names
-	secretRefs   []SecretRef            // v2-style typed secret references
-	matrix       map[string][]string
-	services     []Service
-	retry        int
-	timeout      int                    // seconds
-	k8sOptions   *K8sOptions            // Target-specific K8s options
-	k8sRaw       string                 // Raw K8s JSON for advanced options
-	targetName   string                 // Per-task target override
-	requires     []string               // Required node labels for placement
+	pipeline   *Pipeline
+	name       string
+	command    string
+	container  string
+	workdir    string
+	env        map[string]string
+	mounts     []Mount
+	inputs     []string    // v1-style input file patterns
+	taskInputs []TaskInput // v2-style inputs from other tasks
+	outputs    map[string]string
+	dependsOn  []string
+	when       string
+	whenCond   Condition   // Type-safe condition (alternative to string)
+	secrets    []string    // v1-style secret names
+	secretRefs []SecretRef // v2-style typed secret references
+	matrix     map[string][]string
+	services   []Service
+	retry      int
+	timeout    int         // seconds
+	k8sOptions *K8sOptions // Target-specific K8s options
+	k8sRaw     string      // Raw K8s JSON for advanced options
+	targetName string      // Per-task target override
+	requires   []string    // Required node labels for placement
 	// AI-native fields
-	semantic     Semantic
-	aiHooks      AiHooks
+	semantic Semantic
+	aiHooks  AiHooks
 	// Capability-based dependencies
-	provides     []struct{ name, value string }
-	needs        []string
+	provides []struct{ name, value string }
+	needs    []string
 	// Gate fields (if set, this is a gate not a regular task)
-	gate         *gateConfig
+	gate *gateConfig
 	// Cross-platform verification mode
-	verify       string
+	verify string
+}
+
+// Review represents a non-deterministic review node in the execution graph.
+type Review struct {
+	pipeline      *Pipeline
+	name          string
+	primitive     string
+	agent         string
+	inputs        []string
+	context       []string
+	outputs       []string
+	dependsOn     []string
+	deterministic bool
 }
 
 // Task creates a new task with the given name.
@@ -559,10 +574,8 @@ func (p *Pipeline) Task(name string) *Task {
 	if name == "" {
 		log.Panic().Msg("task name cannot be empty")
 	}
-	for _, existing := range p.tasks {
-		if existing.name == name {
-			log.Panic().Str("task", name).Msg("task already exists")
-		}
+	if p.hasNode(name) {
+		log.Panic().Str("task", name).Msg("task/review already exists")
 	}
 	t := &Task{
 		pipeline: p,
@@ -576,16 +589,36 @@ func (p *Pipeline) Task(name string) *Task {
 	return t
 }
 
+// Review creates a non-deterministic review node.
+func (p *Pipeline) Review(name string) *Review {
+	if name == "" {
+		log.Panic().Msg("review name cannot be empty")
+	}
+	if p.hasNode(name) {
+		log.Panic().Str("review", name).Msg("task/review already exists")
+	}
+	r := &Review{
+		pipeline:      p,
+		name:          name,
+		inputs:        make([]string, 0),
+		context:       make([]string, 0),
+		outputs:       make([]string, 0),
+		dependsOn:     make([]string, 0),
+		deterministic: false,
+	}
+	log.Debug().Str("review", name).Msg("registered review")
+	p.reviews = append(p.reviews, r)
+	return r
+}
+
 // Gate creates an approval gate that pauses the pipeline until approved.
 // A gate is a special task with no command that waits for an approval signal.
 func (p *Pipeline) Gate(name string) *Task {
 	if name == "" {
 		log.Panic().Msg("gate name cannot be empty")
 	}
-	for _, existing := range p.tasks {
-		if existing.name == name {
-			log.Panic().Str("gate", name).Msg("task/gate already exists with this name")
-		}
+	if p.hasNode(name) {
+		log.Panic().Str("gate", name).Msg("task/gate/review already exists with this name")
 	}
 	t := &Task{
 		pipeline: p,
@@ -601,6 +634,20 @@ func (p *Pipeline) Gate(name string) *Task {
 	log.Debug().Str("gate", name).Msg("registered gate")
 	p.tasks = append(p.tasks, t)
 	return t
+}
+
+func (p *Pipeline) hasNode(name string) bool {
+	for _, existing := range p.tasks {
+		if existing.name == name {
+			return true
+		}
+	}
+	for _, existing := range p.reviews {
+		if existing.name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // GateStrategy sets the approval strategy for this gate task.
@@ -698,6 +745,95 @@ func (t *Task) Run(cmd string) *Task {
 	}
 	t.command = cmd
 	return t
+}
+
+// Name returns the review node's name for use in dependencies.
+func (r *Review) Name() string {
+	return r.name
+}
+
+// Primitive sets the review primitive identifier.
+func (r *Review) Primitive(name string) *Review {
+	if name == "" {
+		log.Panic().Str("review", r.name).Msg("primitive cannot be empty")
+	}
+	r.primitive = name
+	return r
+}
+
+// Agent sets the agent identifier that should eventually fulfill this review.
+func (r *Review) Agent(name string) *Review {
+	if name == "" {
+		log.Panic().Str("review", r.name).Msg("agent cannot be empty")
+	}
+	r.agent = name
+	return r
+}
+
+// Diff records a diff reference as review input.
+func (r *Review) Diff(ref string) *Review {
+	if ref == "" {
+		log.Panic().Str("review", r.name).Msg("diff reference cannot be empty")
+	}
+	r.inputs = append(r.inputs, ref)
+	return r
+}
+
+// Input records an arbitrary review input reference.
+func (r *Review) Input(ref string) *Review {
+	if ref == "" {
+		log.Panic().Str("review", r.name).Msg("input reference cannot be empty")
+	}
+	r.inputs = append(r.inputs, ref)
+	return r
+}
+
+// Context records files that a future review executor may read.
+func (r *Review) Context(paths ...string) *Review {
+	for _, path := range paths {
+		if path == "" {
+			log.Panic().Str("review", r.name).Msg("context path cannot be empty")
+		}
+		r.context = append(r.context, path)
+	}
+	return r
+}
+
+// Outputs records structured output paths produced by this review node.
+func (r *Review) Outputs(paths ...string) *Review {
+	for _, path := range paths {
+		if path == "" {
+			log.Panic().Str("review", r.name).Msg("output path cannot be empty")
+		}
+		r.outputs = append(r.outputs, path)
+	}
+	return r
+}
+
+// After sets dependencies for this review node.
+func (r *Review) After(nodes ...string) *Review {
+	for _, node := range nodes {
+		if node == "" {
+			continue
+		}
+		found := false
+		for _, existing := range r.dependsOn {
+			if existing == node {
+				found = true
+				break
+			}
+		}
+		if !found {
+			r.dependsOn = append(r.dependsOn, node)
+		}
+	}
+	return r
+}
+
+// Deterministic overrides the default non-deterministic review metadata.
+func (r *Review) Deterministic(value bool) *Review {
+	r.deterministic = value
+	return r
 }
 
 // Container sets the container image for this task.
@@ -1425,19 +1561,22 @@ func (p *Pipeline) detectCycle() []string {
 	for _, t := range p.tasks {
 		deps[t.name] = t.dependsOn
 	}
+	for _, r := range p.reviews {
+		deps[r.name] = r.dependsOn
+	}
 
 	color := make(map[string]int)
 	parent := make(map[string]string)
 
-	// Initialize all tasks as white (unvisited)
-	for _, t := range p.tasks {
-		color[t.name] = white
+	// Initialize all nodes as white (unvisited)
+	for name := range deps {
+		color[name] = white
 	}
 
 	// DFS from each unvisited node
-	for _, t := range p.tasks {
-		if color[t.name] == white {
-			if cycle := p.dfsDetectCycle(t.name, deps, color, parent); cycle != nil {
+	for name := range deps {
+		if color[name] == white {
+			if cycle := p.dfsDetectCycle(name, deps, color, parent); cycle != nil {
 				return cycle
 			}
 		}
@@ -1701,6 +1840,17 @@ func (p *Pipeline) topologicalSort() []*Task {
 	return sorted
 }
 
+func (p *Pipeline) nodeNames() map[string]bool {
+	names := make(map[string]bool)
+	for _, t := range p.tasks {
+		names[t.name] = true
+	}
+	for _, r := range p.reviews {
+		names[r.name] = true
+	}
+	return names
+}
+
 // =============================================================================
 // EMIT
 // =============================================================================
@@ -1722,10 +1872,7 @@ func (p *Pipeline) Emit() {
 // EmitTo writes the pipeline JSON to the given writer.
 func (p *Pipeline) EmitTo(w io.Writer) error {
 	// Validate
-	taskNames := make(map[string]bool)
-	for _, t := range p.tasks {
-		taskNames[t.name] = true
-	}
+	taskNames := p.nodeNames()
 	for _, t := range p.tasks {
 		if t.command == "" && t.gate == nil {
 			log.Error().Str("task", t.name).Msg("task has no command")
@@ -1739,6 +1886,18 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 					return fmt.Errorf("task %q depends on unknown task %q (did you mean %q?)", t.name, dep, suggestion)
 				}
 				return fmt.Errorf("task %q depends on unknown task %q", t.name, dep)
+			}
+		}
+	}
+	for _, r := range p.reviews {
+		for _, dep := range r.dependsOn {
+			if !taskNames[dep] {
+				log.Error().Str("review", r.name).Str("dependency", dep).Msg("unknown dependency")
+				suggestion := suggestTaskName(dep, taskNames)
+				if suggestion != "" {
+					return fmt.Errorf("review %q depends on unknown node %q (did you mean %q?)", r.name, dep, suggestion)
+				}
+				return fmt.Errorf("review %q depends on unknown node %q", r.name, dep)
 			}
 		}
 	}
@@ -1834,35 +1993,40 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 	}
 
 	type jsonTask struct {
-		Name       string              `json:"name"`
-		Command    string              `json:"command,omitempty"`
-		Container  string              `json:"container,omitempty"`
-		Workdir    string              `json:"workdir,omitempty"`
-		Env        map[string]string   `json:"env,omitempty"`
-		Mounts     []jsonMount         `json:"mounts,omitempty"`
-		Inputs     []string            `json:"inputs,omitempty"`       // v1-style file patterns
-		TaskInputs []jsonTaskInput     `json:"task_inputs,omitempty"`  // v2-style inputs from other tasks
-		Outputs    map[string]string   `json:"outputs,omitempty"`
-		DependsOn  []string            `json:"depends_on,omitempty"`
-		When       string              `json:"when,omitempty"`
-		Secrets    []string            `json:"secrets,omitempty"`
-		SecretRefs []jsonSecretRef     `json:"secret_refs,omitempty"`  // v2-style typed secrets
-		Matrix     map[string][]string `json:"matrix,omitempty"`
-		Services   []jsonService       `json:"services,omitempty"`
-		Retry      int                 `json:"retry,omitempty"`
-		Timeout    int                 `json:"timeout,omitempty"`
-		Target     string              `json:"target,omitempty"`       // Per-task target override
-		K8s        *jsonK8sOptions     `json:"k8s,omitempty"`          // K8s-specific options
-		Requires   []string            `json:"requires,omitempty"`     // Required node labels
+		Name          string              `json:"name"`
+		Kind          string              `json:"kind,omitempty"`
+		Command       string              `json:"command,omitempty"`
+		Container     string              `json:"container,omitempty"`
+		Workdir       string              `json:"workdir,omitempty"`
+		Env           map[string]string   `json:"env,omitempty"`
+		Mounts        []jsonMount         `json:"mounts,omitempty"`
+		Inputs        []string            `json:"inputs,omitempty"`      // v1-style file patterns
+		TaskInputs    []jsonTaskInput     `json:"task_inputs,omitempty"` // v2-style inputs from other tasks
+		Outputs       any                 `json:"outputs,omitempty"`
+		DependsOn     []string            `json:"depends_on,omitempty"`
+		Primitive     string              `json:"primitive,omitempty"`
+		Agent         string              `json:"agent,omitempty"`
+		Context       []string            `json:"context,omitempty"`
+		Deterministic *bool               `json:"deterministic,omitempty"`
+		When          string              `json:"when,omitempty"`
+		Secrets       []string            `json:"secrets,omitempty"`
+		SecretRefs    []jsonSecretRef     `json:"secret_refs,omitempty"` // v2-style typed secrets
+		Matrix        map[string][]string `json:"matrix,omitempty"`
+		Services      []jsonService       `json:"services,omitempty"`
+		Retry         int                 `json:"retry,omitempty"`
+		Timeout       int                 `json:"timeout,omitempty"`
+		Target        string              `json:"target,omitempty"`   // Per-task target override
+		K8s           *jsonK8sOptions     `json:"k8s,omitempty"`      // K8s-specific options
+		Requires      []string            `json:"requires,omitempty"` // Required node labels
 		// Capability-based dependencies
-		Provides   []jsonProvide       `json:"provides,omitempty"`
-		Needs      []string            `json:"needs,omitempty"`
+		Provides []jsonProvide `json:"provides,omitempty"`
+		Needs    []string      `json:"needs,omitempty"`
 		// AI-native fields
-		Semantic   *jsonSemantic       `json:"semantic,omitempty"`
-		AiHooks    *jsonAiHooks        `json:"ai_hooks,omitempty"`
+		Semantic *jsonSemantic `json:"semantic,omitempty"`
+		AiHooks  *jsonAiHooks  `json:"ai_hooks,omitempty"`
 		// Gate (approval point)
-		Gate       *jsonGate           `json:"gate,omitempty"`
-		Verify     string              `json:"verify,omitempty"`
+		Gate   *jsonGate `json:"gate,omitempty"`
+		Verify string    `json:"verify,omitempty"`
 	}
 
 	type jsonResource struct {
@@ -1921,8 +2085,8 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 	}
 
 	// Build tasks
-	tasks := make([]jsonTask, len(p.tasks))
-	for i, t := range p.tasks {
+	tasks := make([]jsonTask, 0, len(p.tasks)+len(p.reviews))
+	for _, t := range p.tasks {
 		var mounts []jsonMount
 		if len(t.mounts) > 0 {
 			mounts = make([]jsonMount, len(t.mounts))
@@ -1986,24 +2150,24 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 			when = t.whenCond.expr
 		}
 
-		tasks[i] = jsonTask{
+		tasks = append(tasks, jsonTask{
 			Name:       t.name,
 			Command:    t.command,
 			Container:  t.container,
 			Workdir:    t.workdir,
 			Env:        env,
 			Mounts:     mounts,
-			Inputs:     t.inputs,      // v1-style file patterns
-			TaskInputs: taskInputs,    // v2-style inputs from other tasks
+			Inputs:     t.inputs,   // v1-style file patterns
+			TaskInputs: taskInputs, // v2-style inputs from other tasks
 			Outputs:    outputs,
 			DependsOn:  t.dependsOn,
 			When:       when,
 			Secrets:    t.secrets,
-			SecretRefs: secretRefs,    // v2-style typed secrets
+			SecretRefs: secretRefs, // v2-style typed secrets
 			Matrix:     t.matrix,
 			Retry:      t.retry,
 			Timeout:    t.timeout,
-			Target:     t.targetName,  // Per-task target override
+			Target:     t.targetName, // Per-task target override
 			Services: func() []jsonService {
 				if len(t.services) == 0 {
 					return nil
@@ -2069,7 +2233,22 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 				}
 			}(),
 			Verify: t.verify,
-		}
+		})
+	}
+
+	for _, r := range p.reviews {
+		deterministic := r.deterministic
+		tasks = append(tasks, jsonTask{
+			Name:          r.name,
+			Kind:          "review",
+			Primitive:     r.primitive,
+			Agent:         r.agent,
+			Inputs:        r.inputs,
+			Context:       r.context,
+			Outputs:       r.outputs,
+			DependsOn:     r.dependsOn,
+			Deterministic: &deterministic,
+		})
 	}
 
 	out := jsonPipeline{

@@ -196,6 +196,16 @@ defmodule Sykli.ValidateTest do
       refute Enum.any?(result.errors, &(&1.type == :missing_command))
     end
 
+    test "exempts review nodes from command requirement" do
+      json =
+        ~s({"tasks": [{"name": "review:api-breakage", "kind": "review", "primitive": "api-breakage", "agent": "local"}]})
+
+      result = Validate.validate_json(json)
+
+      assert result.valid == true
+      refute Enum.any?(result.errors, &(&1.type == :missing_command))
+    end
+
     test "passes when command is present" do
       json = ~s({"tasks": [{"name": "test", "command": "echo hello"}]})
 

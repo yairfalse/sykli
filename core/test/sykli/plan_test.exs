@@ -152,6 +152,41 @@ defmodule Sykli.PlanTest do
           :ok
       end
     end
+
+    test "plan exposes review nodes as non-deterministic graph nodes" do
+      {:ok, graph} =
+        parse_graph([
+          %{"name" => "test", "command" => "mix test"},
+          %{
+            "name" => "review:api-breakage",
+            "kind" => "review",
+            "primitive" => "api-breakage",
+            "agent" => "local",
+            "inputs" => ["main...HEAD"],
+            "context" => ["README.md", "docs/architecture.md"],
+            "outputs" => ["reviews/api-breakage.local.json"],
+            "depends_on" => ["test"],
+            "deterministic" => false
+          }
+        ])
+
+      assert {:ok, plan} = Plan.generate(graph, from: "HEAD", path: ".")
+
+      review = Enum.find(plan.nodes, &(&1.id == "review:api-breakage"))
+
+      assert review.kind == "review"
+      assert review.primitive == "api-breakage"
+      assert review.agent == "local"
+      assert review.inputs == ["main...HEAD"]
+      assert review.context == ["README.md", "docs/architecture.md"]
+      assert review.outputs == ["reviews/api-breakage.local.json"]
+      assert review.depends_on == ["test"]
+      assert review.deterministic == false
+
+      task = Enum.find(plan.nodes, &(&1.id == "test"))
+      assert task.kind == "task"
+      assert task.deterministic == true
+    end
   end
 
   # Helpers

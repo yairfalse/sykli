@@ -7,6 +7,25 @@ defmodule SykliTest do
     assert Map.has_key?(graph, "test")
   end
 
+  test "parses review nodes with metadata" do
+    json =
+      ~s({"tasks":[{"name":"test","command":"go test ./..."},{"name":"review:api-breakage","kind":"review","primitive":"api-breakage","agent":"local","inputs":["main...HEAD"],"context":["README.md","docs/architecture.md"],"outputs":["reviews/api-breakage.local.json"],"depends_on":["test"],"deterministic":false}]})
+
+    assert {:ok, graph} = Sykli.Graph.parse(json)
+    review = Map.fetch!(graph, "review:api-breakage")
+
+    assert Sykli.Graph.Task.review?(review)
+    assert Sykli.Graph.Task.kind(review) == :review
+    assert Sykli.Graph.Task.primitive(review) == "api-breakage"
+    assert Sykli.Graph.Task.agent(review) == "local"
+    assert Sykli.Graph.Task.inputs(review) == ["main...HEAD"]
+    assert Sykli.Graph.Task.context(review) == ["README.md", "docs/architecture.md"]
+    assert Sykli.Graph.Task.outputs(review) == ["reviews/api-breakage.local.json"]
+    assert Sykli.Graph.Task.depends_on(review) == ["test"]
+    refute Sykli.Graph.Task.deterministic?(review)
+    refute Sykli.Graph.Task.cacheable?(review)
+  end
+
   test "topo sort with no deps" do
     json = ~s({"tasks":[{"name":"a","command":"a"},{"name":"b","command":"b"}]})
     {:ok, graph} = Sykli.Graph.parse(json)

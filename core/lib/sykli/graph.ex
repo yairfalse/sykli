@@ -15,6 +15,11 @@ defmodule Sykli.Graph do
     defstruct [:from_task, :output, :dest]
   end
 
+  defmodule Review do
+    @moduledoc "Represents review-node metadata"
+    defstruct primitive: nil, agent: nil, context: [], deterministic: false
+  end
+
   defmodule Task do
     @moduledoc """
     Represents a single task in the pipeline.
@@ -61,9 +66,11 @@ defmodule Sykli.Graph do
     alias Sykli.Graph.Task.HistoryHint
     alias Sykli.Graph.Task.Capability
     alias Sykli.Graph.Task.Gate
+    alias Sykli.Graph.Review
 
     defstruct [
       :name,
+      :kind,
       :command,
       :inputs,
       :outputs,
@@ -116,7 +123,9 @@ defmodule Sykli.Graph do
       # Cross-platform verification mode ("cross_platform", "always", "never", or nil)
       :verify,
       # Secret references (env or file-based)
-      :secret_refs
+      :secret_refs,
+      # Review node metadata
+      :review
     ]
 
     @type t :: %__MODULE__{}
@@ -128,6 +137,11 @@ defmodule Sykli.Graph do
     @doc "Returns the task name."
     @spec name(t()) :: String.t()
     def name(%__MODULE__{name: n}), do: n
+
+    @doc "Returns the graph node kind."
+    @spec kind(t()) :: :task | :review
+    def kind(%__MODULE__{kind: :review}), do: :review
+    def kind(_), do: :task
 
     @doc "Returns the task command."
     @spec command(t()) :: String.t()
@@ -152,6 +166,32 @@ defmodule Sykli.Graph do
     @doc "Returns the outputs (map or list)."
     @spec outputs(t()) :: map() | [String.t()]
     def outputs(%__MODULE__{outputs: o}), do: o || %{}
+
+    @doc "Returns true when this node is a review."
+    @spec review?(t()) :: boolean()
+    def review?(%__MODULE__{} = task), do: kind(task) == :review
+
+    @doc "Returns the review primitive for review nodes."
+    @spec primitive(t()) :: String.t() | nil
+    def primitive(%__MODULE__{review: %Review{primitive: primitive}}), do: primitive
+    def primitive(_), do: nil
+
+    @doc "Returns the review agent for review nodes."
+    @spec agent(t()) :: String.t() | nil
+    def agent(%__MODULE__{review: %Review{agent: agent}}), do: agent
+    def agent(_), do: nil
+
+    @doc "Returns review context files."
+    @spec context(t()) :: [String.t()]
+    def context(%__MODULE__{review: %Review{context: context}}), do: context || []
+    def context(_), do: []
+
+    @doc "Returns whether the node is deterministic."
+    @spec deterministic?(t()) :: boolean()
+    def deterministic?(%__MODULE__{kind: :review, review: %Review{deterministic: value}}),
+      do: value
+
+    def deterministic?(_), do: true
 
     @doc "Returns the list of task dependencies."
     @spec depends_on(t()) :: [String.t()]
@@ -243,6 +283,7 @@ defmodule Sykli.Graph do
 
     @doc "Checks if the task is cacheable (has inputs defined)."
     @spec cacheable?(t()) :: boolean()
+    def cacheable?(%__MODULE__{kind: :review}), do: false
     def cacheable?(%__MODULE__{inputs: i}), do: i != nil && i != []
 
     @doc "Checks if the task has retry enabled."
@@ -326,15 +367,17 @@ defmodule Sykli.Graph do
 
   defp parse_task(map) do
     task_name = map["name"]
+    kind = parse_kind(map["kind"])
 
     with {:ok, services} <- parse_services(map["services"], task_name),
          {:ok, mounts} <- parse_mounts(map["mounts"], task_name) do
       {:ok,
        %Task{
          name: task_name,
+         kind: kind,
          command: map["command"],
          inputs: map["inputs"] || [],
-         outputs: normalize_outputs(map["outputs"]),
+         outputs: normalize_outputs(map["outputs"], kind),
          depends_on: (map["depends_on"] || []) |> Enum.uniq(),
          condition: map["when"] || map["condition"],
          # CI features
@@ -364,10 +407,26 @@ defmodule Sykli.Graph do
          gate: Task.Gate.from_map(map["gate"]),
          oidc: Task.CredentialBinding.from_map(map["oidc"]),
          verify: map["verify"],
-         secret_refs: parse_secret_refs(map["secret_refs"])
+         secret_refs: parse_secret_refs(map["secret_refs"]),
+         review: parse_review(map, kind)
        }}
     end
   end
+
+  defp parse_kind("review"), do: :review
+  defp parse_kind(:review), do: :review
+  defp parse_kind(_), do: :task
+
+  defp parse_review(map, :review) do
+    %Review{
+      primitive: map["primitive"],
+      agent: map["agent"],
+      context: map["context"] || [],
+      deterministic: Map.get(map, "deterministic", false)
+    }
+  end
+
+  defp parse_review(_map, _kind), do: nil
 
   defp parse_task_inputs(nil), do: []
 
@@ -440,16 +499,19 @@ defmodule Sykli.Graph do
 
   # Handle both v1 (list) and v2 (map) output formats
   # v2 keeps outputs as map for named artifact passing
-  defp normalize_outputs(nil), do: %{}
+  defp normalize_outputs(nil, :review), do: []
+  defp normalize_outputs(nil, _kind), do: %{}
 
-  defp normalize_outputs(outputs) when is_list(outputs) do
+  defp normalize_outputs(outputs, :review) when is_list(outputs), do: outputs
+
+  defp normalize_outputs(outputs, _kind) when is_list(outputs) do
     # v1: list of paths - convert to auto-named map for consistency
     outputs
     |> Enum.with_index()
     |> Map.new(fn {path, idx} -> {"output_#{idx}", path} end)
   end
 
-  defp normalize_outputs(outputs) when is_map(outputs), do: outputs
+  defp normalize_outputs(outputs, _kind) when is_map(outputs), do: outputs
 
   @doc """
   Expands matrix tasks into individual tasks.

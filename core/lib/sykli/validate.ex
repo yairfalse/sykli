@@ -232,7 +232,7 @@ defmodule Sykli.Validate do
     |> Enum.filter(fn t -> valid_name?(t["name"]) end)
     |> Enum.reject(fn t ->
       # Gate tasks don't need a command
-      t["gate"] != nil
+      t["gate"] != nil or t["kind"] == "review"
     end)
     |> Enum.filter(fn t ->
       cmd = t["command"]

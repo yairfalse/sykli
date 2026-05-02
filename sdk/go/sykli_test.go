@@ -256,6 +256,72 @@ func TestTaskWithNoCommandFails(t *testing.T) {
 	}
 }
 
+func TestReviewNodeEmitsMetadata(t *testing.T) {
+	p := New()
+	p.Task("test").Run("go test ./...")
+	p.Review("review:api-breakage").
+		Primitive("api-breakage").
+		Agent("local").
+		Diff("main...HEAD").
+		Context("README.md", "docs/architecture.md").
+		After("test").
+		Outputs("reviews/api-breakage.local.json")
+
+	result, err := emitJSON(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tasks := result["tasks"].([]interface{})
+	var review map[string]interface{}
+	for _, node := range tasks {
+		task := node.(map[string]interface{})
+		if task["name"] == "review:api-breakage" {
+			review = task
+			break
+		}
+	}
+	if review == nil {
+		t.Fatal("review node not found")
+	}
+
+	if review["kind"] != "review" {
+		t.Errorf("expected kind review, got %v", review["kind"])
+	}
+	if review["primitive"] != "api-breakage" {
+		t.Errorf("expected primitive api-breakage, got %v", review["primitive"])
+	}
+	if review["agent"] != "local" {
+		t.Errorf("expected agent local, got %v", review["agent"])
+	}
+	if review["deterministic"] != false {
+		t.Errorf("expected deterministic=false, got %v", review["deterministic"])
+	}
+	if _, ok := review["command"]; ok {
+		t.Errorf("review node should not emit command")
+	}
+
+	inputs := review["inputs"].([]interface{})
+	if len(inputs) != 1 || inputs[0] != "main...HEAD" {
+		t.Errorf("expected diff input, got %v", inputs)
+	}
+
+	context := review["context"].([]interface{})
+	if len(context) != 2 || context[0] != "README.md" || context[1] != "docs/architecture.md" {
+		t.Errorf("expected context files, got %v", context)
+	}
+
+	outputs := review["outputs"].([]interface{})
+	if len(outputs) != 1 || outputs[0] != "reviews/api-breakage.local.json" {
+		t.Errorf("expected review output path, got %v", outputs)
+	}
+
+	deps := review["depends_on"].([]interface{})
+	if len(deps) != 1 || deps[0] != "test" {
+		t.Errorf("expected dependency on test, got %v", deps)
+	}
+}
+
 func TestUnknownDependencyFails(t *testing.T) {
 	p := New()
 	p.Task("build").Run("go build").After("nonexistent")

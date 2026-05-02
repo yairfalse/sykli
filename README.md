@@ -21,11 +21,13 @@ func main() {
         After("test").
         Outputs("app")
 
-    // roadmap: ships in 0.6.x — see Roadmap section
-    s.Task("review").
-        Run("sykli review --primitive api-breakage --diff main...HEAD").
+    s.Review("review:api-breakage").
+        Primitive("api-breakage").
+        Agent("local").
+        Diff("main...HEAD").
+        Context("README.md", "docs/architecture.md").
         After("test").
-        Outputs("review.json")
+        Outputs("reviews/api-breakage.json")
 
     s.Emit()
 }
@@ -36,12 +38,12 @@ sykli · pipeline.go                                local · 0.6.0
 
   ●  test     go test ./...                        108ms
   ●  build    go build -o app                      612ms
-  ●  review   sykli review --primitive ...         842ms
+  ○  review:api-breakage   api-breakage            planned
 
-  ─  3 passed                                      1.2s
+  ─  2 passed · 1 review planned                   720ms
 ```
 
-The `review` task is just another node in the graph. It can be executed locally, in GitHub Actions, in another CI provider, or by an agent-aware runtime. The graph doesn't care.
+The `review:api-breakage` node is not a shell task. It is a structured review node in the graph: primitive, agent identifier, diff input, context files, dependencies, outputs, and `deterministic: false`.
 
 ---
 
@@ -89,20 +91,20 @@ The engine runs on the BEAM VM. Same code on your laptop, in Docker, on Kubernet
 
 ## Agentic review as code
 
-Agentic workflows need primitives, not prompts. Asking an LLM to "review this PR" is too underspecified to be repeatable. Defining a review *task* with constrained inputs, expected outputs, and explicit rules is.
+SYKLI Reviews are experimental. A review node represents a structured review step in the execution graph; it does not yet run Codex, Claude, or any other provider directly. It models the review step so future runners can execute agents in a controlled, inspectable way.
+
+The builder API is currently available in the Go SDK only. Rust, TypeScript, Elixir, and Python SDK builders still need parity work; until then, review nodes are an experimental Go-first graph feature.
+
+Agentic workflows need primitives, not prompts. Asking an LLM to "review this PR" is too underspecified to be repeatable. Defining a review node with constrained inputs, expected outputs, and explicit rules is.
 
 ```go
-s.Task("review/api-breakage").
-    Run("sykli review --primitive api-breakage --diff main...HEAD").
-    Outputs("api-review.json")
-
-s.Task("review/security").
-    Run("sykli review --primitive security --diff main...HEAD").
-    Outputs("security-review.json")
-
-s.Task("review/observability-regression").
-    Run("sykli review --primitive observability-regression").
-    Outputs("obs-review.json")
+s.Review("review:api-breakage").
+    Primitive("api-breakage").
+    Agent("local").
+    Diff("main...HEAD").
+    Context("README.md", "docs/architecture.md").
+    After("test").
+    Outputs("reviews/api-breakage.json")
 ```
 
 A review primitive is a node with:
@@ -111,9 +113,11 @@ A review primitive is a node with:
 - **Expected outputs.** A structured JSON report at a known path. Not freeform commentary.
 - **Explicit rules.** What counts as an api breakage, what counts as a coverage gap, what counts as an architecture-boundary violation.
 
-Agents — Claude, Codex, local models, deterministic linters — are executors inside the graph. Different runtimes can fulfill the same primitive. The graph is the contract; the executor is an implementation detail.
+Task nodes model deterministic work such as build and test commands. Review nodes model non-deterministic evaluation work such as agent review; they are `deterministic: false` by default.
 
-Planned primitives: `review/security`, `review/api-breakage`, `review/observability-regression`, `review/test-coverage-gap`, `review/architecture-boundary`. The `sykli review` command is on the roadmap; the design above is the shape it will take.
+Agents — local tools, hosted models, or deterministic linters — are executors inside the graph. Different runtimes can fulfill the same primitive. The graph is the contract; the executor is an implementation detail.
+
+Planned primitives: `security-boundaries`, `api-breakage`, `behavior-regression`, `test-coverage-gap`, `architecture-boundary`. Provider calls, prompt templates, and review-result occurrences are future work.
 
 ## Use cases
 
