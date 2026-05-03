@@ -1,103 +1,138 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Bump version across all SDKs atomically.
-#
-# Usage:
-#   ./scripts/bump-version.sh 0.5.0
-#   ./scripts/bump-version.sh 0.5.0 --commit   # also git commit
-#   ./scripts/bump-version.sh 0.5.0 --dry-run   # show what would change
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+usage() {
+  cat <<'USAGE'
+Usage: scripts/bump-version.sh <version> [--dry-run]
+
+Updates VERSION plus every package manifest that carries the shared Sykli
+release version. Go uses module-aware git tags, so sdk/go/go.mod is validated
+but has no embedded package version to rewrite.
+USAGE
+}
+
+log() {
+  printf '[bump-version] %s\n' "$*"
+}
+
+die() {
+  printf '[bump-version] error: %s\n' "$*" >&2
+  exit 1
+}
 
 if [[ $# -lt 1 ]]; then
-  echo "Usage: $0 <version> [--commit] [--dry-run]"
-  echo "Example: $0 0.5.0 --commit"
+  usage
   exit 1
 fi
 
-NEW_VERSION="$1"
+VERSION="$1"
 shift
+DRY_RUN=0
 
-COMMIT=false
-DRY_RUN=false
-
-for arg in "$@"; do
-  case "$arg" in
-    --commit) COMMIT=true ;;
-    --dry-run) DRY_RUN=true ;;
-    *) echo "Unknown flag: $arg"; exit 1 ;;
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dry-run) DRY_RUN=1 ;;
+    -h|--help) usage; exit 0 ;;
+    *) die "unknown argument: $1" ;;
   esac
+  shift
 done
 
-# Validate version format (semver without v prefix)
-if ! [[ "$NEW_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  echo "Error: version must be semver (e.g. 0.5.0), got: $NEW_VERSION"
-  exit 1
+if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+  die "version must be semver without a leading v, got '$VERSION'"
 fi
 
-echo "Bumping to $NEW_VERSION"
-echo ""
+require_file() {
+  local path="$1"
+  [[ -f "$ROOT/$path" ]] || die "required file missing: $path"
+}
 
-bump_file() {
-  local file="$1"
+replace_once() {
+  local path="$1"
   local pattern="$2"
-  local filepath="$ROOT/$file"
+  local replacement="$3"
 
-  if [[ ! -f "$filepath" ]]; then
-    echo "  SKIP  $file (not found)"
+  require_file "$path"
+
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    log "would update $path"
     return
   fi
 
-  local old
-  old=$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' "$filepath" | head -1)
+  FILE_PATH="$ROOT/$path" PATTERN="$pattern" REPLACEMENT="$replacement" python3 <<'PY'
+import os
+import re
+from pathlib import Path
 
-  if [[ "$DRY_RUN" == true ]]; then
-    echo "  WOULD $file: $old → $NEW_VERSION"
-  else
-    sed -i '' -E "$pattern" "$filepath"
-    echo "  OK    $file: $old → $NEW_VERSION"
-  fi
+path = Path(os.environ["FILE_PATH"])
+pattern = os.environ["PATTERN"]
+replacement = os.environ["REPLACEMENT"]
+text = path.read_text()
+new_text, count = re.subn(pattern, replacement, text, count=1, flags=re.MULTILINE)
+if count != 1:
+    raise SystemExit(f"pattern did not match exactly once in {path}")
+path.write_text(new_text)
+PY
 }
 
-bump_file "core/mix.exs" \
-  's/@version "[0-9]+\.[0-9]+\.[0-9]+"/@version "'"$NEW_VERSION"'"/'
+replace_all_checked() {
+  local path="$1"
+  local pattern="$2"
+  local replacement="$3"
+  local expected_count="$4"
 
-bump_file "sdk/elixir/mix.exs" \
-  's/version: "[0-9]+\.[0-9]+\.[0-9]+"/version: "'"$NEW_VERSION"'"/'
+  require_file "$path"
 
-bump_file "sdk/typescript/package.json" \
-  's/"version": "[0-9]+\.[0-9]+\.[0-9]+"/"version": "'"$NEW_VERSION"'"/'
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    log "would update $path"
+    return
+  fi
 
-bump_file "sdk/rust/Cargo.toml" \
-  's/^version = "[0-9]+\.[0-9]+\.[0-9]+"/version = "'"$NEW_VERSION"'"/'
+  FILE_PATH="$ROOT/$path" PATTERN="$pattern" REPLACEMENT="$replacement" EXPECTED_COUNT="$expected_count" python3 <<'PY'
+import os
+import re
+from pathlib import Path
 
-bump_file "sdk/python/pyproject.toml" \
-  's/^version = "[0-9]+\.[0-9]+\.[0-9]+"/version = "'"$NEW_VERSION"'"/'
+path = Path(os.environ["FILE_PATH"])
+pattern = os.environ["PATTERN"]
+replacement = os.environ["REPLACEMENT"]
+expected = int(os.environ["EXPECTED_COUNT"])
+text = path.read_text()
+new_text, count = re.subn(pattern, replacement, text, count=expected, flags=re.MULTILINE)
+if count != expected:
+    raise SystemExit(f"expected {expected} replacements in {path}, got {count}")
+path.write_text(new_text)
+PY
+}
 
-# Regenerate package-lock.json
-if [[ "$DRY_RUN" == false ]]; then
-  echo ""
-  echo "Regenerating package-lock.json..."
-  (cd "$ROOT/sdk/typescript" && npm install --package-lock-only --silent 2>/dev/null)
-  echo "  OK    sdk/typescript/package-lock.json"
+require_file "core/mix.exs"
+require_file "sdk/elixir/mix.exs"
+require_file "sdk/rust/Cargo.toml"
+require_file "sdk/python/pyproject.toml"
+require_file "sdk/typescript/package.json"
+require_file "sdk/typescript/package-lock.json"
+require_file "sdk/go/go.mod"
+
+log "target version: $VERSION"
+
+if [[ "$DRY_RUN" -eq 1 ]]; then
+  log "would update VERSION"
+else
+  printf '%s\n' "$VERSION" > "$ROOT/VERSION"
 fi
 
-echo ""
-echo "Done. Verify with:"
-echo "  grep -rn 'version' core/mix.exs sdk/elixir/mix.exs sdk/typescript/package.json sdk/rust/Cargo.toml sdk/python/pyproject.toml | grep '$NEW_VERSION'"
+replace_once "core/mix.exs" '(@version\s+")[^"]+(")' "\\g<1>$VERSION\\g<2>"
+replace_once "sdk/elixir/mix.exs" '(version:\s+")[^"]+(")' "\\g<1>$VERSION\\g<2>"
+replace_once "sdk/rust/Cargo.toml" '(^version\s*=\s*")[^"]+(")' "\\g<1>$VERSION\\g<2>"
+replace_once "sdk/python/pyproject.toml" '(^version\s*=\s*")[^"]+(")' "\\g<1>$VERSION\\g<2>"
+replace_once "sdk/typescript/package.json" '("version":\s*")[^"]+(")' "\\g<1>$VERSION\\g<2>"
+replace_all_checked "sdk/typescript/package-lock.json" '("version":\s*")[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?(")' "\\g<1>$VERSION\\g<3>" 2
 
-if [[ "$COMMIT" == true && "$DRY_RUN" == false ]]; then
-  echo ""
-  echo "Committing..."
-  cd "$ROOT"
-  git add \
-    core/mix.exs \
-    sdk/elixir/mix.exs \
-    sdk/typescript/package.json \
-    sdk/typescript/package-lock.json \
-    sdk/rust/Cargo.toml \
-    sdk/python/pyproject.toml
-  git commit -m "chore: bump version to $NEW_VERSION"
-  echo "Committed. Don't forget to update CHANGELOG.md."
+if [[ "$DRY_RUN" -eq 1 ]]; then
+  log "dry run complete; no files changed"
+else
+  "$ROOT/scripts/check-version.sh"
+  log "version bump complete"
 fi

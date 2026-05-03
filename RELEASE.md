@@ -1,140 +1,104 @@
-# Sykli v1.0.0 Release
+# Release Automation
 
-**Target**: First public release enabling teams to adopt sykli
+Sykli releases are driven by a single root `VERSION` file. Package manifests in
+the core engine and every SDK are derived from that file by script; release
+operators should not edit SDK version numbers by hand.
 
----
+## Prerequisites
 
-## What's in v1
+- `git` 2.x or newer
+- `python3` for version manifest management
+- Core and SDK toolchains needed by the release gate: Elixir/Mix, Go, Rust,
+  Node/npm, and Python packaging tools
 
-### Core (Elixir)
-- [x] Parallel task execution by dependency levels
-- [x] Content-addressed caching (local `.sykli/cache`)
-- [x] Multi-language SDK detection (Go, Rust, Elixir)
-- [x] Cycle detection with helpful error messages
-- [x] GitHub status API integration
-- [x] Distributed observability (Events, Coordinator, Reporter)
-- [x] Run Registry for tracking execution history
-- [x] Configurable timeouts and buffer limits
+## Commands
 
-### SDKs
-- [x] **Go SDK** - `sykli.dev/go`
-- [x] **Rust SDK** - `sykli` crate
-- [x] **Elixir SDK** - `sykli` hex package
-
-### SDK Features (all languages)
-- [x] Task definition with `.run()` / `Run()`
-- [x] Dependencies with `.after()` / `After()`
-- [x] Input file specification for caching
-- [x] Cycle detection before emit
-- [x] Logging integration
-
----
-
-## Distribution Plan
-
-### 1. Standalone Binary (Core)
-Self-contained binaries for Linux and macOS (no dependencies required).
-
-**Install via curl:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/yairfalse/sykli/main/install.sh | bash
+make dry-run VERSION=0.6.0
+make release VERSION=0.6.0
+make publish VERSION=0.6.0
 ```
 
-**Or download directly:**
-- `sykli-linux-x86_64`
-- `sykli-linux-aarch64`
-- `sykli-macos-x86_64`
-- `sykli-macos-aarch64`
+`make release` validates the repository, runs the core test suite, runs every SDK
+test suite, runs cross-SDK conformance, bumps version files, commits
+`release: v0.6.0`, and creates tag `v0.6.0`.
 
-Binaries are built with [Burrito](https://github.com/burrito-elixir/burrito) - bundles Erlang runtime into a single executable.
+`make publish` publishes SDK packages only. It checks all required credentials
+before publishing anything.
 
-### 2. Rust SDK → crates.io
+## Version Checks
+
 ```bash
-cd sdk/rust
-cargo publish
+scripts/check-version.sh
+scripts/bump-version.sh 0.6.1 --dry-run
+scripts/bump-version.sh 0.6.1
 ```
-Users add: `sykli = "0.1"`
 
-### 3. Elixir SDK → hex.pm
+Checked files:
+
+- `VERSION`
+- `core/mix.exs`
+- `sdk/elixir/mix.exs`
+- `sdk/rust/Cargo.toml`
+- `sdk/python/pyproject.toml`
+- `sdk/typescript/package.json`
+- `sdk/typescript/package-lock.json`
+- `sdk/go/go.mod`
+
+The Go SDK has no embedded package version. It publishes via the module-aware
+tag `sdk/go/v<version>`.
+
+## Publish Credentials
+
+Actual publishing requires all credentials to be present before the first
+registry call:
+
+- `CARGO_REGISTRY_TOKEN` for crates.io
+- `NPM_TOKEN` for npm
+- `PYPI_API_TOKEN` or `TWINE_PASSWORD` for PyPI
+- `HEX_API_KEY` for Hex
+- a configured `origin` git remote for the Go module tag
+
+If `TWINE_PASSWORD` is used without `PYPI_API_TOKEN`, set `TWINE_USERNAME`
+explicitly. Otherwise the publish script fails rather than inheriting an
+unrelated ambient PyPI username.
+
+Dry runs do not require credentials.
+
+## Partial Publish Recovery
+
+Multi-registry publishing cannot be atomic. If `make publish` fails mid-flight,
+do not rerun from the beginning unless you have confirmed the earlier registries
+did not publish. Fix the failure, then resume from the failed package:
+
 ```bash
-cd sdk/elixir
-mix hex.publish
-```
-Users add: `{:sykli, "~> 0.1"}`
-
-### 4. Go SDK → GitHub
-Go modules work directly from GitHub:
-```go
-import sykli "github.com/yairfalse/sykli/sdk/go"
+scripts/publish-all.sh 0.6.0 --from rust
 ```
 
-After tagging v1.0.0, users can do:
-```bash
-go get github.com/yairfalse/sykli/sdk/go@v1.0.0
+Valid resume points are `go`, `rust`, `ts`, `python`, and `elixir`. Individual
+registry semantics still apply: crates.io, npm, PyPI, and Hex generally cannot
+delete published versions, so already-published packages should be treated as
+complete and skipped on retry. The Go SDK publishes through the module-aware git
+tag `sdk/go/v<version>`, which can be inspected and repaired with normal git tag
+operations.
+
+## Example Dry Run
+
+```text
+$ make dry-run VERSION=0.6.0
+[release] release v0.6.0
+[release] checking version consistency before bump
+[release] + scripts/check-version.sh
+[release] running core tests
+[release] + bash -lc cd core && mix test
+[release] running SDK tests
+[release] + bash -lc cd sdk/go && go test ./...
+[release] running cross-SDK conformance
+[release] + tests/conformance/run.sh
+[release] would commit release: v0.6.0
+[release] would tag v0.6.0
+[publish-go] tag: sdk/go/v0.6.0
+[publish-rust] dry run: would run cargo publish from sdk/rust
 ```
 
----
-
-## Release Checklist
-
-- [ ] Update version numbers to 1.0.0
-  - [ ] `core/mix.exs`
-  - [ ] `sdk/rust/Cargo.toml`
-  - [ ] `sdk/elixir/mix.exs`
-  - [ ] `sdk/go/go.mod` (if using vanity imports)
-- [ ] Add escript configuration to core/mix.exs
-- [ ] Test escript build and execution
-- [ ] Verify all 147 tests pass
-- [ ] Create GitHub release tag v1.0.0
-- [ ] Publish Rust SDK to crates.io
-- [ ] Publish Elixir SDK to hex.pm
-- [ ] Update CLAUDE.md to reflect released features
-- [ ] Update README with installation instructions
-
----
-
-## Post-v1 Roadmap
-
-- [ ] Remote cache backend (S3/GCS)
-- [ ] Docker image for CI environments
-- [ ] GitHub Action for easy CI integration
-- [ ] LiveView dashboard for distributed observability
-- [ ] TypeScript SDK
-
----
-
-## Usage After Release
-
-### Rust Project (e.g., kulta)
-```toml
-# Cargo.toml
-[dependencies]
-sykli = { version = "0.1", optional = true }
-
-[features]
-sykli = ["dep:sykli"]
-```
-
-### Go Project
-```go
-// sykli.go
-import "github.com/yairfalse/sykli/sdk/go"
-```
-
-### Elixir Project
-```elixir
-# mix.exs
-{:sykli, "~> 0.1"}
-
-# sykli.exs
-use Sykli.DSL
-```
-
-### Running
-```bash
-# Install sykli (one-time)
-mix escript.install github yairfalse/sykli path:core
-
-# Run in project
-sykli
-```
+Dry run prints the commands it would execute and performs no mutation.
