@@ -4,8 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Recent changes
 
-- **GitHub-native foundation (ADR-021 Phase 1)** shipped — App auth, webhook receiver (Plug + Bandit), Checks API client, `Sykli.Mesh.Roles`. See `docs/github-native.md`.
-- **CLI visual reset (ADR-020)** shipped — Nordic-minimal renderer (`Sykli.CLI.Renderer/Theme/Live/FixRenderer`). The output rules are testable; banned vocabulary in §"CLI output rules" below.
+- **GitHub-native foundation** shipped — GitHub App auth, webhook receiver (Plug + Bandit), Checks API client, `Sykli.Mesh.Roles`. See `docs/github-native.md`.
+- **CLI visual reset** shipped — Nordic-minimal renderer (`Sykli.CLI.Renderer/Theme/Live/FixRenderer`). The output rules are testable; banned vocabulary in §"CLI output rules" below.
 - **Cache fingerprint** scheme includes repo-relative workdir; occurrences from before this change are not backward-compatible.
 
 ## What is Sykli?
@@ -124,7 +124,7 @@ The application also installs a SIGTERM handler that drains in-flight `TaskSuper
 | `Runtime.Resolver` | `runtime/resolver.ex` | Priority-chain runtime selection (opts → app env → SYKLI_RUNTIME → auto-detect → Shell); single place runtimes are named |
 | `Runtime.Fake` | `runtime/fake.ex` | Deterministic in-memory runtime for tests; no external binaries, no processes |
 | `Runtime.Podman` | `runtime/podman.ex` | Rootless Podman runtime |
-| `CLI.Renderer` / `Theme` / `Live` / `FixRenderer` | `cli/{renderer,theme,live,fix_renderer}.ex` | The v0.6 visual reset (ADR-020). Pure-function renderer + redraw-region driver + Sykli-fix layout. |
+| `CLI.Renderer` / `Theme` / `Live` / `FixRenderer` | `cli/{renderer,theme,live,fix_renderer}.ex` | The v0.6 visual reset. Pure-function renderer + redraw-region driver + Sykli-fix layout. |
 | `CLI.JsonResponse` | `cli/json_response.ex` | Shared `--json` envelope (`ok/version/data/error`); all `--json` paths flow through this |
 | `GitHub.App` | `github/app/{behaviour,real,fake,cache}.ex` | GitHub App JWT auth + installation token caching; behaviour-split for tests |
 | `GitHub.Webhook.{Receiver,Server,Signature,Deliveries}` | `github/webhook/*.ex` | Plug pipeline on Bandit; HMAC-SHA256 signature verification; `X-GitHub-Delivery` replay LRU |
@@ -159,7 +159,7 @@ All internal events are `%Sykli.Occurrence{}` structs broadcast via Phoenix.PubS
 Run lifecycle: `ci.run.started`, `ci.run.passed`, `ci.run.failed`
 Task lifecycle: `ci.task.started`, `ci.task.completed`, `ci.task.cached`, `ci.task.skipped`, `ci.task.retrying`, `ci.task.output`
 Cache / gates: `ci.cache.miss`, `ci.gate.waiting`, `ci.gate.resolved`
-GitHub-native (ADR-021 Phase 1): `ci.github.webhook.received`, `ci.github.check_suite.opened`
+GitHub-native: `ci.github.webhook.received`, `ci.github.check_suite.opened`
 
 Terminal events get enriched with `error`, `reasoning`, `history` blocks by `Occurrence.Enrichment`.
 
@@ -203,11 +203,11 @@ Key env vars (see `cli.ex` and module docs for full details):
 - `SYKLI_SOURCE_URI` — override occurrence `source` field (default: `"sykli"`)
 - `SYKLI_DRAIN_TIMEOUT_MS` — graceful shutdown drain timeout (default: 30000)
 - `SYKLI_K8S_NAMESPACE` — K8s target namespace (default: `"sykli"`)
-- `SYKLI_GITHUB_APP_ID` — GitHub App ID for the webhook receiver (ADR-021 Phase 1)
+- `SYKLI_GITHUB_APP_ID` — GitHub App ID for the webhook receiver
 - `SYKLI_GITHUB_APP_PRIVATE_KEY` — Path to PEM file (or PEM literal) for App JWT signing
 - `SYKLI_GITHUB_WEBHOOK_SECRET` — HMAC secret for webhook signature verification
 - `SYKLI_GITHUB_RECEIVER_PORT` — Port the receiver binds (only on the node holding `:webhook_receiver`)
-- `GITHUB_TOKEN` / `GITLAB_TOKEN` / `BITBUCKET_TOKEN` — SCM commit status integration (legacy ADR-004 path; superseded by ADR-021 but kept as documented fallback)
+- `GITHUB_TOKEN` / `GITLAB_TOKEN` / `BITBUCKET_TOKEN` — SCM commit status integration (legacy direct-token path superseded by the GitHub App receiver but kept as a documented fallback)
 
 ## Testing Patterns
 
@@ -248,7 +248,7 @@ Some cases carry `expected_failure: true`, which marks them as known-broken cont
 - **No wall-clock or global RNG in simulator-facing code** — the custom `CredoSykli.Check.NoWallClock` check (`core/lib/credo_sykli/check/no_wall_clock.ex`) fails on `System.monotonic_time/os_time/system_time`, `DateTime.utc_now`, `NaiveDateTime.utc_now`, `:os.system_time`, `:erlang.now`, and bare `:rand.uniform`. Route time through transport APIs (e.g. `now_ms/0`) and randomness through explicit seeded state
 - **Runtime isolation** — no module outside `core/lib/sykli/runtime/` may name a specific runtime implementation (`Sykli.Runtime.Docker`, `Podman`, `Shell`, `Fake`, `Containerd`). Selection flows through `Sykli.Runtime.Resolver`. Enforced by `core/test/sykli/runtime_isolation_test.exs` — the test greps the source tree and fails on any offender
 
-## CLI output rules (ADR-020)
+## CLI output rules
 
 The visual reset has output rules that are tested. Touching anything that emits to the terminal must respect them:
 
@@ -259,11 +259,16 @@ The visual reset has output rules that are tested. Touching anything that emits 
 - **Failure mode** drops a horizontal rule under the failed task, shows the offending stdout/stderr inline (last ~10 lines), and ends with the literal line: `    Run  sykli fix  for AI-readable analysis.`
 - **TTY detection**: piping `sykli` output to a file produces zero ANSI escape codes. The renderer falls back to append-only plain text when `not :io.columns/0`-able.
 
-## Architectural references (ADRs)
+## Project principles
 
-- **ADR-022** (`docs/adr/022-execution-graph-compiler-reframing.md`) — **canonical positioning**. Status: Accepted. *"sykli is a compiler for programmable execution graphs."* CI is a primary but non-exclusive use case. Tasks include computation (build/test), validation (lint/security), and reasoning (review primitives). Agents (Claude, Codex, deterministic linters) are executors inside the graph, not magical reviewers. Supersedes the *positioning* section of ADR-020.
-- **ADR-020** (`docs/adr/020-positioning-and-visual-direction.md`) — **visual direction is canonical**; positioning section is superseded by ADR-022. The Nordic-Minimal aesthetic, accent color, glyph language, and output rules in §"CLI output rules" above all derive from this ADR. ADR-020's local-first commitment ("user's hardware is the execution authority", "no hosted SaaS", "network is opt-in") is preserved by ADR-022 in full.
-- **ADR-021** (`docs/adr/021-github-native-via-webhook-mesh-receiver.md`) — supersedes ADR-004. sykli ships a GitHub App and a webhook receiver on the user's mesh; replaces "run inside GitHub Actions." Phase 1 (App + Receiver + Checks client + Mesh.Roles) shipped in PR #125. Phase 2 (webhook → executor → check run lifecycle) is queued. Phase 3 is `sykli fix` / review-primitive annotations on the PR diff.
+These shape how code decisions get made. They are not aspirational — the test suite enforces several of them directly (CLI output rules, runtime isolation, NoWallClock, secret masking, path containment).
+
+- **Local-first.** The user's hardware is the execution authority. No hosted SaaS, network is opt-in. Anything that requires reaching out to a remote service must work offline by default.
+- **Agents are executors, not reviewers.** Claude, Codex, deterministic linters, and review primitives all run as graph nodes — first-class executors with the same interface as build/test tasks. They produce structured output (FALSE Protocol occurrences) the rest of the graph can consume. They are not magic black boxes bolted on the side.
+- **Tasks span computation, validation, and reasoning.** "Run tests," "lint the code," and "ask Claude to review the API surface" are all tasks. Each declares inputs, outputs, dependencies, and a deterministic flag. Each can fail.
+- **CI is one use case, not the use case.** The execution-graph model is general; CI happens to be the most legible deployment of it. Don't over-couple core code to CI vocabulary.
+- **Visual direction is binding.** §"CLI output rules" above is testable and tested. Banned vocabulary, glyph language, accent-color discipline are all enforced.
+- **Sandbox the runtime layer.** No module outside `core/lib/sykli/runtime/` may name a specific runtime implementation. Selection flows through `Sykli.Runtime.Resolver`. This is enforced by `core/test/sykli/runtime_isolation_test.exs`.
 
 ## Git Workflow
 

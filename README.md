@@ -284,7 +284,7 @@ This is the layer agents and downstream tools read. No log parsing, no regex, no
 - **Review primitives** — `review/security`, `review/api-breakage`, `review/observability-regression`, `review/test-coverage-gap`, `review/architecture-boundary` as first-class graph nodes
 - **Structured review outputs** — typed JSON schema per primitive, consumable by other graph nodes
 - **Multi-agent execution** — multiple executors fulfilling the same primitive, with disagreement surfaced as graph state
-- **GitHub-native integration** — App + webhook receiver running on the user's mesh, replacing the in-Actions integration ([ADR-021](docs/adr/021-github-native-via-webhook-mesh-receiver.md))
+- **GitHub-native integration** — App + webhook receiver running on the user's mesh, replacing the in-Actions integration
 - **FALSE Protocol output compatibility** — already the internal event model; expanding the public schema for downstream consumers
 
 ---

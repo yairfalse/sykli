@@ -7,7 +7,7 @@ oracle cases. Fixes are intentionally out of scope for this PR.
 | --- | --- | --- | --- | --- |
 | CACHE-006 | CLAUDE.md §JSON output | `sykli cache stats --json` prints cache command help; the runner finds no JSON object. | JSON-supporting commands emit `{ok, version, data, error}` with no ANSI. | Medium |
 | ABN-015 | CLAUDE.md §TaskResult Status Values | A task timeout is reported as `failed`. | Infrastructure timeouts are `errored`, distinct from command failures. | High |
-| DET-003 | ADR-020 determinism; CLAUDE.md §FALSE Protocol Occurrences | Two identical runs differ after stripping known variable fields. | Occurrence payloads are replayable modulo declared variable fields. | Medium |
+| DET-003 | CLAUDE.md §FALSE Protocol Occurrences | Two identical runs differ after stripping known variable fields. | Occurrence payloads are replayable modulo declared variable fields. | Medium |
 | DET-006 | CLAUDE.md §No wall-clock or global RNG | A temporary `DateTime.utc_now` use under `core/lib/sykli` is not rejected by the configured credo run. | NoWallClock rejects direct wall-clock calls in simulator-facing code. | High |
 | SDK-001 | CLAUDE.md §SDKs; SDK READMEs | `tests/conformance/run.sh 01-basic` fails for non-Go SDK emitters. | Equivalent basic pipelines emit normalized-equivalent JSON in all five SDKs. | High |
 | SDK-002 | CHANGELOG 0.5.0 capabilities; SDK READMEs | Capability conformance fails through the runner. | `provides`/`needs` behavior is equivalent across all SDKs. | High |
