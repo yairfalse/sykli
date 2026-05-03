@@ -133,4 +133,26 @@ defmodule Sykli.CLITest do
       assert opts[:target] == :k8s
     end
   end
+
+  describe "global option normalization" do
+    test "moves leading --json after JSON-supporting subcommand" do
+      assert Sykli.CLI.normalize_global_json(["--json", "validate"]) == ["validate", "--json"]
+    end
+
+    test "leaves default run JSON form unchanged" do
+      assert Sykli.CLI.normalize_global_json(["--json"]) == ["--json"]
+    end
+  end
+
+  describe "explain glyphs" do
+    test "uses the pass glyph for successful runs" do
+      assert Sykli.CLI.explain_outcome_marker("success") ==
+               Sykli.CLI.Theme.accent() <> Sykli.CLI.Theme.glyph(:pass)
+    end
+
+    test "uses the fail glyph for failed runs" do
+      assert Sykli.CLI.explain_outcome_marker("failure") ==
+               Sykli.CLI.Theme.error() <> Sykli.CLI.Theme.glyph(:fail)
+    end
+  end
 end

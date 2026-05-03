@@ -45,14 +45,25 @@ defmodule Sykli.Detector do
         Path.expand(path)
       end
 
-    @sdk_files
-    |> Enum.find_value(fn {file, runner} ->
-      full_path = Path.join(abs_path, file)
-      if File.exists?(full_path), do: {:ok, {full_path, runner}}
-    end)
+    find_sdk(abs_path)
     |> case do
       {:ok, result} -> {:ok, result}
       nil -> {:error, :no_sdk_file}
+    end
+  end
+
+  defp find_sdk(abs_path) do
+    if File.regular?(abs_path) do
+      @sdk_files
+      |> Enum.find_value(fn {file, runner} ->
+        if Path.basename(abs_path) == file, do: {:ok, {abs_path, runner}}
+      end)
+    else
+      @sdk_files
+      |> Enum.find_value(fn {file, runner} ->
+        full_path = Path.join(abs_path, file)
+        if File.exists?(full_path), do: {:ok, {full_path, runner}}
+      end)
     end
   end
 

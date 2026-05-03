@@ -1509,6 +1509,29 @@
       "validated_by": "Injected bug: stream stdout by default; forbidden-pattern assertion fails."
     },
     {
+      "id": "UI-009",
+      "name": "validate accepts explicit sykli file path",
+      "fixture": "single_task",
+      "command": "sykli validate sykli.exs --json",
+      "expect_exit": 0,
+      "expect_json_jq": [
+        ".ok == true",
+        ".data.valid == true"
+      ],
+      "source": "CLAUDE.md §Definition of done; one-line invocation consistency",
+      "validated_by": "Injected bug: validate only scans directories; explicit file path returns sdk_not_found."
+    },
+    {
+      "id": "UI-010",
+      "name": "global --json before validate matches subcommand --json",
+      "fixture": "single_task",
+      "command": "sykli --json validate > global.json && sykli validate --json > subcommand.json && cmp -s global.json subcommand.json",
+      "shell": true,
+      "expect_exit": 0,
+      "source": "CLAUDE.md §Definition of done; agent surface supports --json in any flag position",
+      "validated_by": "Injected bug: leading --json is parsed as a run flag and validate becomes a path."
+    },
+    {
       "id": "GH-001",
       "name": "Receiver refuses to start without webhook role",
       "fixture": "single_task",

@@ -28,6 +28,19 @@ defmodule Sykli.ValidateTest do
       assert {:error, :no_sdk_file} = Validate.validate(tmp_dir)
     end
 
+    test "accepts an explicit sykli file path", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "sykli.exs")
+
+      File.write!(
+        path,
+        "IO.puts(~s({\"version\":\"1\",\"tasks\":[{\"name\":\"test\",\"command\":\"echo test\"}]}))"
+      )
+
+      assert {:ok, result} = Validate.validate(path)
+      assert result.valid
+      assert result.tasks == ["test"]
+    end
+
     test "detects cycle in dependencies" do
       # This test uses the JSON directly since creating a real cycle
       # in Go code would fail at emit time

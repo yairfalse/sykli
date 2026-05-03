@@ -3,14 +3,17 @@ defmodule Sykli.CLI do
   CLI entry point for escript.
   """
 
-  alias Sykli.CLI.{JsonResponse, Live, Renderer, FixRenderer}
+  alias Sykli.CLI.{JsonResponse, Live, Renderer, FixRenderer, Theme}
   alias Sykli.Delta
   alias Sykli.Error
   alias Sykli.Error.Formatter
 
   @version Mix.Project.config()[:version]
+  @subcommands ~w(cache graph delta watch report history daemon init validate verify plan explain context fix query mcp run)
 
   def main(args \\ []) do
+    args = normalize_global_json(args)
+
     case args do
       [flag] when flag in ["--help", "-h"] ->
         print_help()
@@ -78,6 +81,13 @@ defmodule Sykli.CLI do
         run_sykli(args)
     end
   end
+
+  @doc false
+  def normalize_global_json(["--json", command | rest]) when command in @subcommands do
+    [command, "--json" | rest]
+  end
+
+  def normalize_global_json(args), do: args
 
   defp print_help do
     IO.puts("""
@@ -1779,13 +1789,12 @@ defmodule Sykli.CLI do
 
     # Header
     outcome = data["outcome"] || "unknown"
-    outcome_color = if outcome == "success", do: IO.ANSI.green(), else: IO.ANSI.red()
-    outcome_icon = if outcome == "success", do: "\u2713", else: "\u2717"
+    outcome_marker = explain_outcome_marker(outcome)
 
     IO.puts("")
 
     IO.puts(
-      "#{outcome_color}#{outcome_icon} Run #{outcome}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{data["id"]}#{IO.ANSI.reset()}"
+      "#{outcome_marker} Run #{outcome}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{data["id"]}#{IO.ANSI.reset()}"
     )
 
     if git["sha"] do
@@ -1894,6 +1903,11 @@ defmodule Sykli.CLI do
 
     IO.puts("")
   end
+
+  @doc false
+  def explain_outcome_marker("success"), do: "#{Theme.accent()}#{Theme.glyph(:pass)}"
+  def explain_outcome_marker("passed"), do: "#{Theme.accent()}#{Theme.glyph(:pass)}"
+  def explain_outcome_marker(_), do: "#{Theme.error()}#{Theme.glyph(:fail)}"
 
   # ----- CONTEXT SUBCOMMAND -----
 
