@@ -133,6 +133,8 @@ The application also installs a SIGTERM handler that drains in-flight `TaskSuper
 
 Other modules in `lib/sykli/`: Context, Explain, Fix, Plan, Query, Delta, MCP.Server, SCM, Services, Telemetry, HTTP, Attestation, Target.K8s.
 
+See `docs/mcp-tools.md` for the current MCP tool surface, return shapes, composability notes, and audit recommendations.
+
 ### TaskResult Status Values
 
 - `:passed` — task ran and succeeded
