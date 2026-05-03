@@ -233,7 +233,7 @@ Some cases carry `expected_failure: true`, which marks them as known-broken cont
 - **`run_id` is threaded explicitly** through executor functions — never use Process dictionary
 - **Occurrence emission** uses `maybe_emit_*` helpers that pattern-match `nil` run_id to no-op
 - **Services** are stateless modules in `services/` — no GenServers, just functions
-- **Structured errors** via `Sykli.Error` — never bare strings. Use `Sykli.Error.task_failed/5`, etc.
+- **Structured errors** via `Sykli.Error` — never bare strings. Use `Sykli.Error.task_failed/5`, etc. Public codes are cataloged in `docs/error-codes.md`; add new externally visible codes there with a stability tier before exposing them in JSON, MCP, occurrences, or GitHub Checks.
 - **JSON output** — most commands support `--json`. All `--json` output flows through `Sykli.CLI.JsonResponse`, which wraps results in a shared envelope so agents can parse a single shape across commands:
   - Success: `{"ok": true,  "version": "1", "data": <payload>, "error": null}`
   - Error: `{"ok": false, "version": "1", "data": null, "error": {"code", "message", "hints"}}`
