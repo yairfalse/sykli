@@ -74,6 +74,10 @@ eval/harness/run.sh --case 001 --dry-run    # preview without running
 
 Before every commit: `mix format && mix test && mix escript.build`
 
+## Definition of done
+
+Every shipped command or feature must satisfy the dual-surface acceptance criteria in `docs/done.md`: human CLI output and agent-readable JSON/MCP surfaces are co-equal. Treat that document as part of PR review, not aspirational guidance.
+
 ## Architecture
 
 ```
@@ -133,6 +137,8 @@ The application also installs a SIGTERM handler that drains in-flight `TaskSuper
 
 Other modules in `lib/sykli/`: Context, Explain, Fix, Plan, Query, Delta, MCP.Server, SCM, Services, Telemetry, HTTP, Attestation, Target.K8s.
 
+See `docs/mcp-tools.md` for the current MCP tool surface, return shapes, composability notes, and audit recommendations.
+
 ### TaskResult Status Values
 
 - `:passed` — task ran and succeeded
@@ -178,6 +184,8 @@ Occurrence context carries `trace_id`, `span_id`, and `chain_id` (for correlatin
 ├── test-map.json            # file → tasks mapping (via `sykli context`)
 └── runs/                    # run history manifests
 ```
+
+See `docs/false-protocol-schema.md` for the on-disk schema, sample documents, stability tiers, and producer modules for these artifacts.
 
 ## SDKs
 
@@ -229,7 +237,7 @@ Some cases carry `expected_failure: true`, which marks them as known-broken cont
 - **`run_id` is threaded explicitly** through executor functions — never use Process dictionary
 - **Occurrence emission** uses `maybe_emit_*` helpers that pattern-match `nil` run_id to no-op
 - **Services** are stateless modules in `services/` — no GenServers, just functions
-- **Structured errors** via `Sykli.Error` — never bare strings. Use `Sykli.Error.task_failed/5`, etc.
+- **Structured errors** via `Sykli.Error` — never bare strings. Use `Sykli.Error.task_failed/5`, etc. Public codes are cataloged in `docs/error-codes.md`; add new externally visible codes there with a stability tier before exposing them in JSON, MCP, occurrences, or GitHub Checks.
 - **JSON output** — most commands support `--json`. All `--json` output flows through `Sykli.CLI.JsonResponse`, which wraps results in a shared envelope so agents can parse a single shape across commands:
   - Success: `{"ok": true,  "version": "1", "data": <payload>, "error": null}`
   - Error: `{"ok": false, "version": "1", "data": null, "error": {"code", "message", "hints"}}`

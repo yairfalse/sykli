@@ -9,9 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **CLI explain glyphs** now use the v0.6 status glyphs for run summaries (`●` for passed, `✕` for failed) instead of the older checkmark/cross rendering.
-- **`sykli validate <path>`** now accepts an explicit `sykli.*` file path, matching the run command's path shape.
-- **Global `--json` placement** now works for `sykli --json validate`, matching `sykli validate --json` for agent-safe invocation.
 - **GitHub webhook receiver — three Phase 1 correctness gaps.**
   - `POST /webhook` is now gated by `Sykli.Mesh.Roles.held_by_local?(:webhook_receiver)`. Previously only `GET /healthz` was gated; on a multi-node deployment every node would ingest deliveries, burn `delivery_id`s in their local replay caches, and create duplicate check suites/runs.
   - The replay cache no longer permanently loses deliveries when a downstream call fails. Previously, `accept_delivery` inserted the `delivery_id` *before* `installation_token` / `create_suite` / `create_run`, so a transient GitHub 5xx left the entry in cache and GitHub's automatic retry hit `:duplicate_delivery` / 409. The receiver now evicts the `delivery_id` on any post-accept failure; concurrent dedup is preserved by the atomic `:ets.insert_new` in `Deliveries.accept/3`.
