@@ -25,7 +25,13 @@ if [[ -z "${PYPI_API_TOKEN:-}" && -z "${TWINE_PASSWORD:-}" ]]; then
   exit 1
 fi
 
+if [[ -z "${PYPI_API_TOKEN:-}" && -z "${TWINE_USERNAME:-}" ]]; then
+  echo "[publish-python] error: TWINE_USERNAME is required when using TWINE_PASSWORD without PYPI_API_TOKEN" >&2
+  exit 1
+fi
+
 cd "$(dirname "${BASH_SOURCE[0]}")/../sdk/python"
+rm -rf dist/ build/ *.egg-info/
 python3 -m build
 if [[ -n "${PYPI_API_TOKEN:-}" ]]; then
   TWINE_USERNAME=__token__ TWINE_PASSWORD="$PYPI_API_TOKEN" python3 -m twine upload dist/*

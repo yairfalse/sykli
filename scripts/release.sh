@@ -64,6 +64,9 @@ if [[ -n "$(git status --porcelain)" ]]; then
   fi
 fi
 
+log "fetching tags"
+run git fetch --tags
+
 if git rev-parse "v$VERSION" >/dev/null 2>&1; then
   if [[ "$DRY_RUN" -eq 1 ]]; then
     log "dry run: actual release would fail because tag already exists: v$VERSION"
@@ -73,6 +76,12 @@ if git rev-parse "v$VERSION" >/dev/null 2>&1; then
 fi
 
 log "checking version consistency before bump"
+run "$ROOT/scripts/check-version.sh"
+
+log "bumping versions"
+run "$ROOT/scripts/bump-version.sh" "$VERSION"
+
+log "checking version consistency after bump"
 run "$ROOT/scripts/check-version.sh"
 
 log "running core tests"
@@ -87,12 +96,6 @@ run bash -lc 'cd sdk/elixir && mix test'
 
 log "running cross-SDK conformance"
 run "$ROOT/tests/conformance/run.sh"
-
-log "bumping versions"
-run "$ROOT/scripts/bump-version.sh" "$VERSION"
-
-log "checking version consistency after bump"
-run "$ROOT/scripts/check-version.sh"
 
 if [[ "$DRY_RUN" -eq 1 ]]; then
   log "would commit release: v$VERSION"

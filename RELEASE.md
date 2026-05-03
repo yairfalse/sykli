@@ -4,6 +4,13 @@ Sykli releases are driven by a single root `VERSION` file. Package manifests in
 the core engine and every SDK are derived from that file by script; release
 operators should not edit SDK version numbers by hand.
 
+## Prerequisites
+
+- `git` 2.x or newer
+- `python3` for version manifest management
+- Core and SDK toolchains needed by the release gate: Elixir/Mix, Go, Rust,
+  Node/npm, and Python packaging tools
+
 ## Commands
 
 ```bash
@@ -52,7 +59,28 @@ registry call:
 - `HEX_API_KEY` for Hex
 - a configured `origin` git remote for the Go module tag
 
+If `TWINE_PASSWORD` is used without `PYPI_API_TOKEN`, set `TWINE_USERNAME`
+explicitly. Otherwise the publish script fails rather than inheriting an
+unrelated ambient PyPI username.
+
 Dry runs do not require credentials.
+
+## Partial Publish Recovery
+
+Multi-registry publishing cannot be atomic. If `make publish` fails mid-flight,
+do not rerun from the beginning unless you have confirmed the earlier registries
+did not publish. Fix the failure, then resume from the failed package:
+
+```bash
+scripts/publish-all.sh 0.6.0 --from rust
+```
+
+Valid resume points are `go`, `rust`, `ts`, `python`, and `elixir`. Individual
+registry semantics still apply: crates.io, npm, PyPI, and Hex generally cannot
+delete published versions, so already-published packages should be treated as
+complete and skipped on retry. The Go SDK publishes through the module-aware git
+tag `sdk/go/v<version>`, which can be inspected and repaired with normal git tag
+operations.
 
 ## Example Dry Run
 
