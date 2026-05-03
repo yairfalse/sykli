@@ -74,6 +74,10 @@ eval/harness/run.sh --case 001 --dry-run    # preview without running
 
 Before every commit: `mix format && mix test && mix escript.build`
 
+## Definition of done
+
+Every shipped command or feature must satisfy the dual-surface acceptance criteria in `docs/done.md`: human CLI output and agent-readable JSON/MCP surfaces are co-equal. Treat that document as part of PR review, not aspirational guidance.
+
 ## Architecture
 
 ```
