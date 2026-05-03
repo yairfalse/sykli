@@ -179,6 +179,8 @@ Occurrence context carries `trace_id`, `span_id`, and `chain_id` (for correlatin
 └── runs/                    # run history manifests
 ```
 
+See `docs/false-protocol-schema.md` for the on-disk schema, sample documents, stability tiers, and producer modules for these artifacts.
+
 ## SDKs
 
 Five SDKs in `sdk/` — Go, Rust, TypeScript, Elixir, Python. All support the full API including semantic metadata, containers, mounts, services, K8s options, caches, secrets, gates, matrix, capabilities.
