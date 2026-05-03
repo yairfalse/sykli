@@ -920,7 +920,7 @@
       "shell": true,
       "expect_exit": 0,
       "expect_stdout": "○",
-      "source": "ADR-020 §Glyph language; README.md §Content-addressed caching",
+      "source": "CLAUDE.md §CLI output rules — Glyph language; README.md §Content-addressed caching",
       "validated_by": "Would fail if cached tasks use the pass glyph or execute again.",
       "findings": "Expected-red finding: identical second run renders passed glyph, not cache-hit glyph."
     },
@@ -941,7 +941,7 @@
       "command": "sykli >/dev/null && sykli >/dev/null && test \"$(wc -l < input_runs.log | tr -d ' ')\" = 1",
       "shell": true,
       "expect_exit": 0,
-      "source": "ADR-020 §What local-first commits us to; README.md §Content-addressed caching",
+      "source": "CLAUDE.md §Project principles — Local-first; README.md §Content-addressed caching",
       "validated_by": "Would fail if cache fingerprint changes between identical runs.",
       "findings": "Expected-red finding: identical run executes again."
     },
@@ -1015,7 +1015,7 @@
       "expect_stdout_not_contains": [
         "VISIBLE_STDOUT_SHOULD_BE_HIDDEN"
       ],
-      "source": "ADR-020 §Output rules item 4",
+      "source": "CLAUDE.md §CLI output rules — item 4 (banned vocabulary)",
       "validated_by": "Injected bug: always stream task stdout; forbidden-output assertion fails."
     },
     {
@@ -1035,7 +1035,7 @@
       "command": "sykli >/dev/null && if [ -d .sykli/cache ]; then ! grep -R \"$(pwd)\" .sykli/cache 2>/dev/null; else true; fi",
       "shell": true,
       "expect_exit": 0,
-      "source": "ADR-020 §local-first; CHANGELOG 0.5.0 Security OIDC temp files cleanup",
+      "source": "CLAUDE.md §Project principles — Local-first; CHANGELOG 0.5.0 Security OIDC temp files cleanup",
       "validated_by": "Injected bug: persist absolute workspace path in cache metadata; grep assertion fails."
     },
     {
@@ -1199,7 +1199,7 @@
       "command": "sykli --json",
       "expect_exit": 0,
       "expect_no_ansi": true,
-      "source": "CLAUDE.md §JSON output; ADR-020 §Output rules",
+      "source": "CLAUDE.md §JSON output; CLAUDE.md §CLI output rules",
       "validated_by": "Injected bug: pass JSON through visual renderer; ANSI assertion fails."
     },
     {
@@ -1252,7 +1252,7 @@
       "command": "sykli validate --json > a.json && sykli validate --json > b.json && cmp -s a.json b.json",
       "shell": true,
       "expect_exit": 0,
-      "source": "ADR-020 §Determinism and reproducibility",
+      "source": "CLAUDE.md §Patterns & Conventions — NoWallClock",
       "validated_by": "Injected bug: include wall-clock in validate payload; cmp assertion fails."
     },
     {
@@ -1262,7 +1262,7 @@
       "command": "sykli graph --dot > a.dot && sykli graph --dot > b.dot && cmp -s a.dot b.dot",
       "shell": true,
       "expect_exit": 0,
-      "source": "ADR-020 §Determinism and reproducibility",
+      "source": "CLAUDE.md §Patterns & Conventions — NoWallClock",
       "validated_by": "Injected bug: include generated timestamp in graph output; cmp assertion fails."
     },
     {
@@ -1272,7 +1272,7 @@
       "command": "sykli >/dev/null && jq 'del(.id,.timestamp,.context.labels[\"sykli.run_id\"],.data.tasks[].duration_ms,.data.duration_ms,.history.duration_ms,.history.steps[].duration_ms,.history.steps[].timestamp)' .sykli/occurrence.json > a.json && sykli >/dev/null && jq 'del(.id,.timestamp,.context.labels[\"sykli.run_id\"],.data.tasks[].duration_ms,.data.duration_ms,.history.duration_ms,.history.steps[].duration_ms,.history.steps[].timestamp)' .sykli/occurrence.json > b.json && cmp -s a.json b.json",
       "shell": true,
       "expect_exit": 0,
-      "source": "CLAUDE.md §FALSE Protocol Occurrences; ADR-020 §Determinism",
+      "source": "CLAUDE.md §FALSE Protocol Occurrences; CLAUDE.md §Patterns & Conventions — NoWallClock",
       "validated_by": "Injected bug: persist random field in occurrence data; normalized cmp fails.",
       "findings": "Expected-red finding: normalized occurrence payloads differ across identical runs beyond declared variable fields.",
       "expected_failure": true
@@ -1294,7 +1294,7 @@
       "command": "if sykli graph | grep -Eq \"20[0-9]{2}-[0-9]{2}-[0-9]{2}T\"; then exit 1; else exit 0; fi",
       "shell": true,
       "expect_exit": 0,
-      "source": "CLAUDE.md §No wall-clock or global RNG; ADR-010 reproducibility via ADR-020",
+      "source": "CLAUDE.md §No wall-clock or global RNG; CLAUDE.md §Patterns & Conventions — NoWallClock",
       "validated_by": "Injected bug: stamp graph generation time; grep assertion fails."
     },
     {
@@ -1427,7 +1427,7 @@
       "command": "sykli",
       "expect_exit": 1,
       "expect_stdout": "Run  sykli fix  for AI-readable analysis.",
-      "source": "ADR-020 §Output rules item 6",
+      "source": "CLAUDE.md §CLI output rules — item 6 (TTY detection)",
       "validated_by": "Injected bug: remove fix hint from failure renderer; string assertion fails."
     },
     {
@@ -1443,7 +1443,7 @@
         "Target: local (docker:",
         "All tasks completed"
       ],
-      "source": "ADR-020 §Output rules item 2",
+      "source": "CLAUDE.md §CLI output rules — item 2 (one accent color)",
       "validated_by": "Injected bug: restore old level/debug output; forbidden-pattern assertion fails."
     },
     {
@@ -1453,7 +1453,7 @@
       "command": "sykli",
       "expect_exit": 0,
       "expect_stdout": "●",
-      "source": "ADR-020 §Glyph language",
+      "source": "CLAUDE.md §CLI output rules — Glyph language",
       "validated_by": "Injected bug: replace pass glyph with checkmark; assertion fails."
     },
     {
@@ -1463,7 +1463,7 @@
       "command": "sykli",
       "expect_exit": 1,
       "expect_stdout": "✕",
-      "source": "ADR-020 §Glyph language",
+      "source": "CLAUDE.md §CLI output rules — Glyph language",
       "validated_by": "Injected bug: replace fail glyph with x; assertion fails."
     },
     {
@@ -1473,7 +1473,7 @@
       "command": "sykli",
       "expect_exit": 1,
       "expect_stdout": "─",
-      "source": "ADR-020 §Glyph language",
+      "source": "CLAUDE.md §CLI output rules — Glyph language",
       "validated_by": "Injected bug: render blocked as skipped text without glyph; assertion fails."
     },
     {
@@ -1483,7 +1483,7 @@
       "command": "sykli",
       "expect_exit": 0,
       "expect_no_ansi": true,
-      "source": "ADR-020 §Output rules item 5; non-TTY fallback",
+      "source": "CLAUDE.md §CLI output rules — item 5 (failure mode); non-TTY fallback",
       "validated_by": "Injected bug: emit ANSI unconditionally; no-ANSI assertion fails."
     },
     {
@@ -1493,7 +1493,7 @@
       "command": "sykli > out.txt && test \"$(grep -cE \"^  ─  5 passed\" out.txt)\" = 1",
       "shell": true,
       "expect_exit": 0,
-      "source": "ADR-020 §Output rules item 1",
+      "source": "CLAUDE.md §CLI output rules — item 1 (glyph language)",
       "validated_by": "Injected bug: print both old and new summaries; count assertion fails."
     },
     {
@@ -1505,7 +1505,7 @@
       "expect_stdout_not_contains": [
         "VISIBLE_STDOUT_SHOULD_BE_HIDDEN"
       ],
-      "source": "ADR-020 §Output rules item 4",
+      "source": "CLAUDE.md §CLI output rules — item 4 (banned vocabulary)",
       "validated_by": "Injected bug: stream stdout by default; forbidden-pattern assertion fails."
     },
     {
@@ -1515,7 +1515,7 @@
       "command": "SYKLI_GITHUB_RECEIVER_ENABLED=true SYKLI_LABELS= sykli --help >/dev/null",
       "shell": true,
       "expect_exit": 0,
-      "source": "ADR-021 §Topology; receiver is node role, not service",
+      "source": "CLAUDE.md §OTP Supervision Tree — webhook receiver role",
       "validated_by": "Injected bug: always start Bandit listener; --help would fail or bind unexpectedly."
     },
     {
@@ -1528,7 +1528,7 @@
       "expect_json_jq": [
         ".ok == true"
       ],
-      "source": "ADR-021 §Fallback; ADR-004 superseded fallback path",
+      "source": "CLAUDE.md §Environment Variables — GITHUB_TOKEN legacy fallback",
       "validated_by": "Injected bug: require GitHub App env for all GitHub-aware commands; validate would fail."
     },
     {
@@ -1541,7 +1541,7 @@
       "expect_json_jq": [
         ".ok == true"
       ],
-      "source": "ADR-020 §Network is opt-in; ADR-021 §Why this is local-first",
+      "source": "CLAUDE.md §Project principles — Local-first",
       "validated_by": "Injected bug: make App credentials mandatory at boot; local run fails."
     },
     {

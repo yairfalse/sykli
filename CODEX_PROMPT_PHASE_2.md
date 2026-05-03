@@ -6,30 +6,27 @@ Paste the block below into Codex's chat to start Phase 2.
 
 You are an engineering agent assigned to **Phase 2** of the GitHub-native CI rollout in the `sykli` repository (working directory: `/Users/yair/projects/sykli`, default branch: `main`, remote: `git@github.com:false-systems/sykli.git`).
 
-**Project context.** Sykli is **local-first CI for the next generation of software developers** (ADR-020). Pipelines are written as code in any of five SDKs, emitted as JSON task graphs, and executed by an Elixir/BEAM engine. The v0.6 visual reset shipped in PR #123. **Phase 1 of v0.7 shipped in PR #125** — the GitHub App, webhook receiver, signature verification, replay LRU, Checks API client, and `:webhook_receiver` mesh role are all in place. A signed webhook now arrives at the user's mesh and produces a `queued` check suite + check run, then stops.
+**Project context.** Sykli is **local-first CI for the next generation of software developers**. Pipelines are written as code in any of five SDKs, emitted as JSON task graphs, and executed by an Elixir/BEAM engine. The v0.6 visual reset shipped in PR #123. **Phase 1 of v0.7 shipped in PR #125** — the GitHub App, webhook receiver, signature verification, replay LRU, Checks API client, and `:webhook_receiver` mesh role are all in place. A signed webhook now arrives at the user's mesh and produces a `queued` check suite + check run, then stops.
 
 Your task is **Phase 2 only** — close the loop. The receiver hands off to the mesh, the source is acquired, the existing detector + executor run the pipeline, and per-task check runs transition through the GitHub Checks API lifecycle (`queued` → `in_progress` → conclusion). Phase 3 (PR diff annotations from `sykli fix`) and Phase 4 (App marketplace listing) come later. **Do not start them.**
 
 **Read first, in order:**
 
-1. **`CLAUDE.md`** — always-on operating manual. Build/test commands, conventions, the runtime isolation rule, the NoWallClock rule. Keep in working memory.
-2. **`docs/adr/021-github-native-via-webhook-mesh-receiver.md`** — authoritative spec for the entire rollout. The "Reporting: Checks API, not Commit Status API" section is your contract.
-3. **`docs/adr/020-positioning-and-visual-direction.md`** — the local-first commitment that constrains every decision.
-4. **`docs/adr/017-task-placement.md`** — placement model for capability-labeled nodes; you will dispatch through this.
-5. **What Phase 1 landed.** Run `git show 95a29d6` (the merge commit) and walk the per-commit log: `6f3414e` (App), `3587b20` (Signature/Deliveries), `2dfa9a9` (Checks), `c4a3190` (Mesh.Roles), `1f3fd3e` (Receiver + supervision), `bd99f53` (docs). You **build on** these; you do **not** rewrite them.
-6. **`core/lib/sykli/github/`** — the Phase 1 module surface. Specifically:
+1. **`CLAUDE.md`** — always-on operating manual. Build/test commands, conventions, the runtime isolation rule, the NoWallClock rule, the project principles (local-first, agents-as-executors), the §"OTP Supervision Tree" and §"Module Table" describe the Phase 1 surface you build on. Keep in working memory.
+2. **What Phase 1 landed.** Run `git show 95a29d6` (the merge commit) and walk the per-commit log: `6f3414e` (App), `3587b20` (Signature/Deliveries), `2dfa9a9` (Checks), `c4a3190` (Mesh.Roles), `1f3fd3e` (Receiver + supervision), `bd99f53` (docs). You **build on** these; you do **not** rewrite them.
+3. **`core/lib/sykli/github/`** — the Phase 1 module surface. Specifically:
    - `Sykli.GitHub.App.Behaviour` — `installation_token/2` (use this; do not roll your own)
    - `Sykli.GitHub.Checks` — `create_suite/3`, `create_run/4`, `update_run/4` (you will heavily use `update_run/4`)
    - `Sykli.GitHub.Webhook.Receiver` — Plug pipeline; you will extend its dispatch path
    - `Sykli.GitHub.Clock.Behaviour` — for any time math (no `DateTime.utc_now` direct calls)
-7. **`core/lib/sykli/executor.ex`** — `Sykli.Executor.run/3` is the entry point. Its options + occurrence stream are your integration surface.
-8. **`core/lib/sykli/detector.ex`** + **`core/lib/sykli/graph.ex`** — how a `sykli.{go,rs,ts,exs,py}` becomes a task DAG.
-9. **`core/lib/sykli/occurrence.ex`** — the FALSE Protocol event factory. Phase 1 added `ci.github.webhook.received` and `ci.github.check_suite.opened`. You will add more.
+4. **`core/lib/sykli/executor.ex`** — `Sykli.Executor.run/3` is the entry point. Its options + occurrence stream are your integration surface.
+5. **`core/lib/sykli/detector.ex`** + **`core/lib/sykli/graph.ex`** — how a `sykli.{go,rs,ts,exs,py}` becomes a task DAG.
+6. **`core/lib/sykli/occurrence.ex`** — the FALSE Protocol event factory. Phase 1 added `ci.github.webhook.received` and `ci.github.check_suite.opened`. You will add more.
 
 **Critical context — the most likely places to misstep:**
 
 - **Source acquisition is the new hard problem, and it is solvable cleanly.** When a webhook arrives, the receiver knows `repo_full_name` and `head_sha` but **not the source**. To run the pipeline, the source must land somewhere on the executing node. Use `git clone --depth 1` with the installation token as a Git credential: `https://x-access-token:<token>@github.com/<owner>/<repo>.git`, then `git -C <dir> checkout <head_sha>`. Clone into a unique temp directory under `System.tmp_dir!() <> "/sykli-runs/<run_id>/"`. **Always remove the directory on completion (success or failure)** via a process-monitor cleanup, not a try/after — the executing process may crash. Path containment rules from CLAUDE.md still apply: validate the resolved temp path is inside `System.tmp_dir!()` before any rm.
-- **Per-task check runs, not one rolled-up run.** ADR-021 §"Reporting" is explicit: each Sykli task is its own `check_run` inside one `check_suite`. Phase 1 created the suite + a single placeholder run; **delete that placeholder pattern in this phase** and replace it with: one `check_run` per task in the parsed DAG, all created at `queued` before execution starts, then transitioned individually as the executor emits per-task occurrences.
+- **Per-task check runs, not one rolled-up run.** Each Sykli task is its own `check_run` inside one `check_suite` — this is the GitHub-native reporting contract. Phase 1 created the suite + a single placeholder run; **delete that placeholder pattern in this phase** and replace it with: one `check_run` per task in the parsed DAG, all created at `queued` before execution starts, then transitioned individually as the executor emits per-task occurrences.
 - **The status mapping is fixed. Use exactly these.** Do not invent variants.
 
   | Sykli `TaskResult.status` | GitHub `check_run.conclusion` | Notes |
@@ -78,10 +75,9 @@ F. **Documentation.** Update `docs/github-native.md` with the Phase 2 section: h
 - ✗ The legacy `Sykli.SCM.GitHub` Commit Status API path. Stays as-is.
 - ✗ The visual reset modules (`Sykli.CLI.Renderer/Theme/Live/FixRenderer`). Untouched.
 - ✗ The JSON envelope (`Sykli.CLI.JsonResponse`). Untouched.
-- ✗ ADRs themselves. No edits in implementation PRs.
 - ✗ Adding a new `Target` or `Runtime`. The executor already has these.
-- ✗ Webhook delivery ordering reconciliation. Open question per ADR-021.
-- ✗ Multi-mesh installation disambiguation. Open question per ADR-021.
+- ✗ Webhook delivery ordering reconciliation. Open question, defer.
+- ✗ Multi-mesh installation disambiguation. Open question, defer.
 - ✗ Caching across runs. The existing `Sykli.Cache` already handles this; you don't add cache logic.
 
 **Conventions (from CLAUDE.md, non-negotiable):**
@@ -112,7 +108,7 @@ F. **Documentation.** Update `docs/github-native.md` with the Phase 2 section: h
    - `feat(github): add Dispatcher (webhook → source → executor → checks)`
    - `feat(github): wire receiver to async dispatch via TaskSupervisor`
    - `docs: update github-native walkthrough for Phase 2`
-10. Push and open PR titled **`feat(github): Phase 2 — Webhook → Executor → Check Run Lifecycle (ADR-021)`**. Body: 1-line summary + bulleted scope + a screenshot of a real PR's Checks tab showing per-task runs from a webhook-triggered run.
+10. Push and open PR titled **`feat(github): Phase 2 — Webhook → Executor → Check Run Lifecycle`**. Body: 1-line summary + bulleted scope + a screenshot of a real PR's Checks tab showing per-task runs from a webhook-triggered run.
 
 **Acceptance criteria:**
 

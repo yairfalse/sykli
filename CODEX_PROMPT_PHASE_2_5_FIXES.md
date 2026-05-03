@@ -34,7 +34,7 @@ This prompt closes the bug-tracking chain that the Phase 2.5 prompt assumed but 
 | 7 | **SDK-004** | High | Task input conformance fails through the runner | README §Content-addressed caching; SDK READMEs |
 | 8 | **SDK-006** | High | Empty-provides conformance fails through the runner | CHANGELOG 0.5.0 empty `provides` fix |
 | 9 | **CACHE-006** | Medium | `sykli cache stats --json` prints help text instead of envelope JSON | CLAUDE.md §JSON output |
-| 10 | **DET-003** | Medium | Two identical runs differ after stripping known-variable fields | ADR-020 determinism; CLAUDE.md §FALSE Protocol Occurrences |
+| 10 | **DET-003** | Medium | Two identical runs differ after stripping known-variable fields | CLAUDE.md §FALSE Protocol Occurrences |
 | 11 | **SDK-005** | Medium | Duplicate dependency edge conformance fails through the runner | SDK READMEs |
 
 ## Critical context — the most likely places to misstep
