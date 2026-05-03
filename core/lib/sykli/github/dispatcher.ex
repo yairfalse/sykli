@@ -131,7 +131,7 @@ defmodule Sykli.GitHub.Dispatcher do
           repo: event.repo,
           sha: event.head_sha,
           path: path,
-          bytes: directory_bytes(path)
+          bytes: directory_bytes(path, opts)
         })
 
         {:ok, path}
@@ -352,17 +352,28 @@ defmodule Sykli.GitHub.Dispatcher do
     end
   end
 
-  defp directory_bytes(path) do
-    path
-    |> Path.join("**/*")
-    |> Path.wildcard()
-    |> Enum.filter(&File.regular?/1)
-    |> Enum.reduce(0, fn file, acc ->
-      case File.stat(file) do
-        {:ok, stat} -> acc + stat.size
-        {:error, _} -> acc
-      end
-    end)
+  defp directory_bytes(path, opts) do
+    du_runner = Keyword.get(opts, :du_runner, &System.cmd/3)
+
+    case du_runner.("du", ["-sk", path], stderr_to_stdout: true) do
+      {output, 0} ->
+        output
+        |> String.split()
+        |> List.first()
+        |> parse_kibibytes()
+
+      _other ->
+        nil
+    end
+  end
+
+  defp parse_kibibytes(nil), do: nil
+
+  defp parse_kibibytes(value) do
+    case Integer.parse(value) do
+      {kib, ""} -> kib * 1024
+      _other -> nil
+    end
   end
 
   defp app_client(opts),
