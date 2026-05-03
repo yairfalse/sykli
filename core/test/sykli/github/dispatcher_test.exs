@@ -32,7 +32,7 @@ defmodule Sykli.GitHub.DispatcherTest do
              Dispatcher.dispatch(event,
                app_client: Sykli.GitHub.App.Fake,
                checks_client: Sykli.GitHub.Checks.Fake,
-               source_client: Sykli.GitHub.Source.Fake,
+               impl: Sykli.GitHub.Source.Fake,
                source_fixture: @fixture,
                test_pid: self(),
                fake_recorder: self()
@@ -63,7 +63,7 @@ defmodule Sykli.GitHub.DispatcherTest do
              Dispatcher.dispatch(event,
                app_client: Sykli.GitHub.App.Fake,
                checks_client: Sykli.GitHub.Checks.Fake,
-               source_client: Sykli.GitHub.Source.Fake,
+               impl: Sykli.GitHub.Source.Fake,
                test_pid: self(),
                source_response:
                  {:error,

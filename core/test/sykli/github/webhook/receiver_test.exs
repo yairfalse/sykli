@@ -202,15 +202,15 @@ defmodule Sykli.GitHub.Webhook.ReceiverTest do
     assert failing.status == 202
     assert_receive {:receiver_dispatch, %{delivery_id: "delivery-retry-me"}}
 
+    assert_receive {:receiver_dispatch_completed, "delivery-retry-me"}
+
     retry =
-      eventually(fn ->
-        :post
-        |> conn("/webhook", @body)
-        |> put_req_header("x-hub-signature-256", Signature.sign(@secret, @body))
-        |> put_req_header("x-github-delivery", "delivery-retry-me")
-        |> put_req_header("x-github-event", "pull_request")
-        |> Receiver.call(opts_ok)
-      end)
+      :post
+      |> conn("/webhook", @body)
+      |> put_req_header("x-hub-signature-256", Signature.sign(@secret, @body))
+      |> put_req_header("x-github-delivery", "delivery-retry-me")
+      |> put_req_header("x-github-event", "pull_request")
+      |> Receiver.call(opts_ok)
 
     assert retry.status == 202
   end
@@ -246,35 +246,27 @@ defmodule Sykli.GitHub.Webhook.ReceiverTest do
              "github.webhook.missing_signature"
   end
 
-  defp eventually(fun, attempts \\ 20)
-
-  defp eventually(fun, attempts) when attempts > 0 do
-    case fun.() do
-      %{status: 409} ->
-        Process.sleep(10)
-        eventually(fun, attempts - 1)
-
-      result ->
-        result
-    end
-  end
-
-  defp eventually(fun, 0), do: fun.()
-
   defmodule Dispatcher do
     def dispatch(context, opts) do
       if pid = Keyword.get(opts, :test_pid) do
         send(pid, {:receiver_dispatch, context})
       end
 
-      case Keyword.get(opts, :dispatch_result, :ok) do
-        {:error, _error} = error ->
-          Sykli.GitHub.Webhook.Deliveries.evict(context.delivery_id)
-          error
+      result =
+        case Keyword.get(opts, :dispatch_result, :ok) do
+          {:error, _error} = error ->
+            Sykli.GitHub.Webhook.Deliveries.evict(context.delivery_id)
+            error
 
-        :ok ->
-          :ok
+          :ok ->
+            :ok
+        end
+
+      if pid = Keyword.get(opts, :test_pid) do
+        send(pid, {:receiver_dispatch_completed, context.delivery_id})
       end
+
+      result
     end
   end
 end

@@ -20,6 +20,7 @@ defmodule Sykli.GitHub.SourceTest do
              )
 
     assert File.exists?(Path.join(path, "sykli.exs"))
+    refute String.contains?(path, ":")
 
     assert :ok = Source.cleanup(path, impl: Sykli.GitHub.Source.Fake)
     refute File.exists?(path)
@@ -56,6 +57,7 @@ defmodule Sykli.GitHub.SourceTest do
 
     config = File.read!(Path.join([path, ".git", "config"]))
 
+    refute String.contains?(path, ":")
     refute String.contains?(config, token)
     refute String.contains?(config, "x-access-token")
     assert String.contains?(config, "https://github.com/false-systems/sykli.git")
@@ -75,16 +77,17 @@ defmodule Sykli.GitHub.SourceTest do
   end
 
   test "real cleanup refuses paths outside the sykli temp root" do
-    decoy = Path.join(System.tmp_dir!(), "not-sykli-source-decoy")
+    decoy =
+      Path.join(System.tmp_dir!(), "not-sykli-source-decoy-#{System.unique_integer([:positive])}")
+
     sentinel = Path.join(decoy, "sentinel")
 
     File.mkdir_p!(decoy)
     File.write!(sentinel, "keep")
+    on_exit(fn -> File.rm_rf!(decoy) end)
 
     assert :ok = Sykli.GitHub.Source.Real.cleanup(decoy)
     assert File.exists?(sentinel)
-
-    File.rm_rf!(decoy)
   end
 
   defp init_repo(repo_dir, remote_url) do
