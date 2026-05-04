@@ -52,13 +52,13 @@ defmodule Sykli.GitHub.Dispatcher do
   defp dispatch_after_suite(event, token, suite, opts) do
     run_id = event.run_id
 
-    with {:ok, source_path} <- acquire_source(event, token, opts),
-         {:ok, results} <- dispatch_from_source(event, token, source_path, opts) do
+    with {:ok, source_path, janitor} <- acquire_source(event, token, opts),
+         {:ok, results} <- dispatch_from_source(event, token, source_path, janitor, opts) do
       OccPubSub.github_check_suite_concluded(run_id, %{
         repo: event.repo,
         head_sha: event.head_sha,
         check_suite_id: suite["id"],
-        conclusion: conclusion(results)
+        conclusion: suite_conclusion(results)
       })
 
       :ok
@@ -92,8 +92,8 @@ defmodule Sykli.GitHub.Dispatcher do
     end
   end
 
-  defp dispatch_from_source(event, token, source_path, opts) do
-    with_workspace_janitor(source_path, opts, fn ->
+  defp dispatch_from_source(event, token, source_path, janitor, opts) do
+    try do
       maybe_after_source_acquired(source_path, opts)
 
       with {:ok, graph, tasks} <- load_graph(source_path),
@@ -103,25 +103,14 @@ defmodule Sykli.GitHub.Dispatcher do
            :ok <- conclude_task_runs(event, token, check_runs, results, opts) do
         {:ok, results}
       end
-    end)
-  end
+    after
+      case workspace_janitor(opts).cleanup(janitor) do
+        :ok ->
+          :ok
 
-  defp with_workspace_janitor(source_path, opts, fun) do
-    case workspace_janitor(opts).start(self(), source_path, opts) do
-      {:ok, janitor} ->
-        try do
-          fun.()
-        after
-          workspace_janitor(opts).cleanup(janitor)
-        end
-
-      {:error, reason} ->
-        {:error,
-         dispatch_error(
-           "github.dispatch.workspace_janitor_failed",
-           "failed to monitor source workspace cleanup",
-           reason
-         )}
+        {:error, :timeout} ->
+          Logger.warning("[GitHub Dispatcher] source workspace cleanup timed out")
+      end
     end
   end
 
@@ -153,16 +142,29 @@ defmodule Sykli.GitHub.Dispatcher do
   end
 
   defp acquire_source(event, token, opts) do
-    case source_client(opts).acquire(event, token, opts) do
+    case Sykli.GitHub.Source.acquire(event, token, opts) do
       {:ok, path} ->
-        OccPubSub.github_run_source_acquired(event.run_id, %{
-          repo: event.repo,
-          sha: event.head_sha,
-          path: path,
-          bytes: directory_bytes(path)
-        })
+        case workspace_janitor(opts).start(self(), path, opts) do
+          {:ok, janitor} ->
+            OccPubSub.github_run_source_acquired(event.run_id, %{
+              repo: event.repo,
+              sha: event.head_sha,
+              path: path,
+              bytes: directory_bytes(path)
+            })
 
-        {:ok, path}
+            {:ok, path, janitor}
+
+          {:error, reason} ->
+            Sykli.GitHub.Source.cleanup(path, opts)
+
+            {:error,
+             dispatch_error(
+               "github.dispatch.workspace_janitor_failed",
+               "failed to monitor source workspace cleanup",
+               reason
+             )}
+        end
 
       error ->
         error
@@ -358,11 +360,18 @@ defmodule Sykli.GitHub.Dispatcher do
     end
   end
 
-  defp conclusion(results) do
-    if Enum.any?(results, &(&1.status in [:failed, :errored, :blocked])) do
-      "failure"
-    else
-      "success"
+  @doc false
+  @spec suite_conclusion([Sykli.Executor.TaskResult.t()]) :: String.t()
+  def suite_conclusion([]), do: "success"
+
+  def suite_conclusion(results) do
+    conclusions = Enum.map(results, &CheckRunFormatter.conclusion/1)
+
+    cond do
+      Enum.any?(conclusions, &(&1 == "failure")) -> "failure"
+      Enum.any?(conclusions, &(&1 == "cancelled")) -> "cancelled"
+      Enum.all?(conclusions, &(&1 == "skipped")) -> "skipped"
+      true -> "success"
     end
   end
 
@@ -402,7 +411,6 @@ defmodule Sykli.GitHub.Dispatcher do
       )
 
   defp checks_client(opts), do: Keyword.get(opts, :checks_client, Sykli.GitHub.Checks)
-  defp source_client(opts), do: Keyword.get(opts, :source_client, Sykli.GitHub.Source)
 
   defp workspace_janitor(opts),
     do: Keyword.get(opts, :workspace_janitor, Sykli.GitHub.WorkspaceJanitor)

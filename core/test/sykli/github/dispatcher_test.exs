@@ -4,6 +4,7 @@ defmodule Sykli.GitHub.DispatcherTest do
   alias Sykli.GitHub.Dispatcher
   alias Sykli.GitHub.Webhook.Deliveries
   alias Sykli.Occurrence.PubSub
+  alias Sykli.Executor.TaskResult
 
   @fixture Path.expand("../../../priv/test_fixtures/github_source/simple", __DIR__)
 
@@ -32,7 +33,7 @@ defmodule Sykli.GitHub.DispatcherTest do
              Dispatcher.dispatch(event,
                app_client: Sykli.GitHub.App.Fake,
                checks_client: Sykli.GitHub.Checks.Fake,
-               source_client: Sykli.GitHub.Source.Fake,
+               source_impl: Sykli.GitHub.Source.Fake,
                source_fixture: @fixture,
                test_pid: self(),
                fake_recorder: self()
@@ -54,6 +55,8 @@ defmodule Sykli.GitHub.DispatcherTest do
     assert_receive %Sykli.Occurrence{type: "ci.github.run.source_acquired"}
     assert_receive %Sykli.Occurrence{type: "ci.github.check_run.created"}
     assert_receive %Sykli.Occurrence{type: "ci.github.check_suite.concluded"}
+    assert_receive {:github_source_cleanup, source_path}
+    refute File.exists?(source_path)
   end
 
   test "dispatch failure evicts the delivery for GitHub retry", %{event: event} do
@@ -63,7 +66,7 @@ defmodule Sykli.GitHub.DispatcherTest do
              Dispatcher.dispatch(event,
                app_client: Sykli.GitHub.App.Fake,
                checks_client: Sykli.GitHub.Checks.Fake,
-               source_client: Sykli.GitHub.Source.Fake,
+               source_impl: Sykli.GitHub.Source.Fake,
                test_pid: self(),
                source_response:
                  {:error,
@@ -119,7 +122,7 @@ defmodule Sykli.GitHub.DispatcherTest do
         Dispatcher.dispatch(event,
           app_client: Sykli.GitHub.App.Fake,
           checks_client: Sykli.GitHub.Checks.Fake,
-          source_client: Sykli.GitHub.Source.Fake,
+          source_impl: Sykli.GitHub.Source.Fake,
           source_fixture: @fixture,
           after_source_acquired: fn source_path ->
             send(parent, {:source_acquired, self(), source_path})
@@ -141,6 +144,42 @@ defmodule Sykli.GitHub.DispatcherTest do
     end)
   end
 
+  test "dispatch cleans up the source workspace if janitor startup fails", %{event: event} do
+    event = %{event | delivery_id: "dispatcher-janitor-start-failed"}
+
+    assert {:error, %Sykli.Error{code: "github.dispatch.workspace_janitor_failed"}} =
+             Dispatcher.dispatch(event,
+               app_client: Sykli.GitHub.App.Fake,
+               checks_client: Sykli.GitHub.Checks.Fake,
+               source_impl: Sykli.GitHub.Source.Fake,
+               source_fixture: @fixture,
+               workspace_janitor: __MODULE__.FailingJanitor,
+               test_pid: self()
+             )
+
+    assert_receive {:github_source_cleanup, source_path}
+    refute File.exists?(source_path)
+  end
+
+  test "suite conclusion follows per-task check-run conclusions" do
+    assert Dispatcher.suite_conclusion([]) == "success"
+
+    assert Dispatcher.suite_conclusion([
+             task_result("test", :skipped),
+             task_result("lint", :skipped)
+           ]) == "skipped"
+
+    assert Dispatcher.suite_conclusion([
+             task_result("test", :passed),
+             task_result("deploy", :blocked)
+           ]) == "cancelled"
+
+    assert Dispatcher.suite_conclusion([
+             task_result("test", :failed),
+             task_result("deploy", :blocked)
+           ]) == "failure"
+  end
+
   defp assert_eventually(fun, attempts_left \\ 50)
 
   defp assert_eventually(fun, attempts_left) when attempts_left > 0 do
@@ -154,4 +193,13 @@ defmodule Sykli.GitHub.DispatcherTest do
   end
 
   defp assert_eventually(fun, 0), do: fun.()
+
+  defp task_result(name, status) do
+    %TaskResult{name: name, status: status, duration_ms: 1}
+  end
+
+  defmodule FailingJanitor do
+    def start(_owner, _path, _opts), do: {:error, :process_limit}
+    def cleanup(_pid), do: :ok
+  end
 end

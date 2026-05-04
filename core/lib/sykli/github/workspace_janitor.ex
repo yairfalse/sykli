@@ -13,7 +13,7 @@ defmodule Sykli.GitHub.WorkspaceJanitor do
     end)
   end
 
-  @spec cleanup(pid()) :: :ok
+  @spec cleanup(pid()) :: :ok | {:error, :timeout}
   def cleanup(pid) when is_pid(pid) do
     ref = make_ref()
     send(pid, {:cleanup, self(), ref})
@@ -21,7 +21,13 @@ defmodule Sykli.GitHub.WorkspaceJanitor do
     receive do
       {^ref, :ok} -> :ok
     after
-      @cleanup_timeout_ms -> :ok
+      @cleanup_timeout_ms ->
+        Logger.warning("[GitHub WorkspaceJanitor] cleanup timed out",
+          janitor: inspect(pid),
+          timeout_ms: @cleanup_timeout_ms
+        )
+
+        {:error, :timeout}
     end
   end
 
@@ -40,12 +46,14 @@ defmodule Sykli.GitHub.WorkspaceJanitor do
   end
 
   defp do_cleanup(path, opts) do
-    source_client(opts).cleanup(path, opts)
+    Sykli.GitHub.Source.cleanup(path, opts)
   rescue
     error ->
       Logger.warning("[GitHub WorkspaceJanitor] cleanup failed", error: inspect(error))
       :ok
+  catch
+    :exit, reason ->
+      Logger.warning("[GitHub WorkspaceJanitor] cleanup exited", reason: inspect(reason))
+      :ok
   end
-
-  defp source_client(opts), do: Keyword.get(opts, :source_client, Sykli.GitHub.Source)
 end

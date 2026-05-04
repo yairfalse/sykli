@@ -160,7 +160,7 @@ defmodule Sykli.GitHub.Source.Real do
   defp safe_segment(value) do
     value
     |> to_string()
-    |> String.replace(~r/[^A-Za-z0-9._:-]/, "-")
+    |> String.replace(~r/[^A-Za-z0-9._-]/, "-")
   end
 
   defp remove_tree(path) do
