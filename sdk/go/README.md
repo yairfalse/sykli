@@ -287,29 +287,40 @@ s.Task("flaky-test").
 
 ## Kubernetes Execution
 
-Run tasks on Kubernetes:
+The Go SDK exposes a minimal `K8sOptions` covering the 95% case (memory, CPU, GPU). For advanced fields (tolerations, affinity, security contexts, node selectors), pass raw JSON via `K8sRaw()`.
 
 ```go
 // Pipeline-level K8s defaults
-s := sykli.New(sykli.WithK8sDefaults(sykli.K8sTaskOptions{
-    Namespace: "ci-jobs",
-    Resources: sykli.K8sResources{Memory: "2Gi"},
+s := sykli.New(sykli.WithK8sDefaults(sykli.K8sOptions{
+    Memory: "2Gi",
+    CPU:    "1",
 }))
 
 // Task-specific K8s settings
 s.Task("train-model").
     Container("pytorch/pytorch:2.0").
     Run("python train.py").
-    K8s(sykli.K8sTaskOptions{
-        GPU: 1,
-        Resources: sykli.K8sResources{Memory: "32Gi"},
-        NodeSelector: map[string]string{"gpu": "nvidia-a100"},
+    K8s(sykli.K8sOptions{
+        Memory: "32Gi",
+        CPU:    "4",
+        GPU:    1,
     })
+
+// Advanced K8s configuration via raw JSON
+s.Task("gpu-train").
+    Container("pytorch/pytorch:2.0").
+    Run("python train.py").
+    K8s(sykli.K8sOptions{Memory: "32Gi", GPU: 1}).
+    K8sRaw(`{"nodeSelector": {"gpu": "nvidia-a100"}, "tolerations": [{"key": "gpu", "effect": "NoSchedule"}]}`)
 
 // Hybrid: some tasks local, some on K8s
 s.Task("test").Run("go test").Target("local")
 s.Task("train").Run("python train.py").Target("k8s")
 ```
+
+`K8sOptions` validates `Memory` (e.g., `512Mi`, `4Gi`) and `CPU` (e.g., `500m`, `2`) at emit time and reports a `K8sValidationError` for malformed values.
+
+`K8sTaskOptions` is kept as a deprecated alias of `K8sOptions` for backward compatibility.
 
 ## Language Presets
 

@@ -71,14 +71,6 @@ emit(): void
 
 Outputs the pipeline as JSON if `--emit` flag is present. Call this at the end of your pipeline.
 
-### emitTo
-
-```typescript
-emitTo(writer: { write(s: string): void }): void
-```
-
-Writes the pipeline JSON to the given writer.
-
 ### toJSON
 
 ```typescript

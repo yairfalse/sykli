@@ -93,8 +93,7 @@ run_go() {
 run_python() {
   local fixture="$1"
   cd "$ROOT/sdk/python"
-  source .venv/bin/activate 2>/dev/null || true
-  PYTHONPATH="$ROOT/sdk/python/src" python3 "$fixture" --emit 2>/dev/null
+  PYTHONPATH="$ROOT/sdk/python/src" "$SYKLI_CONFORMANCE_PYTHON" "$fixture" --emit 2>/dev/null
 }
 
 run_typescript() {
@@ -173,6 +172,12 @@ run_case() {
       continue
     fi
 
+    if [[ "$sdk" == "python" && -z "$SYKLI_CONFORMANCE_PYTHON" ]]; then
+      echo -e "  ${YELLOW}○${NC} $case_name/$sdk — skipped (no Python >=3.12 found)"
+      SKIP=$((SKIP + 1))
+      continue
+    fi
+
     local actual_raw actual
     local err_file="$TMP_DIR/err_${sdk}_${case_name}"
 
@@ -229,6 +234,12 @@ run_negative_case() {
 
     if [[ ! -f "$fixture" ]]; then
       echo -e "  ${YELLOW}○${NC} $case_name/$sdk — no fixture"
+      SKIP=$((SKIP + 1))
+      continue
+    fi
+
+    if [[ "$sdk" == "python" && -z "$SYKLI_CONFORMANCE_PYTHON" ]]; then
+      echo -e "  ${YELLOW}○${NC} $case_name/$sdk — skipped (no Python >=3.12 found)"
       SKIP=$((SKIP + 1))
       continue
     fi
