@@ -11,7 +11,11 @@ defmodule Sykli.GitHub.Checks.Fake do
 
   @impl true
   def create_run(context, token, opts \\ []) do
-    notify(opts, {:github_checks_create_run, context, token, Keyword.get(opts, :name)})
+    notify(
+      opts,
+      {:github_checks_create_run, context, token, Keyword.get(opts, :name),
+       Keyword.get(opts, :status, "queued")}
+    )
 
     case response(opts, :create_run_response, :default) do
       :default ->

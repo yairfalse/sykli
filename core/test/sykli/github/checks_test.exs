@@ -20,12 +20,13 @@ defmodule Sykli.GitHub.ChecksTest do
     assert Jason.decode!(body) == %{"head_sha" => "abc123"}
   end
 
-  test "create_run creates queued placeholder check run" do
+  test "create_run creates check run with requested status" do
     assert {:ok, %{"id" => 202}} =
              Checks.create_run(%{repo: "false-systems/sykli", head_sha: "abc123"}, "token",
                http_client: __MODULE__.HTTP,
                api_url: "https://api.github.test",
-               name: "sykli"
+               name: "sykli",
+               status: "in_progress"
              )
 
     [{:post, url, body}] = Application.get_env(:sykli, :github_http_requests)
@@ -34,7 +35,7 @@ defmodule Sykli.GitHub.ChecksTest do
     assert Jason.decode!(body) == %{
              "head_sha" => "abc123",
              "name" => "sykli",
-             "status" => "queued"
+             "status" => "in_progress"
            }
   end
 

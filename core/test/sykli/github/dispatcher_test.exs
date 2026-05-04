@@ -43,13 +43,15 @@ defmodule Sykli.GitHub.DispatcherTest do
                     "fake-installation-token-123"}
 
     assert_receive {:github_checks_create_run, %{head_sha: "abc123"},
-                    "fake-installation-token-123", "test"}
-
-    assert_receive {:github_checks_update_run, %{check_run_id: _}, "fake-installation-token-123",
-                    %{status: "in_progress"}}
+                    "fake-installation-token-123", "test", "in_progress"}
 
     assert_receive {:github_checks_update_run, %{check_run_id: _}, "fake-installation-token-123",
                     %{status: "completed", conclusion: "success"}}
+
+    # The completed update proves synchronous Checks calls have finished; any old
+    # queued -> in_progress update would already be in the mailbox.
+    refute_received {:github_checks_update_run, %{check_run_id: _}, "fake-installation-token-123",
+                     %{status: "in_progress"}}
 
     assert_receive %Sykli.Occurrence{type: "ci.github.run.dispatched"}
     assert_receive %Sykli.Occurrence{type: "ci.github.run.source_acquired"}
@@ -80,7 +82,7 @@ defmodule Sykli.GitHub.DispatcherTest do
              )
 
     assert_receive {:github_checks_create_run, %{head_sha: "abc123"},
-                    "fake-installation-token-123", "sykli/source"}
+                    "fake-installation-token-123", "sykli/source", "queued"}
 
     assert_receive {:github_checks_update_run, %{check_run_id: _}, "fake-installation-token-123",
                     %{status: "completed", conclusion: "failure"}}

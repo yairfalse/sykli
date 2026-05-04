@@ -102,7 +102,6 @@ defmodule Sykli.GitHub.Dispatcher do
 
       with {:ok, graph, tasks} <- load_graph(source_path),
            {:ok, check_runs} <- create_task_runs(event, token, tasks, opts),
-           :ok <- mark_in_progress(event, token, check_runs, opts),
            {:ok, results} <- run_executor(tasks, graph, source_path, event.run_id, opts),
            :ok <- conclude_task_runs(event, token, check_runs, results, opts) do
         {:ok, results}
@@ -201,7 +200,9 @@ defmodule Sykli.GitHub.Dispatcher do
       case checks_client(opts).create_run(
              %{repo: event.repo, head_sha: event.head_sha},
              token,
-             Keyword.put(opts, :name, task.name)
+             opts
+             |> Keyword.put(:name, task.name)
+             |> Keyword.put(:status, "in_progress")
            ) do
         {:ok, run} ->
           check_run_id = run["id"]
@@ -217,26 +218,6 @@ defmodule Sykli.GitHub.Dispatcher do
           {:halt, {:error, error}}
       end
     end)
-  end
-
-  defp mark_in_progress(event, token, check_runs, opts) do
-    check_runs
-    |> Enum.each(fn {task_name, check_run_id} ->
-      transition_check_run(
-        event,
-        token,
-        task_name,
-        check_run_id,
-        "queued",
-        "in_progress",
-        %{
-          status: "in_progress"
-        },
-        opts
-      )
-    end)
-
-    :ok
   end
 
   defp run_executor(tasks, graph, source_path, run_id, opts) do
