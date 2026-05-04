@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **GitHub webhook error responses now distinguish missing vs. bad signature.** Missing `X-Hub-Signature-256` returns 400 `github.webhook.missing_signature`; an invalid signature still returns 401 `github.webhook.bad_signature`. Operators can now tell a stripped-header proxy bug apart from a forgery attempt.
 - **GitHub webhook catch-all is now 502 `github.webhook.upstream_failure`** for raw upstream errors (was 400 `github.webhook.invalid`). GitHub does not retry 400s, so the previous response misclassified transient upstream failures as permanent client errors and silently dropped them.
+- **GitHub task check runs now start in progress.** Per-task GitHub check runs are created with `status: in_progress` directly. The transient queued state and the corresponding `ci.github.check_run.transitioned` queued→in_progress occurrences no longer fire for task runs. Setup-failure check runs (`sykli/source`) keep the queued→completed pattern unchanged.
+- **GitHub check-suite occurrence conclusions now follow per-task Checks API conclusions.** Blocked-only suites report `cancelled`, all-skipped suites report `skipped`, and mixed failed/blocked suites still report `failure`.
+- **GitHub source-workspace `bytes` now reports disk usage from `du -sk`.** The `ci.github.run.source_acquired` occurrence now includes dotfiles such as `.git/` and reports disk usage instead of summed apparent file size. If the measurement cannot be computed, `bytes` is `null` instead of silently reporting `0`.
 - **`Sykli.Mesh.Roles` moduledoc** clarified to make the local-only ETS semantics explicit. The "mesh" name was misleading — the registry is per-node single-holder enforcement, not cluster-coordinated. Multi-node deployments must ensure only one node carries a given role label.
 
 ## [0.6.0] - 2026-04-29

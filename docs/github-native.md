@@ -97,6 +97,12 @@ gh api /repos/OWNER/REPO/commits/HEAD/check-runs --jq '.check_runs[] | {name, st
 
 Task failures render the last task output lines in the Check Run summary. Infrastructure failures use the same `failure` conclusion as command failures, but the summary calls out the infrastructure failure explicitly.
 
+## Recovery From App Auth Failures
+
+If the receiver cannot authenticate as the GitHub App because configuration is missing, the private key is wrong, or GitHub returns `401`/`403`, Sykli records the delivery as accepted and does not evict it for automatic retry. This prevents GitHub from redelivering the same permanently failing webhook in a tight loop.
+
+After fixing the App configuration, trigger a new push or PR synchronization event. Redelivering the same GitHub delivery ID from the webhook UI may return `409` until the replay cache entry expires or the receiver node restarts.
+
 ## Occurrences
 
 The receiver and dispatcher emit these GitHub-native occurrences:

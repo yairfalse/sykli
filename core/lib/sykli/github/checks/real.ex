@@ -22,12 +22,13 @@ defmodule Sykli.GitHub.Checks.Real do
   @impl true
   def create_run(%{repo: repo, head_sha: head_sha}, token, opts \\ []) do
     name = Keyword.get(opts, :name, "sykli")
+    status = Keyword.get(opts, :status, "queued")
 
     request(
       :post,
       "/repos/#{repo}/check-runs",
       token,
-      %{name: name, head_sha: head_sha, status: "queued"},
+      %{name: name, head_sha: head_sha, status: status},
       opts,
       "github.checks.write_failed"
     )

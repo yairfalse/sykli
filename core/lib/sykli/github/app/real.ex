@@ -81,7 +81,7 @@ defmodule Sykli.GitHub.App.Real do
       {:ok, code, body} when code in 200..299 ->
         decode_token_response(body)
 
-      {:ok, code, body} ->
+      {:ok, code, body} when code in [401, 403] ->
         Logger.warning("[GitHub App] installation token request failed",
           code: code,
           installation_id: installation_id
@@ -94,11 +94,37 @@ defmodule Sykli.GitHub.App.Real do
            {code, body}
          )}
 
+      {:ok, code, body} when code in 500..599 ->
+        Logger.warning("[GitHub App] installation token request failed",
+          code: code,
+          installation_id: installation_id
+        )
+
+        {:error,
+         github_error(
+           "github.app.upstream_error",
+           "GitHub installation token service failed",
+           {code, body}
+         )}
+
+      {:ok, code, body} ->
+        Logger.warning("[GitHub App] installation token request returned an unexpected status",
+          code: code,
+          installation_id: installation_id
+        )
+
+        {:error,
+         github_error(
+           "github.app.bad_response",
+           "GitHub installation token response was invalid",
+           {code, body}
+         )}
+
       {:error, reason} ->
         {:error,
          github_error(
-           "github.app.unauthorized",
-           "GitHub installation token request failed",
+           "github.app.transport_failed",
+           "GitHub installation token request could not reach GitHub",
            reason
          )}
     end
