@@ -3,7 +3,7 @@
 CI pipelines defined in Elixir instead of YAML.
 
 ```elixir
-Mix.install([{:sykli, "~> 0.2"}])
+Mix.install([{:sykli, "~> 0.6"}])
 
 use Sykli
 
@@ -23,14 +23,14 @@ end
 ## Installation
 
 ```elixir
-Mix.install([{:sykli, "~> 0.2"}])
+Mix.install([{:sykli, "~> 0.6"}])
 ```
 
 Or add to your `mix.exs`:
 
 ```elixir
 defp deps do
-  [{:sykli, "~> 0.2"}]
+  [{:sykli, "~> 0.6"}]
 end
 ```
 
@@ -39,7 +39,7 @@ end
 Create a `sykli.exs` file in your project root:
 
 ```elixir
-Mix.install([{:sykli, "~> 0.2"}])
+Mix.install([{:sykli, "~> 0.6"}])
 
 use Sykli
 
