@@ -52,8 +52,8 @@ defmodule Sykli.GitHub.Dispatcher do
   defp dispatch_after_suite(event, token, suite, opts) do
     run_id = event.run_id
 
-    with {:ok, source_path} <- acquire_source(event, token, opts),
-         {:ok, results} <- dispatch_from_source(event, token, source_path, opts) do
+    with {:ok, source_path, janitor} <- acquire_source(event, token, opts),
+         {:ok, results} <- dispatch_from_source(event, token, source_path, janitor, opts) do
       OccPubSub.github_check_suite_concluded(run_id, %{
         repo: event.repo,
         head_sha: event.head_sha,
@@ -92,16 +92,33 @@ defmodule Sykli.GitHub.Dispatcher do
     end
   end
 
-  defp dispatch_from_source(event, token, source_path, opts) do
-    with {:ok, graph, tasks} <- load_graph(source_path),
-         {:ok, check_runs} <- create_task_runs(event, token, tasks, opts),
-         :ok <- mark_in_progress(event, token, check_runs, opts),
-         {:ok, results} <- run_executor(tasks, graph, source_path, event.run_id, opts),
-         :ok <- conclude_task_runs(event, token, check_runs, results, opts) do
-      {:ok, results}
+  defp dispatch_from_source(event, token, source_path, janitor, opts) do
+    try do
+      maybe_after_source_acquired(source_path, opts)
+
+      with {:ok, graph, tasks} <- load_graph(source_path),
+           {:ok, check_runs} <- create_task_runs(event, token, tasks, opts),
+           :ok <- mark_in_progress(event, token, check_runs, opts),
+           {:ok, results} <- run_executor(tasks, graph, source_path, event.run_id, opts),
+           :ok <- conclude_task_runs(event, token, check_runs, results, opts) do
+        {:ok, results}
+      end
+    after
+      case workspace_janitor(opts).cleanup(janitor) do
+        :ok ->
+          :ok
+
+        {:error, :timeout} ->
+          Logger.warning("[GitHub Dispatcher] source workspace cleanup timed out")
+      end
     end
-  after
-    Sykli.GitHub.Source.cleanup(source_path, opts)
+  end
+
+  defp maybe_after_source_acquired(source_path, opts) do
+    case Keyword.get(opts, :after_source_acquired) do
+      callback when is_function(callback, 1) -> callback.(source_path)
+      _ -> :ok
+    end
   end
 
   defp create_suite(event, token, opts) do
@@ -127,14 +144,27 @@ defmodule Sykli.GitHub.Dispatcher do
   defp acquire_source(event, token, opts) do
     case Sykli.GitHub.Source.acquire(event, token, opts) do
       {:ok, path} ->
-        OccPubSub.github_run_source_acquired(event.run_id, %{
-          repo: event.repo,
-          sha: event.head_sha,
-          path: path,
-          bytes: directory_bytes(path)
-        })
+        case workspace_janitor(opts).start(self(), path, opts) do
+          {:ok, janitor} ->
+            OccPubSub.github_run_source_acquired(event.run_id, %{
+              repo: event.repo,
+              sha: event.head_sha,
+              path: path,
+              bytes: directory_bytes(path)
+            })
 
-        {:ok, path}
+            {:ok, path, janitor}
+
+          {:error, reason} ->
+            Sykli.GitHub.Source.cleanup(path, opts)
+
+            {:error,
+             dispatch_error(
+               "github.dispatch.workspace_janitor_failed",
+               "failed to monitor source workspace cleanup",
+               reason
+             )}
+        end
 
       error ->
         error
@@ -381,6 +411,9 @@ defmodule Sykli.GitHub.Dispatcher do
       )
 
   defp checks_client(opts), do: Keyword.get(opts, :checks_client, Sykli.GitHub.Checks)
+
+  defp workspace_janitor(opts),
+    do: Keyword.get(opts, :workspace_janitor, Sykli.GitHub.WorkspaceJanitor)
 
   defp retryable_dispatch_error?(%Sykli.Error{code: code}) do
     code not in [

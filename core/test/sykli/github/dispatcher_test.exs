@@ -55,6 +55,8 @@ defmodule Sykli.GitHub.DispatcherTest do
     assert_receive %Sykli.Occurrence{type: "ci.github.run.source_acquired"}
     assert_receive %Sykli.Occurrence{type: "ci.github.check_run.created"}
     assert_receive %Sykli.Occurrence{type: "ci.github.check_suite.concluded"}
+    assert_receive {:github_source_cleanup, source_path}
+    refute File.exists?(source_path)
   end
 
   test "dispatch failure evicts the delivery for GitHub retry", %{event: event} do
@@ -109,6 +111,56 @@ defmodule Sykli.GitHub.DispatcherTest do
     assert {:error, :duplicate_delivery} = Deliveries.accept(event.delivery_id, 2)
   end
 
+  test "dispatch cleans up the source workspace when the dispatcher process is killed", %{
+    event: event
+  } do
+    parent = self()
+    event = %{event | delivery_id: "dispatcher-crash-cleanup"}
+
+    dispatcher =
+      spawn(fn ->
+        Dispatcher.dispatch(event,
+          app_client: Sykli.GitHub.App.Fake,
+          checks_client: Sykli.GitHub.Checks.Fake,
+          source_impl: Sykli.GitHub.Source.Fake,
+          source_fixture: @fixture,
+          after_source_acquired: fn source_path ->
+            send(parent, {:source_acquired, self(), source_path})
+
+            receive do
+              :continue -> :ok
+            end
+          end
+        )
+      end)
+
+    assert_receive {:source_acquired, ^dispatcher, source_path}
+    assert File.exists?(source_path)
+
+    Process.exit(dispatcher, :kill)
+
+    assert_eventually(fn ->
+      refute File.exists?(source_path)
+    end)
+  end
+
+  test "dispatch cleans up the source workspace if janitor startup fails", %{event: event} do
+    event = %{event | delivery_id: "dispatcher-janitor-start-failed"}
+
+    assert {:error, %Sykli.Error{code: "github.dispatch.workspace_janitor_failed"}} =
+             Dispatcher.dispatch(event,
+               app_client: Sykli.GitHub.App.Fake,
+               checks_client: Sykli.GitHub.Checks.Fake,
+               source_impl: Sykli.GitHub.Source.Fake,
+               source_fixture: @fixture,
+               workspace_janitor: __MODULE__.FailingJanitor,
+               test_pid: self()
+             )
+
+    assert_receive {:github_source_cleanup, source_path}
+    refute File.exists?(source_path)
+  end
+
   test "suite conclusion follows per-task check-run conclusions" do
     assert Dispatcher.suite_conclusion([]) == "success"
 
@@ -128,7 +180,26 @@ defmodule Sykli.GitHub.DispatcherTest do
            ]) == "failure"
   end
 
+  defp assert_eventually(fun, attempts_left \\ 50)
+
+  defp assert_eventually(fun, attempts_left) when attempts_left > 0 do
+    try do
+      fun.()
+    rescue
+      ExUnit.AssertionError ->
+        Process.sleep(20)
+        assert_eventually(fun, attempts_left - 1)
+    end
+  end
+
+  defp assert_eventually(fun, 0), do: fun.()
+
   defp task_result(name, status) do
     %TaskResult{name: name, status: status, duration_ms: 1}
+  end
+
+  defmodule FailingJanitor do
+    def start(_owner, _path, _opts), do: {:error, :process_limit}
+    def cleanup(_pid), do: :ok
   end
 end
