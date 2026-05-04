@@ -19,7 +19,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-sykli = "0.2"
+sykli = "0.6"
 
 [[bin]]
 name = "sykli"
@@ -33,7 +33,7 @@ For optional dependency (recommended for libraries):
 sykli = ["dep:sykli"]
 
 [dependencies]
-sykli = { version = "0.2", optional = true }
+sykli = { version = "0.6", optional = true }
 
 [[bin]]
 name = "sykli"
@@ -111,8 +111,8 @@ Declare task outputs for artifact passing:
 
 ```rust
 p.task("build")
-    .run("cargo build --release -o ./app")
-    .output("binary", "./app");
+    .run("cargo build --release")
+    .output("binary", "target/release/app");
 ```
 
 ### Conditional Execution
@@ -126,33 +126,43 @@ p.task("deploy")
     .when("branch == 'main'");
 
 // Type-safe conditions (compile-time checked)
-use sykli::{Branch, Tag};
+use sykli::Condition;
 
 p.task("release")
     .run("./release.sh")
-    .when_cond(Branch::new("main").or(Tag::pattern("v*")));
+    .when_cond(Condition::branch("main").or(Condition::tag("v*")));
 ```
+
+Available condition builders:
+
+- `Condition::branch("main")` / `Condition::branch("feature/*")`
+- `Condition::tag("v*")` / `Condition::has_tag()`
+- `Condition::event("push")` / `Condition::event("pull_request")`
+- `Condition::in_ci()`
+- `Condition::negate(c)`, `.and(other)`, `.or(other)`
 
 ## Templates
 
-Templates eliminate repetition:
+Templates eliminate repetition. Construct with `Template::new()` and apply with `.from()`:
 
 ```rust
+use sykli::Template;
+
 let src = p.dir(".");
 let cache = p.cache("cargo-registry");
 
-// Define template
-let rust = p.template("rust")
+let rust = Template::new()
     .container("rust:1.75")
-    .mount(&src, "/src")
+    .mount_dir(&src, "/src")
     .mount_cache(&cache, "/usr/local/cargo/registry")
     .workdir("/src");
 
-// Tasks inherit from template
 p.task("lint").from(&rust).run("cargo clippy");
 p.task("test").from(&rust).run("cargo test");
 p.task("build").from(&rust).run("cargo build --release");
 ```
+
+Task-specific settings override template settings.
 
 ## Containers
 
@@ -192,12 +202,14 @@ p.task("build")
 
 ### Parallel Groups
 
+`parallel()` groups already-defined tasks by name. Define the tasks first, then group them:
+
 ```rust
-let checks = p.parallel("checks", vec![
-    p.task("lint").run("cargo clippy"),
-    p.task("fmt").run("cargo fmt --check"),
-    p.task("test").run("cargo test"),
-]);
+p.task("lint").run("cargo clippy");
+p.task("fmt").run("cargo fmt --check");
+p.task("test").run("cargo test");
+
+let checks = p.parallel("checks", &["lint", "fmt", "test"]);
 
 // Build depends on all checks
 p.task("build")
@@ -207,21 +219,23 @@ p.task("build")
 
 ### Chains
 
-```rust
-let test = p.task("test").run("cargo test");
-let build = p.task("build").run("cargo build --release");
-let deploy = p.task("deploy").run("./deploy.sh");
+`chain()` takes a slice of task names and adds sequential dependencies:
 
-// test -> build -> deploy
-p.chain(&[&test, &build, &deploy]);
+```rust
+p.task("test").run("cargo test");
+p.task("build").run("cargo build --release");
+p.task("deploy").run("./deploy.sh");
+
+// build depends on test, deploy depends on build
+p.chain(&["test", "build", "deploy"]);
 ```
 
 ### Artifact Passing
 
 ```rust
 p.task("build")
-    .run("cargo build --release -o /out/app")
-    .output("binary", "/out/app");
+    .run("cargo build --release")
+    .output("binary", "target/release/app");
 
 // Automatically depends on "build"
 p.task("package")
@@ -231,24 +245,20 @@ p.task("package")
 
 ## Matrix Builds
 
+`matrix()` runs a generator closure once per value, producing a `TaskGroup`:
+
 ```rust
 // Test across Rust versions
-p.matrix("rust-test", &["1.70", "1.75", "1.80"], |version| {
+let versions = p.matrix("rust-test", &["1.70", "1.75", "1.80"], |p, version| {
     p.task(&format!("test-rust-{}", version))
         .container(&format!("rust:{}", version))
         .mount_cwd()
-        .run("cargo test")
+        .run("cargo test");
 });
 
-// Deploy to environments
-p.matrix_map("deploy", &[
-    ("staging", "staging.example.com"),
-    ("prod", "prod.example.com"),
-], |(env, host)| {
-    p.task(&format!("deploy-{}", env))
-        .run(&format!("deploy --host {}", host))
-        .when("branch == 'main'")
-});
+p.task("publish")
+    .run("cargo publish")
+    .after_group(&versions);
 ```
 
 ## Service Containers
@@ -274,12 +284,12 @@ p.task("deploy")
     .run("./deploy.sh");
 
 // Typed secrets with explicit source
-use sykli::{FromEnv, FromVault, FromFile};
+use sykli::SecretRef;
 
 p.task("deploy")
-    .secret_from("GITHUB_TOKEN", FromEnv::new("GH_TOKEN"))
-    .secret_from("DB_PASSWORD", FromVault::new("secret/db#password"))
-    .secret_from("API_KEY", FromFile::new("/run/secrets/api-key"))
+    .secret_from("GITHUB_TOKEN", SecretRef::from_env("GH_TOKEN"))
+    .secret_from("DB_PASSWORD", SecretRef::from_vault("secret/data/db#password"))
+    .secret_from("API_KEY", SecretRef::from_file("/run/secrets/api-key"))
     .run("./deploy.sh");
 ```
 
@@ -294,17 +304,16 @@ p.task("flaky-test")
 
 ## Kubernetes Execution
 
+The Rust SDK exposes a minimal `K8sOptions` covering the 95% case (memory, CPU, GPU). For advanced fields (tolerations, affinity, security contexts, node selectors), pass raw JSON via `k8s_raw()`.
+
 ```rust
-use sykli::{K8sOptions, K8sResources};
+use sykli::{K8sOptions, Pipeline};
 
 // Pipeline-level defaults
-let mut p = Pipeline::new_with_k8s_defaults(K8sOptions {
-    namespace: Some("ci-jobs".into()),
-    resources: K8sResources {
-        memory: Some("2Gi".into()),
-        ..Default::default()
-    },
-    ..Default::default()
+let mut p = Pipeline::with_k8s_defaults(K8sOptions {
+    memory: Some("2Gi".into()),
+    cpu: Some("1".into()),
+    gpu: None,
 });
 
 // Task-specific K8s settings
@@ -312,19 +321,28 @@ p.task("train-model")
     .container("pytorch/pytorch:2.0")
     .run("python train.py")
     .k8s(K8sOptions {
+        memory: Some("32Gi".into()),
+        cpu: Some("4".into()),
         gpu: Some(1),
-        resources: K8sResources {
-            memory: Some("32Gi".into()),
-            ..Default::default()
-        },
-        node_selector: [("gpu".into(), "nvidia-a100".into())].into(),
-        ..Default::default()
     });
+
+// Advanced K8s configuration via raw JSON
+p.task("gpu-train")
+    .container("pytorch/pytorch:2.0")
+    .run("python train.py")
+    .k8s(K8sOptions {
+        memory: Some("32Gi".into()),
+        gpu: Some(1),
+        ..Default::default()
+    })
+    .k8s_raw(r#"{"nodeSelector": {"gpu": "true"}, "tolerations": [{"key": "gpu", "effect": "NoSchedule"}]}"#);
 
 // Hybrid: local + k8s
 p.task("test").run("cargo test").target("local");
 p.task("train").run("python train.py").target("k8s");
 ```
+
+`K8sOptions` validates `memory` (e.g., `512Mi`, `4Gi`) and `cpu` (e.g., `500m`, `2`) at emit time and reports a `K8sValidationError` for malformed values.
 
 ## Language Presets
 
@@ -344,11 +362,12 @@ p.emit();
 ```rust
 use sykli::ExplainContext;
 
-p.explain(&ExplainContext {
+p.explain(Some(&ExplainContext {
     branch: "feature/foo".into(),
-    tag: None,
+    tag: String::new(),
+    event: String::new(),
     ci: true,
-});
+}));
 
 // Output shows execution order and skipped tasks
 ```
