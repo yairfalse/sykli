@@ -7,8 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-05-05
+
 ### Fixed
 
+- **Go SDK output emission no longer leaks typed nil values.** Empty task outputs now omit the `outputs` field instead of serializing a non-null typed-nil value, restoring cross-SDK conformance for output-free task graphs.
+- **Elixir SDK graph emission no longer corrupts stdout with Logger output.** SDK package config keeps emit-path stdout JSON-only by silencing Logger below warning and routing console logs to stderr; SDK consumers can override this in their application config.
+- **GitHub dispatcher source workspaces are cleaned up after crashes and normal exits.** A monitored workspace janitor removes cloned webhook source directories even if the dispatcher process dies before its ordinary cleanup path.
 - **GitHub webhook receiver — three Phase 1 correctness gaps.**
   - `POST /webhook` is now gated by `Sykli.Mesh.Roles.held_by_local?(:webhook_receiver)`. Previously only `GET /healthz` was gated; on a multi-node deployment every node would ingest deliveries, burn `delivery_id`s in their local replay caches, and create duplicate check suites/runs.
   - The replay cache no longer permanently loses deliveries when a downstream call fails. Previously, `accept_delivery` inserted the `delivery_id` *before* `installation_token` / `create_suite` / `create_run`, so a transient GitHub 5xx left the entry in cache and GitHub's automatic retry hit `:duplicate_delivery` / 409. The receiver now evicts the `delivery_id` on any post-accept failure; concurrent dedup is preserved by the atomic `:ets.insert_new` in `Deliveries.accept/3`.
@@ -16,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Conformance runner is environment-aware for Python.** Local runs skip Python SDK cases when Python <3.12 is installed and print the coverage gap up front; CI treats that skip as a failure so Python coverage cannot silently disappear.
+- **Six oracle/blackbox expected failures were retired by real SDK fixes.** The fixed Go and Elixir SDK regressions allow the conformance-related expected-red cases to run as normal passing coverage.
 - **GitHub webhook error responses now distinguish missing vs. bad signature.** Missing `X-Hub-Signature-256` returns 400 `github.webhook.missing_signature`; an invalid signature still returns 401 `github.webhook.bad_signature`. Operators can now tell a stripped-header proxy bug apart from a forgery attempt.
 - **GitHub webhook catch-all is now 502 `github.webhook.upstream_failure`** for raw upstream errors (was 400 `github.webhook.invalid`). GitHub does not retry 400s, so the previous response misclassified transient upstream failures as permanent client errors and silently dropped them.
 - **GitHub task check runs now start in progress.** Per-task GitHub check runs are created with `status: in_progress` directly. The transient queued state and the corresponding `ci.github.check_run.transitioned` queued→in_progress occurrences no longer fire for task runs. Setup-failure check runs (`sykli/source`) keep the queued→completed pattern unchanged.

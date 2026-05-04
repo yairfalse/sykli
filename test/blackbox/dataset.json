@@ -1318,8 +1318,7 @@
       "shell": true,
       "expect_exit": 0,
       "source": "CLAUDE.md §SDKs; sdk/*/README.md public surface parity",
-      "validated_by": "Injected bug: change one SDK basic JSON key; conformance runner fails.",
-      "expected_failure": true
+      "validated_by": "Injected bug: change one SDK basic JSON key; conformance runner fails."
     },
     {
       "id": "SDK-002",
@@ -1329,8 +1328,7 @@
       "shell": true,
       "expect_exit": 0,
       "source": "CHANGELOG 0.5.0 Capability-based dependencies; SDK READMEs",
-      "validated_by": "Injected bug: drop provides value in one SDK; conformance runner fails.",
-      "expected_failure": true
+      "validated_by": "Injected bug: drop provides value in one SDK; conformance runner fails."
     },
     {
       "id": "SDK-003",
@@ -1340,8 +1338,7 @@
       "shell": true,
       "expect_exit": 0,
       "source": "CHANGELOG 0.5.0 Gate tasks; SDK READMEs",
-      "validated_by": "Injected bug: omit gate timeout serialization; conformance runner fails.",
-      "expected_failure": true
+      "validated_by": "Injected bug: omit gate timeout serialization; conformance runner fails."
     },
     {
       "id": "SDK-004",
@@ -1351,8 +1348,7 @@
       "shell": true,
       "expect_exit": 0,
       "source": "README.md §Content-addressed caching; SDK READMEs",
-      "validated_by": "Injected bug: serialize inputs under covers; conformance runner fails.",
-      "expected_failure": true
+      "validated_by": "Injected bug: serialize inputs under covers; conformance runner fails."
     },
     {
       "id": "SDK-005",
@@ -1362,8 +1358,7 @@
       "shell": true,
       "expect_exit": 0,
       "source": "SDK READMEs; CLAUDE.md §SDKs",
-      "validated_by": "Injected bug: one SDK keeps duplicate deps; conformance runner fails.",
-      "expected_failure": true
+      "validated_by": "Injected bug: one SDK keeps duplicate deps; conformance runner fails."
     },
     {
       "id": "SDK-006",
@@ -1373,8 +1368,7 @@
       "shell": true,
       "expect_exit": 0,
       "source": "CHANGELOG 0.5.0 TypeScript/Python provides empty string fix",
-      "validated_by": "Injected bug: treat empty provides as undefined; conformance runner fails.",
-      "expected_failure": true
+      "validated_by": "Injected bug: treat empty provides as undefined; conformance runner fails."
     },
     {
       "id": "SDK-007",

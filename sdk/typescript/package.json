@@ -1,6 +1,6 @@
 {
   "name": "sykli",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "CI pipelines defined in TypeScript instead of YAML",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -32,7 +32,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/yairfalse/sykli.git",
+    "url": "git+https://github.com/yairfalse/sykli.git",
     "directory": "sdk/typescript"
   },
   "devDependencies": {

@@ -34,6 +34,19 @@ defp deps do
 end
 ```
 
+## Logger Behavior
+
+The SDK is usually executed with `mix run sykli.exs --emit`, where stdout must
+contain only the emitted graph JSON. To keep that output parseable, the SDK
+sets Logger to warning level and routes console logs to stderr in its package
+config. Applications embedding the SDK can override that in their own
+`config/config.exs` after loading the dependency:
+
+```elixir
+config :logger, level: :info
+config :logger, :console, device: :standard_io
+```
+
 ## Quick Start
 
 Create a `sykli.exs` file in your project root:

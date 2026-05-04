@@ -2104,11 +2104,6 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 			env = t.env
 		}
 
-		var outputs map[string]string
-		if len(t.outputs) > 0 {
-			outputs = t.outputs
-		}
-
 		// Convert taskInputs to JSON
 		var taskInputs []jsonTaskInput
 		if len(t.taskInputs) > 0 {
@@ -2150,7 +2145,7 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 			when = t.whenCond.expr
 		}
 
-		tasks = append(tasks, jsonTask{
+		jt := jsonTask{
 			Name:       t.name,
 			Command:    t.command,
 			Container:  t.container,
@@ -2159,7 +2154,6 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 			Mounts:     mounts,
 			Inputs:     t.inputs,   // v1-style file patterns
 			TaskInputs: taskInputs, // v2-style inputs from other tasks
-			Outputs:    outputs,
 			DependsOn:  t.dependsOn,
 			When:       when,
 			Secrets:    t.secrets,
@@ -2233,22 +2227,29 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 				}
 			}(),
 			Verify: t.verify,
-		})
+		}
+		if len(t.outputs) > 0 {
+			jt.Outputs = t.outputs
+		}
+		tasks = append(tasks, jt)
 	}
 
 	for _, r := range p.reviews {
 		deterministic := r.deterministic
-		tasks = append(tasks, jsonTask{
+		jt := jsonTask{
 			Name:          r.name,
 			Kind:          "review",
 			Primitive:     r.primitive,
 			Agent:         r.agent,
 			Inputs:        r.inputs,
 			Context:       r.context,
-			Outputs:       r.outputs,
 			DependsOn:     r.dependsOn,
 			Deterministic: &deterministic,
-		})
+		}
+		if len(r.outputs) > 0 {
+			jt.Outputs = r.outputs
+		}
+		tasks = append(tasks, jt)
 	}
 
 	out := jsonPipeline{
