@@ -36,6 +36,27 @@ defmodule Sykli.GitHub.AppTest do
     assert Application.get_env(:sykli, :github_http_fake_calls) == 1
   end
 
+  test "installation_token distinguishes permanent auth failures from retryable upstream failures" do
+    opts = [
+      app_id: "12345",
+      private_key: private_key_pem(),
+      clock: Sykli.GitHub.Clock.Fake,
+      impl: Real
+    ]
+
+    assert {:error, %Sykli.Error{code: "github.app.unauthorized"}} =
+             App.installation_token(
+               42,
+               Keyword.put(opts, :http_client, __MODULE__.UnauthorizedHTTP)
+             )
+
+    assert {:error, %Sykli.Error{code: "github.app.upstream_error"}} =
+             App.installation_token(42, Keyword.put(opts, :http_client, __MODULE__.UpstreamHTTP))
+
+    assert {:error, %Sykli.Error{code: "github.app.transport_failed"}} =
+             App.installation_token(42, Keyword.put(opts, :http_client, __MODULE__.TransportHTTP))
+  end
+
   defmodule HTTP do
     def request(:post, url, headers, "{}") do
       assert url =~ "/app/installations/42/access_tokens"
@@ -49,6 +70,18 @@ defmodule Sykli.GitHub.AppTest do
 
       {:ok, 201, ~s({"token":"token-1","expires_at":"2023-11-14T23:13:20Z"})}
     end
+  end
+
+  defmodule UnauthorizedHTTP do
+    def request(:post, _url, _headers, "{}"), do: {:ok, 401, ~s({"message":"Bad credentials"})}
+  end
+
+  defmodule UpstreamHTTP do
+    def request(:post, _url, _headers, "{}"), do: {:ok, 503, ~s({"message":"unavailable"})}
+  end
+
+  defmodule TransportHTTP do
+    def request(:post, _url, _headers, "{}"), do: {:error, :timeout}
   end
 
   defp private_key_pem do

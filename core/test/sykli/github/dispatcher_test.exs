@@ -111,6 +111,46 @@ defmodule Sykli.GitHub.DispatcherTest do
     assert {:error, :duplicate_delivery} = Deliveries.accept(event.delivery_id, 2)
   end
 
+  test "GitHub App authorization failures do not evict the delivery", %{event: event} do
+    assert :ok = Deliveries.accept(event.delivery_id, 1)
+
+    assert {:error, %Sykli.Error{code: "github.app.unauthorized"}} =
+             Dispatcher.dispatch(event,
+               app_client: Sykli.GitHub.App.Fake,
+               app_response:
+                 {:error,
+                  %Sykli.Error{
+                    code: "github.app.unauthorized",
+                    type: :runtime,
+                    message: "GitHub installation token request failed",
+                    step: :setup,
+                    hints: []
+                  }}
+             )
+
+    assert {:error, :duplicate_delivery} = Deliveries.accept(event.delivery_id, 2)
+  end
+
+  test "GitHub App transport failures evict the delivery for GitHub retry", %{event: event} do
+    assert :ok = Deliveries.accept(event.delivery_id, 1)
+
+    assert {:error, %Sykli.Error{code: "github.app.transport_failed"}} =
+             Dispatcher.dispatch(event,
+               app_client: Sykli.GitHub.App.Fake,
+               app_response:
+                 {:error,
+                  %Sykli.Error{
+                    code: "github.app.transport_failed",
+                    type: :runtime,
+                    message: "GitHub installation token request could not reach GitHub",
+                    step: :setup,
+                    hints: []
+                  }}
+             )
+
+    assert :ok = Deliveries.accept(event.delivery_id, 2)
+  end
+
   test "dispatch cleans up the source workspace when the dispatcher process is killed", %{
     event: event
   } do

@@ -19,9 +19,13 @@ defmodule Sykli.GitHub.Dispatcher do
       {:error, %Sykli.Error{} = error} = result ->
         if retryable_dispatch_error?(error) do
           Deliveries.evict(delivery_id)
+          Logger.warning("[GitHub Dispatcher] dispatch failed", code: error.code)
+        else
+          Logger.warning("[GitHub Dispatcher] App auth failed; delivery will not be retried",
+            code: error.code
+          )
         end
 
-        Logger.warning("[GitHub Dispatcher] dispatch failed", code: error.code)
         result
     end
   end
@@ -415,13 +419,16 @@ defmodule Sykli.GitHub.Dispatcher do
   defp workspace_janitor(opts),
     do: Keyword.get(opts, :workspace_janitor, Sykli.GitHub.WorkspaceJanitor)
 
-  defp retryable_dispatch_error?(%Sykli.Error{code: code}) do
-    code not in [
-      "github.app.missing_config",
-      "github.app.private_key_not_found",
-      "github.app.jwt_failed"
-    ]
-  end
+  defp retryable_dispatch_error?(%Sykli.Error{code: code})
+       when code in [
+              "github.app.missing_config",
+              "github.app.private_key_not_found",
+              "github.app.jwt_failed",
+              "github.app.unauthorized"
+            ],
+       do: false
+
+  defp retryable_dispatch_error?(%Sykli.Error{}), do: true
 
   defp dispatch_error(code, message, cause \\ nil) do
     %Sykli.Error{
