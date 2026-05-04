@@ -27,7 +27,7 @@ func New(opts ...PipelineOption) *Pipeline
 Creates a new pipeline with optional configuration.
 
 **Options:**
-- `WithK8sDefaults(K8sTaskOptions)` - Set default K8s options for all tasks
+- `WithK8sDefaults(K8sOptions)` - Set default K8s options for all tasks
 
 **Example:**
 ```go
@@ -35,8 +35,9 @@ Creates a new pipeline with optional configuration.
 s := sykli.New()
 
 // With K8s defaults
-s := sykli.New(sykli.WithK8sDefaults(sykli.K8sTaskOptions{
-    Namespace: "ci-jobs",
+s := sykli.New(sykli.WithK8sDefaults(sykli.K8sOptions{
+    Memory: "2Gi",
+    CPU:    "1",
 }))
 ```
 
@@ -295,10 +296,18 @@ Sets the target for this specific task, overriding pipeline default.
 ### K8s
 
 ```go
-func (t *Task) K8s(opts K8sTaskOptions) *Task
+func (t *Task) K8s(opts K8sOptions) *Task
 ```
 
-Adds Kubernetes-specific options.
+Adds Kubernetes-specific options. See the `K8sOptions` type below.
+
+### K8sRaw
+
+```go
+func (t *Task) K8sRaw(jsonConfig string) *Task
+```
+
+Adds raw Kubernetes configuration as a JSON string. Use this for advanced fields not covered by `K8sOptions` (tolerations, affinity, security contexts, node selectors). The JSON is passed through to the executor and merged with `K8sOptions`; structured fields take precedence on overlap.
 
 ### Name
 
@@ -488,88 +497,47 @@ Reads secret from HashiCorp Vault. Path format: `"path/to/secret#field"`.
 
 ## Kubernetes
 
-### K8sTaskOptions
+### K8sOptions
+
+Minimal Kubernetes configuration covering the 95% case (memory, CPU, GPU). For advanced fields (tolerations, affinity, security contexts, node selectors), use `K8sRaw()` to pass raw JSON.
 
 ```go
-type K8sTaskOptions struct {
-    // Scheduling
-    NodeSelector      map[string]string
-    Tolerations       []K8sToleration
-    Affinity          *K8sAffinity
-    PriorityClassName string
+type K8sOptions struct {
+    // Memory sets both request and limit (e.g., "4Gi", "512Mi").
+    Memory string
 
-    // Resources
-    Resources K8sResources
-    GPU       int
+    // CPU sets both request and limit (e.g., "2", "500m").
+    CPU string
 
-    // Security
-    ServiceAccount  string
-    SecurityContext *K8sSecurityContext
-
-    // Networking
-    HostNetwork bool
-    DNSPolicy   string
-
-    // Storage
-    Volumes []K8sVolume
-
-    // Metadata
-    Labels      map[string]string
-    Annotations map[string]string
-    Namespace   string
+    // GPU requests NVIDIA GPUs (e.g., 1, 2).
+    GPU int
 }
 ```
 
-### K8sResources
+`K8sTaskOptions` is kept as a deprecated alias of `K8sOptions` for backward compatibility.
+
+**Validation:** `K8sOptions` are validated at emit time. `Memory` must match the Kubernetes quantity format (`Ki`, `Mi`, `Gi`, `Ti`, `Pi`, `Ei`, or decimal `k`/`M`/`G`/`T`/`P`/`E`); `CPU` must be cores or millicores (e.g., `500m`, `0.5`, `2`). Malformed values produce a `K8sValidationError` with a suggestion.
+
+### K8sValidationError
 
 ```go
-type K8sResources struct {
-    RequestCPU    string  // e.g., "500m", "2"
-    RequestMemory string  // e.g., "512Mi", "4Gi"
-    LimitCPU      string
-    LimitMemory   string
-    CPU           string  // Shorthand: sets both request and limit
-    Memory        string  // Shorthand: sets both request and limit
+type K8sValidationError struct {
+    Field   string
+    Value   string
+    Message string
 }
 ```
 
-### K8sToleration
+Returned by `ValidateK8sOptions(*K8sOptions) []error` — useful when programmatically constructing pipelines.
+
+**Example with raw JSON for advanced fields:**
 
 ```go
-type K8sToleration struct {
-    Key      string
-    Operator string  // "Exists" or "Equal"
-    Value    string
-    Effect   string  // "NoSchedule", "PreferNoSchedule", "NoExecute"
-}
-```
-
-### K8sSecurityContext
-
-```go
-type K8sSecurityContext struct {
-    RunAsUser              *int64
-    RunAsGroup             *int64
-    RunAsNonRoot           bool
-    Privileged             bool
-    ReadOnlyRootFilesystem bool
-    AddCapabilities        []string
-    DropCapabilities       []string
-}
-```
-
-### K8sVolume
-
-```go
-type K8sVolume struct {
-    Name      string
-    MountPath string
-    ConfigMap *K8sConfigMapVolume  // { Name string }
-    Secret    *K8sSecretVolume     // { Name string }
-    EmptyDir  *K8sEmptyDirVolume   // { Medium, SizeLimit string }
-    HostPath  *K8sHostPathVolume   // { Path, Type string }
-    PVC       *K8sPVCVolume        // { ClaimName string }
-}
+s.Task("train").
+    Container("pytorch/pytorch:2.0").
+    Run("python train.py").
+    K8s(sykli.K8sOptions{Memory: "32Gi", GPU: 1}).
+    K8sRaw(`{"nodeSelector": {"gpu": "nvidia-a100"}, "tolerations": [{"key": "gpu", "effect": "NoSchedule"}]}`)
 ```
 
 ---
