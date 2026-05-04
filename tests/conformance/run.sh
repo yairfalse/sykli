@@ -38,6 +38,66 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# -----------------------------------------------------------------------------
+# Python interpreter detection
+# -----------------------------------------------------------------------------
+# The Python SDK requires Python >=3.12. Many systems still ship `python3`
+# pointing at 3.9 / 3.10, so we look for a qualifying interpreter in this order:
+#   1. $PYTHON env var if set and >=3.12
+#   2. sdk/python/.venv/bin/python if present and >=3.12
+#   3. Named binaries: python3.14, python3.13, python3.12
+#   4. Plain `python3` only if it is itself >=3.12
+# If none qualifies, Python conformance is skipped (the rest of the suite
+# still runs and the script's exit code only reflects real failures).
+
+python_satisfies_minimum() {
+  local interp="$1"
+  [[ -n "$interp" ]] || return 1
+  command -v "$interp" >/dev/null 2>&1 || return 1
+  "$interp" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 12) else 1)' 2>/dev/null
+}
+
+select_python_interpreter() {
+  if [[ -n "${PYTHON:-}" ]]; then
+    if python_satisfies_minimum "$PYTHON"; then
+      command -v "$PYTHON"
+      return 0
+    fi
+    echo "WARN: \$PYTHON ($PYTHON) does not satisfy Python >=3.12; trying fallbacks" >&2
+  fi
+
+  local venv_py="$ROOT/sdk/python/.venv/bin/python"
+  if python_satisfies_minimum "$venv_py"; then
+    echo "$venv_py"
+    return 0
+  fi
+
+  local candidate
+  for candidate in python3.14 python3.13 python3.12; do
+    if python_satisfies_minimum "$candidate"; then
+      command -v "$candidate"
+      return 0
+    fi
+  done
+
+  if python_satisfies_minimum python3; then
+    command -v python3
+    return 0
+  fi
+
+  return 1
+}
+
+SYKLI_CONFORMANCE_PYTHON="$(select_python_interpreter || true)"
+if [[ -n "$SYKLI_CONFORMANCE_PYTHON" ]]; then
+  PY_VERSION="$("$SYKLI_CONFORMANCE_PYTHON" -c 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}.{sys.version_info[2]}")')"
+  echo -e "${FAINT}Python conformance: using ${SYKLI_CONFORMANCE_PYTHON} (Python ${PY_VERSION})${NC}"
+else
+  echo -e "${YELLOW}Python conformance: skipped — no Python >=3.12 found${NC}"
+  echo -e "${FAINT}  Tried: \$PYTHON, $ROOT/sdk/python/.venv/bin/python, python3.14, python3.13, python3.12, python3${NC}"
+fi
+echo ""
+
 # Normalize JSON for comparison: sort keys, compact, normalize provides without value
 normalize_json() {
   python3 -c "
@@ -67,8 +127,7 @@ run_go() {
 run_python() {
   local fixture="$1"
   cd "$ROOT/sdk/python"
-  source .venv/bin/activate 2>/dev/null || true
-  PYTHONPATH="$ROOT/sdk/python/src" python3 "$fixture" --emit 2>/dev/null
+  PYTHONPATH="$ROOT/sdk/python/src" "$SYKLI_CONFORMANCE_PYTHON" "$fixture" --emit 2>/dev/null
 }
 
 run_typescript() {
@@ -141,6 +200,12 @@ run_case() {
       continue
     fi
 
+    if [[ "$sdk" == "python" && -z "$SYKLI_CONFORMANCE_PYTHON" ]]; then
+      echo -e "  ${YELLOW}○${NC} $case_name/$sdk — skipped (no Python >=3.12 found)"
+      SKIP=$((SKIP + 1))
+      continue
+    fi
+
     local actual_raw actual
     local err_file="$TMP_DIR/err_${sdk}_${case_name}"
 
@@ -191,6 +256,12 @@ run_negative_case() {
 
     if [[ ! -f "$fixture" ]]; then
       echo -e "  ${YELLOW}○${NC} $case_name/$sdk — no fixture"
+      SKIP=$((SKIP + 1))
+      continue
+    fi
+
+    if [[ "$sdk" == "python" && -z "$SYKLI_CONFORMANCE_PYTHON" ]]; then
+      echo -e "  ${YELLOW}○${NC} $case_name/$sdk — skipped (no Python >=3.12 found)"
       SKIP=$((SKIP + 1))
       continue
     fi
