@@ -4,6 +4,7 @@ defmodule Sykli.GitHub.DispatcherTest do
   alias Sykli.GitHub.Dispatcher
   alias Sykli.GitHub.Webhook.Deliveries
   alias Sykli.Occurrence.PubSub
+  alias Sykli.Executor.TaskResult
 
   @fixture Path.expand("../../../priv/test_fixtures/github_source/simple", __DIR__)
 
@@ -32,7 +33,7 @@ defmodule Sykli.GitHub.DispatcherTest do
              Dispatcher.dispatch(event,
                app_client: Sykli.GitHub.App.Fake,
                checks_client: Sykli.GitHub.Checks.Fake,
-               impl: Sykli.GitHub.Source.Fake,
+               source_impl: Sykli.GitHub.Source.Fake,
                source_fixture: @fixture,
                test_pid: self(),
                fake_recorder: self()
@@ -63,7 +64,7 @@ defmodule Sykli.GitHub.DispatcherTest do
              Dispatcher.dispatch(event,
                app_client: Sykli.GitHub.App.Fake,
                checks_client: Sykli.GitHub.Checks.Fake,
-               impl: Sykli.GitHub.Source.Fake,
+               source_impl: Sykli.GitHub.Source.Fake,
                test_pid: self(),
                source_response:
                  {:error,
@@ -106,5 +107,28 @@ defmodule Sykli.GitHub.DispatcherTest do
              )
 
     assert {:error, :duplicate_delivery} = Deliveries.accept(event.delivery_id, 2)
+  end
+
+  test "suite conclusion follows per-task check-run conclusions" do
+    assert Dispatcher.suite_conclusion([]) == "success"
+
+    assert Dispatcher.suite_conclusion([
+             task_result("test", :skipped),
+             task_result("lint", :skipped)
+           ]) == "skipped"
+
+    assert Dispatcher.suite_conclusion([
+             task_result("test", :passed),
+             task_result("deploy", :blocked)
+           ]) == "cancelled"
+
+    assert Dispatcher.suite_conclusion([
+             task_result("test", :failed),
+             task_result("deploy", :blocked)
+           ]) == "failure"
+  end
+
+  defp task_result(name, status) do
+    %TaskResult{name: name, status: status, duration_ms: 1}
   end
 end

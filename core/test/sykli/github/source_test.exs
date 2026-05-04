@@ -15,14 +15,14 @@ defmodule Sykli.GitHub.SourceTest do
 
     assert {:ok, path} =
              Source.acquire(context, "installation-token",
-               impl: Sykli.GitHub.Source.Fake,
+               source_impl: Sykli.GitHub.Source.Fake,
                source_fixture: @fixture
              )
 
     assert File.exists?(Path.join(path, "sykli.exs"))
     refute String.contains?(path, ":")
 
-    assert :ok = Source.cleanup(path, impl: Sykli.GitHub.Source.Fake)
+    assert :ok = Source.cleanup(path, source_impl: Sykli.GitHub.Source.Fake)
     refute File.exists?(path)
   end
 

@@ -58,7 +58,7 @@ defmodule Sykli.GitHub.Dispatcher do
         repo: event.repo,
         head_sha: event.head_sha,
         check_suite_id: suite["id"],
-        conclusion: conclusion(results)
+        conclusion: suite_conclusion(results)
       })
 
       :ok
@@ -330,7 +330,11 @@ defmodule Sykli.GitHub.Dispatcher do
     end
   end
 
-  defp conclusion(results) do
+  @doc false
+  @spec suite_conclusion([Sykli.Executor.TaskResult.t()]) :: String.t()
+  def suite_conclusion([]), do: "success"
+
+  def suite_conclusion(results) do
     conclusions = Enum.map(results, &CheckRunFormatter.conclusion/1)
 
     cond do
