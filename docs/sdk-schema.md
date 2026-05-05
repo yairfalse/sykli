@@ -23,7 +23,7 @@ The engine is currently **more permissive** than the schema in three known ways:
 2. **`condition` is accepted as an alias for `when`** (`graph.ex:382`: `map["when"] || map["condition"]`). The schema accepts both individually but forbids setting both at once.
 3. **`outputs` may be a list** that the engine normalizes to `output_0, output_1, ...` (`graph.ex:500-514`). All five SDKs emit the map form; the schema accepts only the map form.
 
-A payload that validates against the schema is guaranteed to parse and validate cleanly through the engine. A payload the engine accepts may not validate against the schema if it relies on the permissive paths above. **SDK-emitted output should always be schema-conformant.**
+**The JSON Schema validates canonical SDK output. It does not validate every shape the engine can parse.** A payload that validates against the schema is guaranteed to parse and validate cleanly through the engine. A payload the engine accepts may not validate against the schema if it relies on the permissive paths above. SDK-emitted output should always be schema-conformant.
 
 ## Top-level object
 
@@ -242,7 +242,7 @@ When `kind == "review"`, the engine reads four additional fields via `parse_revi
 - `context` — array of context file references.
 - `deterministic` — boolean; engine default `false`.
 
-These are meaningful only when `kind == "review"`. The schema permits them on any task (for forward compatibility with future SDK support), but on regular tasks they are inert: the engine never enters `parse_review/1` unless `kind == "review"`. Cross-SDK support is incomplete — only Go currently emits review nodes.
+These are meaningful only when `kind == "review"`. The schema **rejects** them on regular tasks (encoded via `if/then` in the task `allOf`): if `kind` is absent or not `"review"`, none of `primitive`, `agent`, `context`, or `deterministic` may appear. The engine itself is permissive — `parse_review/1` (`graph.ex:420-429`) is simply never entered for non-review tasks, so any review fields would be silently ignored — but the schema treats them as a likely typo. Cross-SDK support is incomplete: only Go currently emits review nodes.
 
 ## Normalization behavior
 

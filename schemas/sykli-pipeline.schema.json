@@ -54,6 +54,25 @@
         {
           "description": "`when` and `condition` are aliased by the engine (`when` wins). SDKs emit `when`. The schema rejects payloads that set both.",
           "not": { "required": ["when", "condition"] }
+        },
+        {
+          "description": "Review-only fields (primitive, agent, context, deterministic) are meaningful only when kind == \"review\". The schema rejects them on regular tasks (where kind is absent or not \"review\").",
+          "if": {
+            "not": {
+              "properties": { "kind": { "const": "review" } },
+              "required": ["kind"]
+            }
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                { "required": ["primitive"] },
+                { "required": ["agent"] },
+                { "required": ["context"] },
+                { "required": ["deterministic"] }
+              ]
+            }
+          }
         }
       ],
       "properties": {
