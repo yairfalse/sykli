@@ -317,7 +317,7 @@ if [[ $FAIL -gt 0 ]]; then
   exit 1
 fi
 
-if [[ "$SKIP_PYTHON" -eq 1 && "${CI:-}" == "true" ]]; then
-  echo -e "${RED}Python SDK conformance was skipped in CI; install Python 3.12+${NC}"
+if [[ "$SKIP_PYTHON" -eq 1 && ( "${CI:-}" == "true" || "$FILTER_SDK" == "python" ) ]]; then
+  echo -e "${RED}Python SDK conformance was skipped; install Python 3.12+${NC}"
   exit 2
 fi

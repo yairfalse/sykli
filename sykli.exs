@@ -50,10 +50,21 @@ pipeline do
     after_ ["sdk:elixir:deps"]
   end
 
+  task "sdk:typescript:deps" do
+    run "npm install"
+    workdir "sdk/typescript"
+  end
+
+  task "sdk:typescript" do
+    run "npm test"
+    workdir "sdk/typescript"
+    after_ ["sdk:typescript:deps"]
+  end
+
   # === BLACK-BOX TESTS (after binary is built) ===
   task "blackbox" do
     run "test/blackbox/run.sh"
-    after_ ["core:build"]
+    after_ ["core:build", "sdk:go", "sdk:rust", "sdk:elixir", "sdk:typescript"]
   end
 
   # === INTEGRATION (after everything) ===
