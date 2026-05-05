@@ -31,7 +31,6 @@ func main() {
 		Output("binary", "/out/app").
 		Provides("binary", "/out/app").
 		K8s(sykli.K8sOptions{Memory: "4Gi", CPU: "2"}).
-		Target("docker").
 		Requires("docker")
 
 	p.Gate("approve-deploy").After("build").

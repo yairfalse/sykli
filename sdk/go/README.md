@@ -313,9 +313,6 @@ s.Task("gpu-train").
     K8s(sykli.K8sOptions{Memory: "32Gi", GPU: 1}).
     K8sRaw(`{"nodeSelector": {"gpu": "nvidia-a100"}, "tolerations": [{"key": "gpu", "effect": "NoSchedule"}]}`)
 
-// Hybrid: some tasks local, some on K8s
-s.Task("test").Run("go test").Target("local")
-s.Task("train").Run("python train.py").Target("k8s")
 ```
 
 `K8sOptions` validates `Memory` (e.g., `512Mi`, `4Gi`) and `CPU` (e.g., `500m`, `2`) at emit time and reports a `K8sValidationError` for malformed values.

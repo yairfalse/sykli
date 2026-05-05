@@ -745,7 +745,7 @@ struct TaskData {
     // K8s options
     k8s_options: Option<K8sOptions>,
     k8s_raw: Option<String>, // Raw K8s JSON for advanced options
-    // Per-task target override
+    // Deprecated: no longer serialized
     target_name: Option<String>,
     // Node placement - required node labels
     requires: Vec<String>,
@@ -1394,25 +1394,15 @@ impl<'a> Task<'a> {
         self
     }
 
-    /// Sets the target for this specific task, overriding the pipeline default.
+    /// Deprecated. No longer affects emitted pipeline JSON.
     ///
-    /// This enables hybrid pipelines where different tasks run on different targets.
-    ///
-    /// # Example
-    /// ```rust,ignore
-    /// use sykli::Pipeline;
-    ///
-    /// let mut p = Pipeline::new();
-    /// p.task("test").run("cargo test").target("local");
-    /// p.task("deploy").run("kubectl apply").target("k8s");
-    /// ```
-    ///
-    /// # Panics
-    /// Panics if `name` is empty.
+    /// Use concrete execution requirements such as `container`, `mount_dir`,
+    /// `mount_cache`, `k8s`, `service`, `workdir`, and `env` instead.
+    #[deprecated(
+        note = "target no longer affects emitted pipeline JSON; use concrete execution requirement fields instead"
+    )]
     #[must_use]
-    pub fn target(self, name: &str) -> Self {
-        assert!(!name.is_empty(), "target name cannot be empty");
-        self.pipeline.tasks[self.index].target_name = Some(name.to_string());
+    pub fn target(self, _name: &str) -> Self {
         self
     }
 
@@ -2261,7 +2251,6 @@ impl Pipeline {
                     },
                     retry: t.retry,
                     timeout: t.timeout,
-                    target: t.target_name.clone(),
                     k8s: {
                         // Merge pipeline defaults with task options
                         let merged = match (&self.k8s_defaults, &t.k8s_options) {
@@ -2594,8 +2583,6 @@ struct JsonTask {
     retry: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     timeout: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    target: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     k8s: Option<JsonK8sOptions>,
     #[serde(skip_serializing_if = "Option::is_none")]

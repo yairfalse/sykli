@@ -243,8 +243,9 @@ class TestTaskExecution:
 
     def test_target(self):
         p = Pipeline()
-        p.task("test").run("pytest").target("k8s")
-        assert p.to_dict()["tasks"][0]["target"] == "k8s"
+        with pytest.warns(DeprecationWarning, match="Task.target\\(\\) is deprecated"):
+            p.task("test").run("pytest").target("k8s")
+        assert "target" not in p.to_dict()["tasks"][0]
 
     def test_k8s(self):
         p = Pipeline()

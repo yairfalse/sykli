@@ -289,7 +289,7 @@ Sets the task timeout in seconds.
 fn target(self, name: &str) -> Self
 ```
 
-Sets the target for this specific task, overriding pipeline default.
+Deprecated no-op. It no longer affects emitted pipeline JSON. Use concrete execution requirements such as `container`, mounts, `k8s`, services, workdir, and env instead.
 
 ### k8s
 

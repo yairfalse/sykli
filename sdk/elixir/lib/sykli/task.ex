@@ -23,7 +23,7 @@ defmodule Sykli.Task do
             retry: nil,
             timeout: nil,
             task_inputs: [],
-            # Per-task target override
+            # Deprecated: no longer serialized
             target_name: nil,
             # Kubernetes-specific options
             k8s: nil,

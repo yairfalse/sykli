@@ -3,7 +3,6 @@ use Sykli
 pipeline do
   task "build" do
     run "make build"
-    target "docker"
     requires ["gpu", "high-memory"]
   end
 end

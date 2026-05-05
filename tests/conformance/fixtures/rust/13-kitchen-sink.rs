@@ -29,7 +29,6 @@ fn main() {
         .output("binary", "/out/app")
         .provides("binary", Some("/out/app"))
         .k8s(K8sOptions { memory: Some("4Gi".into()), cpu: Some("2".into()), gpu: None })
-        .target("docker")
         .requires(&["docker"]);
 
     p.gate("approve-deploy").after(&["build"])

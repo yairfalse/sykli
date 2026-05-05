@@ -204,10 +204,6 @@
           "type": "integer",
           "minimum": 1
         },
-        "target": {
-          "description": "Per-task target override (e.g., `local`, `docker`, `k8s`). Advisory: emitted by SDKs but currently NOT read by the engine parser (no `Map.get(map, \"target\", _)` in graph.ex). Behavior is unstable; do not rely on it taking effect at the engine layer.",
-          "type": "string"
-        },
         "k8s": {
           "description": "Kubernetes-specific options. Canonical shape is the flat 4-field structure {memory, cpu, gpu, raw}. The TypeScript SDK's K8sOptions interface declares additional fields (namespace, nodeSelector, tolerations, etc.) but does not serialize them; that is a TS-side type drift, not part of the contract.",
           "type": "object",

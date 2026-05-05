@@ -32,7 +32,6 @@ pipeline do
     output "binary", "/out/app"
     provides "binary", "/out/app"
     k8s Sykli.K8s.options() |> Sykli.K8s.memory("4Gi") |> Sykli.K8s.cpu("2")
-    target "docker"
     requires ["docker"]
   end
 

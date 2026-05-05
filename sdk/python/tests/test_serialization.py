@@ -3,6 +3,8 @@
 import io
 import json
 
+import pytest
+
 from sykli import K8sOptions, Pipeline, from_env, branch
 
 
@@ -16,30 +18,31 @@ class TestJsonWireFormat:
 
     def test_full_task(self):
         p = Pipeline()
-        (
-            p.task("test")
-            .run("pytest")
-            .container("python:3.12")
-            .workdir("/app")
-            .env("CI", "true")
-            .inputs("**/*.py")
-            .after("lint")
-            .when(branch("main"))
-            .secret("TOKEN")
-            .secret_from("db", from_env("db", "DB_PASS"))
-            .retry(2)
-            .timeout(300)
-            .target("k8s")
-            .k8s(K8sOptions(memory="4Gi", cpu="2"))
-            .requires("docker")
-            .provides("test-result", "/out/report.xml")
-            .needs("db-ready")
-            .covers("src/*")
-            .intent("unit tests")
-            .set_criticality("high")
-            .on_fail("analyze")
-            .select_mode("smart")
-        )
+        with pytest.warns(DeprecationWarning, match="Task.target\\(\\) is deprecated"):
+            (
+                p.task("test")
+                .run("pytest")
+                .container("python:3.12")
+                .workdir("/app")
+                .env("CI", "true")
+                .inputs("**/*.py")
+                .after("lint")
+                .when(branch("main"))
+                .secret("TOKEN")
+                .secret_from("db", from_env("db", "DB_PASS"))
+                .retry(2)
+                .timeout(300)
+                .target("k8s")
+                .k8s(K8sOptions(memory="4Gi", cpu="2"))
+                .requires("docker")
+                .provides("test-result", "/out/report.xml")
+                .needs("db-ready")
+                .covers("src/*")
+                .intent("unit tests")
+                .set_criticality("high")
+                .on_fail("analyze")
+                .select_mode("smart")
+            )
         # Add the lint dep so validation passes
         p.task("lint").run("ruff check .")
         d = p.to_dict()
@@ -57,7 +60,7 @@ class TestJsonWireFormat:
         assert task["secret_refs"] == [{"name": "db", "source": "env", "key": "DB_PASS"}]
         assert task["retry"] == 2
         assert task["timeout"] == 300
-        assert task["target"] == "k8s"
+        assert "target" not in task
         assert task["k8s"] == {"memory": "4Gi", "cpu": "2"}
         assert task["requires"] == ["docker"]
         assert task["provides"] == [{"name": "test-result", "value": "/out/report.xml"}]

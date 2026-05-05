@@ -281,7 +281,7 @@ Sets the task timeout in seconds.
 target(name: string): this
 ```
 
-Sets the target for this specific task, overriding pipeline default.
+Deprecated no-op. It no longer affects emitted pipeline JSON. Use concrete execution requirements such as `container`, mounts, `k8s`, services, workdir, and env instead.
 
 ### k8s
 

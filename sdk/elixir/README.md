@@ -357,16 +357,6 @@ task "train-model" do
        |> K8s.node_selector(%{"gpu" => "nvidia-a100"})
 end
 
-# Hybrid: some tasks local, some on K8s
-task "test" do
-  run "mix test"
-  target "local"
-end
-
-task "train" do
-  run "python train.py"
-  target "k8s"
-end
 ```
 
 ## Elixir Presets

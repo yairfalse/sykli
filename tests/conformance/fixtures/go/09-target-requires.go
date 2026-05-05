@@ -6,7 +6,6 @@ func main() {
 	p := sykli.New()
 
 	p.Task("build").Run("make build").
-		Target("docker").
 		Requires("gpu", "high-memory")
 
 	p.Emit()

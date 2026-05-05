@@ -639,13 +639,13 @@ describe('JSON Output Edge Cases', () => {
   });
 
   describe('target', () => {
-    it('serializes target for hybrid execution', () => {
+    it('is a deprecated no-op for JSON emission', () => {
       const p = new Pipeline();
       p.task('gpu-train').run('train.py').target('gpu-cluster');
 
       const json = p.toJSON();
       const task = (json.tasks as any[])[0];
-      expect(task.target).toBe('gpu-cluster');
+      expect(task.target).toBeUndefined();
     });
   });
 

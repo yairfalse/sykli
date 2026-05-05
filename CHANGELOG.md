@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **`target` field removed from canonical SDK-emitted pipeline JSON.** All five SDKs no longer serialize `target`, and the JSON Schema rejects it as an unknown task field. The engine never read `target` (the parser ignored it and the executor did not honor it), so removing it is contract cleanup, not a behavior change. SDK builder methods (`.target(...)` / `Target(...)`) are kept as deprecated no-ops so existing call sites still compile; downstream tooling that grepped emitted JSON for `"target":` will need to use concrete execution requirement fields (`container`, `resources`, `mounts`, `k8s`, `services`, `workdir`, `env`) instead. The Python builder now also raises a `DeprecationWarning` on call.
+
 ## [0.6.1] - 2026-05-05
 
 ### Fixed
