@@ -38,18 +38,48 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Detect whether the local Python (with sdk venv preference) satisfies the
-# Python SDK's >=3.12 requirement. If not, the Python conformance cases get
-# skipped instead of failing — env-only gaps shouldn't break the runner.
+echo "Schema Validation"
+"$ROOT/scripts/validate-conformance-schema.py"
+echo ""
+
+# Detect a Python interpreter that satisfies the Python SDK's >=3.12
+# requirement. If not, the Python conformance cases get skipped instead of
+# failing — env-only gaps shouldn't break the runner. An explicit
+# SYKLI_CONFORMANCE_PYTHON value takes precedence.
 SKIP_PYTHON=0
-PYTHON_VERSION="$(
-  cd "$ROOT/sdk/python" 2>/dev/null || exit
-  source .venv/bin/activate 2>/dev/null || true
-  python3 -c 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")' 2>/dev/null
-)"
-if [[ -z "$PYTHON_VERSION" ]]; then
+PYTHON_VERSION="not found"
+PYTHON_CANDIDATES=()
+if [[ -n "${SYKLI_CONFORMANCE_PYTHON:-}" ]]; then
+  PYTHON_CANDIDATES+=("$SYKLI_CONFORMANCE_PYTHON")
+fi
+PYTHON_CANDIDATES+=(
+  "$ROOT/sdk/python/.venv/bin/python"
+  "python3.14"
+  "python3.13"
+  "python3.12"
+  "python3"
+)
+
+for candidate in "${PYTHON_CANDIDATES[@]}"; do
+  [[ -n "$candidate" ]] || continue
+  version="$("$candidate" -c 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")' 2>/dev/null || true)"
+  [[ -n "$version" ]] || continue
+
+  py_major="${version%%.*}"
+  py_minor="${version##*.}"
+  if (( py_major > 3 )) || (( py_major == 3 && py_minor >= 12 )); then
+    SYKLI_CONFORMANCE_PYTHON="$candidate"
+    PYTHON_VERSION="$version"
+    break
+  fi
+
+  if [[ "$PYTHON_VERSION" == "not found" ]]; then
+    PYTHON_VERSION="$version"
+  fi
+done
+
+if [[ -z "${SYKLI_CONFORMANCE_PYTHON:-}" || "$PYTHON_VERSION" == "not found" ]]; then
   SKIP_PYTHON=1
-  PYTHON_VERSION="not found"
 else
   py_major="${PYTHON_VERSION%%.*}"
   py_minor="${PYTHON_VERSION##*.}"
@@ -59,7 +89,7 @@ else
 fi
 
 if [[ "$SKIP_PYTHON" -eq 1 ]]; then
-  echo "⚠ Python SDK cases will be skipped (local Python: $PYTHON_VERSION; SDK requires >=3.12)"
+  echo "⚠ Python SDK cases will be skipped (Python: $PYTHON_VERSION; SDK requires >=3.12)"
   echo "  CI must run Python conformance; local devs need Python 3.12+ to exercise it."
   echo ""
 fi

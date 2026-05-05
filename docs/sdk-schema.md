@@ -12,6 +12,7 @@ This document describes the **current** Sykli pipeline JSON contract. It is grou
 It is **not** a future design document. The agent-native semantic fields proposed in `docs/sdk-audit.md` §10 (Phase 3) — `task_type`, structured `inputs`, structured `outputs`, `success_criteria`, `side_effects`, `expected` — are intentionally out of scope.
 
 The companion machine-readable schema is `schemas/sykli-pipeline.schema.json` (JSON Schema draft 2020-12).
+Conformance case fixtures are validated against it by `scripts/validate-conformance-schema.py`, which runs at the start of `tests/conformance/run.sh`.
 
 ## Contract boundary
 
