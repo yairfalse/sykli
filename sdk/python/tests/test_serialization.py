@@ -57,7 +57,7 @@ class TestJsonWireFormat:
         assert task["secret_refs"] == [{"name": "db", "source": "env", "key": "DB_PASS"}]
         assert task["retry"] == 2
         assert task["timeout"] == 300
-        assert task["target"] == "k8s"
+        assert "target" not in task
         assert task["k8s"] == {"memory": "4Gi", "cpu": "2"}
         assert task["requires"] == ["docker"]
         assert task["provides"] == [{"name": "test-result", "value": "/out/report.xml"}]

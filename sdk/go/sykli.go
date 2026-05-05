@@ -540,9 +540,9 @@ type Task struct {
 	services   []Service
 	retry      int
 	timeout    int         // seconds
-	k8sOptions *K8sOptions // Target-specific K8s options
+	k8sOptions *K8sOptions // Kubernetes-specific options
 	k8sRaw     string      // Raw K8s JSON for advanced options
-	targetName string      // Per-task target override
+	targetName string      // Deprecated: no longer serialized
 	requires   []string    // Required node labels for placement
 	// AI-native fields
 	semantic Semantic
@@ -1265,18 +1265,13 @@ func (t *Task) WhenCond(c Condition) *Task {
 	return t
 }
 
-// Target sets the target for this specific task, overriding the pipeline default.
-// This enables hybrid pipelines where different tasks run on different targets.
-//
-// Example:
-//
-//	s.Task("test").Run("go test").Target("local")
-//	s.Task("deploy").Run("kubectl apply").Target("k8s")
+// Deprecated: Target no longer affects emitted pipeline JSON. Use concrete
+// execution requirements such as Container, MountDir, MountCache, K8s, Service,
+// Workdir, and Env instead.
 func (t *Task) Target(name string) *Task {
 	if name == "" {
 		log.Panic().Str("task", t.name).Msg("target name cannot be empty")
 	}
-	t.targetName = name
 	return t
 }
 
@@ -2015,7 +2010,6 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 		Services      []jsonService       `json:"services,omitempty"`
 		Retry         int                 `json:"retry,omitempty"`
 		Timeout       int                 `json:"timeout,omitempty"`
-		Target        string              `json:"target,omitempty"`   // Per-task target override
 		K8s           *jsonK8sOptions     `json:"k8s,omitempty"`      // K8s-specific options
 		Requires      []string            `json:"requires,omitempty"` // Required node labels
 		// Capability-based dependencies
@@ -2161,7 +2155,6 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 			Matrix:     t.matrix,
 			Retry:      t.retry,
 			Timeout:    t.timeout,
-			Target:     t.targetName, // Per-task target override
 			Services: func() []jsonService {
 				if len(t.services) == 0 {
 					return nil

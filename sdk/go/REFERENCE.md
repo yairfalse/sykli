@@ -291,7 +291,7 @@ Sets the task timeout in seconds.
 func (t *Task) Target(name string) *Task
 ```
 
-Sets the target for this specific task, overriding pipeline default.
+Deprecated no-op. It no longer affects emitted pipeline JSON. Use concrete execution requirements such as `Container`, mounts, `K8s`, services, workdir, and env instead.
 
 ### K8s
 

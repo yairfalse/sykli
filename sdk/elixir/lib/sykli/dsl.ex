@@ -220,24 +220,14 @@ defmodule Sykli.DSL do
   end
 
   @doc """
-  Sets the target for this specific task, overriding the pipeline default.
+  Deprecated. No longer affects emitted pipeline JSON.
 
-  This enables hybrid pipelines where different tasks run on different targets.
-
-  ## Examples
-
-      task "test" do
-        run "mix test"
-        target "local"
-      end
-
-      task "deploy" do
-        run "kubectl apply"
-        target "k8s"
-      end
+  Use concrete execution requirements such as `container`, `mount_dir`,
+  `mount_cache`, `k8s`, `service`, `workdir`, and `env` instead.
   """
+  @deprecated "target/1 no longer affects emitted pipeline JSON; use concrete execution requirement fields instead"
   def target(name) when is_binary(name) do
-    update_current_task(fn t -> %{t | target_name: name} end)
+    update_current_task(fn t -> t end)
   end
 
   @doc "Adds a matrix dimension."

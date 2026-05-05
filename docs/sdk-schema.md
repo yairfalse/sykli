@@ -39,8 +39,12 @@ The engine is currently **more permissive** than the schema in three known ways:
 
 - **Type:** string enum `"1"` | `"2"`.
 - **Required by canonical schema; ignored by current engine.**
+- **Meaning:** pipeline wire-format/schema version. It is not an execution capability selector and not an SDK, engine, runtime, or JSON Schema draft version.
+- `"1"` is the baseline task graph format.
+- `"2"` is the resource-aware format: resources, mounts, caches, containers, and related execution-environment metadata.
 - SDKs auto-detect: `"2"` if any task has `container` set, or any task has non-empty `mounts`, or the pipeline has any directory or cache resources; `"1"` otherwise.
-- **Stability:** advisory / reserved. The engine parser does not branch on this value (no `Map.get(map, "version", _)` anywhere in `graph.ex`). Future engine versions may grow real version-aware behavior; until then, treat the field as a forward-compatibility placeholder.
+- **Current behavior:** advisory / permissive. The engine parser does not branch on this value (no `Map.get(map, "version", _)` anywhere in `graph.ex`).
+- **Intended future behavior:** the engine should accept known supported versions and reject unknown future versions unless an explicit compatibility mode exists. It should never silently reinterpret a newer document as an older version.
 
 ### `tasks`
 
@@ -82,7 +86,6 @@ The full canonical field list, with stability labels:
 | `mounts` | stable | no | array of `{resource, path, type}` |
 | `retry` | stable | no | non-negative integer |
 | `timeout` | stable | no | positive integer (seconds) |
-| `target` | **advisory / unstable** | no | emitted by SDKs but currently NOT read by the engine parser |
 | `k8s` | stable (4-field shape) | no | `{memory, cpu, gpu, raw}` only |
 | `requires` | stable | no | array of mesh node labels |
 | `provides` | stable | no | array of `{name, value?}` |
@@ -167,10 +170,6 @@ Volume mounts referencing resources by id. Validated parse-time (`graph.ex:475-4
 ### `retry`, `timeout`
 
 Standard. SDKs omit when zero / unset.
-
-### `target`
-
-Per-task target override (e.g., `"local"`, `"docker"`, `"k8s"`). **All five SDKs emit this field**, but **the engine parser does not currently read it** — there is no `Map.get(map, "target", _)` in `graph.ex`. Conformance fixtures `09-target-requires.json` and `13-kitchen-sink.json` include the field; the harness asserts byte equality, so SDK-to-SDK consistency is enforced even though no executor behavior depends on the value. Treat as advisory / unstable until Phase 2C decides whether the engine should honor it.
 
 ### `k8s`
 
@@ -271,18 +270,103 @@ Documented engine normalizations the schema does not perform:
 
 A payload that satisfies the JSON Schema may still be rejected by the engine (e.g., a cycle). A payload the engine accepts may exceed schema strictness (e.g., contains unknown fields). SDKs aim to emit JSON that satisfies both.
 
+## Versioning decision
+
+The top-level `version` field is the Sykli pipeline wire-format/schema version.
+It names the version of the pipeline document shape shared between SDKs, schema
+tooling, and the engine parser.
+
+It is **not** an execution capability version. It does not mean "run with v1
+features" or "run with v2 features" at execution time, and the current engine
+does not use it to choose parser or executor behavior. It is also not the
+version of a particular SDK package, engine release, runtime, or JSON Schema
+draft.
+
+Current behavior is advisory and permissive: SDKs emit `version`, the canonical
+schema requires `"1"` or `"2"`, and the engine ignores the value. This means
+`version` is useful today as SDK/schema contract metadata, but it is not yet an
+engine-enforced compatibility boundary.
+
+`version: "1"` means the baseline task graph format: top-level `tasks` and
+regular task fields such as `name`, `command`, `depends_on`, `env`, `inputs`,
+`outputs`, `when`, `secrets`, `retry`, and `timeout`. It does not require
+top-level resource declarations. SDKs currently emit `"1"` when no
+resource-aware features are used.
+
+`version: "2"` means the resource-aware pipeline format. It covers the baseline
+task graph plus resource and execution-environment metadata such as top-level
+`resources`, directory and cache resources, task `mounts`, task `container`, and
+related cache/resource execution metadata already present in the canonical
+schema. SDKs currently emit `"2"` when containers, mounts, directory resources,
+or cache resources are used.
+
+Future engine behavior should become version-aware in a later implementation
+phase:
+
+- accept known supported pipeline wire-format versions
+- reject unknown future versions by default
+- allow unknown future versions only through an explicit compatibility mode, if
+  such a mode is intentionally designed
+- never silently reinterpret a newer document as an older version
+
+SDK auto-detection of `"1"` vs `"2"` should continue for now. This is
+transitional and reflects current SDK output. Long term, SDKs should either
+infer the minimum required wire-format version from the features used, or allow
+an explicit override only when that override is safe. SDKs must not let callers
+force an older version when the document uses fields that require a newer wire
+format.
+
+Future pipeline versions should be monotonic and feature-based: a document's
+`version` is the minimum pipeline wire-format version required to preserve its
+meaning. Older engines may reject newer documents; newer engines should continue
+accepting older supported documents. New versions may add fields or semantics,
+but must not depend on older engines silently ignoring those additions. Do not
+design or reserve the contents of `version: "3"` until a concrete wire-format
+change requires it.
+
+The migration from today's advisory field to real version-aware parsing should
+happen in small steps:
+
+1. Keep current SDK output and schema values unchanged.
+2. Document the intended meaning of `"1"` and `"2"` in the human-readable
+   contract.
+3. Add engine parsing that reads the top-level `version` and recognizes the
+   currently supported versions.
+4. Initially preserve behavior for `"1"` and `"2"` while making unknown future
+   versions fail clearly.
+5. Only after parser support exists, introduce version-gated behavior for any
+   future wire-format changes.
+
+## Removed fields
+
+### `target`
+
+`target` was previously emitted by SDKs as a per-task executor label such as
+`"local"`, `"docker"`, or `"k8s"`, but the engine parser ignored it and the
+executor did not honor it. It was removed from the canonical SDK-emitted
+contract because it had no execution semantics and could mislead users or agents
+into assuming behavior that did not exist.
+
+Canonical SDK output must not emit `target`, and the JSON Schema rejects it as
+an unknown task field. Existing engines may still ignore incoming `target`
+fields for compatibility because the engine parser is permissive, but that
+permissive behavior is not part of the canonical contract.
+
+Use concrete execution requirement fields instead: `container`, `resources`,
+`mounts`, `k8s`, `services`, `workdir`, and `env`. This removal does not
+introduce a replacement field.
+
 ## Known contract gaps
 
 These are **descriptive, not prescriptive**. The schema documents current behavior; resolving these is Phase 2C / future work.
 
-1. **`version` is advisory only.** SDKs emit `"1"` or `"2"`; engine ignores. No path for schema evolution today.
-2. **`target` is orphaned.** Emitted by all SDKs, not read by the engine parser. Either wire it through to the executor or remove from the SDK contract.
-3. **Review nodes are Go-only.** Engine supports `kind: "review"` and the four review-only fields, but only the Go SDK constructs them. No conformance coverage.
-4. **`verify` and `oidc` are reserved with no SDK emit.** Engine reads them; SDKs have no API. Either implement SDK support or drop from the schema once a decision lands.
-5. **`history_hint` is engine-internal.** SDKs MUST NOT emit. Schema marks `readOnly` for clarity.
-6. **TypeScript K8s interface drift.** `K8sOptions` interface declares 15 fields; only 4 are serialized. The other 11 silently disappear at emit. The schema reflects the wire contract (4 fields); the TypeScript drift is a TS-side issue, not a schema issue.
-7. **SDK validation rigor varies.** K8s memory/CPU regex: Go/Rust/Elixir/Python yes, TypeScript no. Vault `#` separator: Elixir only. Structured `ValidationError` with codes: TypeScript and Python only. The schema documents what the engine accepts (the union); each SDK's README describes its own stricter checks.
-8. **Unknown fields are ignored by engine.** The canonical schema rejects them. SDKs are expected to align with the schema, not the engine's permissiveness.
+1. **`version` is advisory only today.** SDKs emit `"1"` or `"2"`; engine ignores. This document defines it as the pipeline wire-format/schema version and describes the migration path to version-aware parsing.
+2. **Review nodes are Go-only.** Engine supports `kind: "review"` and the four review-only fields, but only the Go SDK constructs them. No conformance coverage.
+3. **`verify` and `oidc` are reserved with no SDK emit.** Engine reads them; SDKs have no API. Either implement SDK support or drop from the schema once a decision lands.
+4. **`history_hint` is engine-internal.** SDKs MUST NOT emit. Schema marks `readOnly` for clarity.
+5. **TypeScript K8s interface drift.** `K8sOptions` interface declares 15 fields; only 4 are serialized. The other 11 silently disappear at emit. The schema reflects the wire contract (4 fields); the TypeScript drift is a TS-side issue, not a schema issue.
+6. **SDK validation rigor varies.** K8s memory/CPU regex: Go/Rust/Elixir/Python yes, TypeScript no. Vault `#` separator: Elixir only. Structured `ValidationError` with codes: TypeScript and Python only. The schema documents what the engine accepts (the union); each SDK's README describes its own stricter checks.
+7. **Unknown fields are ignored by engine.** The canonical schema rejects them. SDKs are expected to align with the schema, not the engine's permissiveness.
 
 ## Out of scope
 

@@ -401,7 +401,6 @@ class Task:
         self._services: list[dict[str, str]] = []
         self._retry: int = 0
         self._timeout: int = 0
-        self._target: str = ""
         self._k8s: K8sOptions | None = None
         self._k8s_raw: str = ""
         self._requires: list[str] = []
@@ -578,7 +577,11 @@ class Task:
         return self
 
     def target(self, name: str) -> Self:
-        self._target = name
+        """Deprecated. No longer affects emitted pipeline JSON.
+
+        Use concrete execution requirements such as container, resources,
+        mounts, k8s, services, workdir, and env instead.
+        """
         return self
 
     def k8s(self, opts: K8sOptions) -> Self:
@@ -740,9 +743,6 @@ class Task:
             d["retry"] = self._retry
         if self._timeout:
             d["timeout"] = self._timeout
-        if self._target:
-            d["target"] = self._target
-
         # K8s
         k8s_json = self._k8s_to_dict()
         if k8s_json:

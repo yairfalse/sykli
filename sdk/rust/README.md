@@ -337,9 +337,6 @@ p.task("gpu-train")
     })
     .k8s_raw(r#"{"nodeSelector": {"gpu": "true"}, "tolerations": [{"key": "gpu", "effect": "NoSchedule"}]}"#);
 
-// Hybrid: local + k8s
-p.task("test").run("cargo test").target("local");
-p.task("train").run("python train.py").target("k8s");
 ```
 
 `K8sOptions` validates `memory` (e.g., `512Mi`, `4Gi`) and `cpu` (e.g., `500m`, `2`) at emit time and reports a `K8sValidationError` for malformed values.

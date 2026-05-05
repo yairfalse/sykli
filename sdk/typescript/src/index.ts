@@ -385,7 +385,6 @@ export class Task {
   private _services: Service[] = [];
   private _retry?: number;
   private _timeout?: number;
-  private _target?: string;
   private _k8s?: K8sOptions;
   private _k8sRaw?: string;
   private _requires: string[] = [];
@@ -589,9 +588,12 @@ export class Task {
     return this;
   }
 
-  /** Set the target for this task */
+  /**
+   * @deprecated No longer affects emitted pipeline JSON. Use concrete execution
+   * requirements such as container, resources, mounts, k8s, services, workdir,
+   * and env instead.
+   */
   target(name: string): this {
-    this._target = name;
     return this;
   }
 
@@ -880,7 +882,6 @@ export class Task {
     }
     if (this._retry) json.retry = this._retry;
     if (this._timeout) json.timeout = this._timeout;
-    if (this._target) json.target = this._target;
     // Include k8s if we have either structured options or raw JSON
     const k8sJson = this._k8sToJSON(this._k8s, this._k8sRaw);
     if (k8sJson) json.k8s = k8sJson;

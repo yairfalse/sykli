@@ -200,7 +200,6 @@ defmodule Sykli.Emitter do
     |> maybe_put(:services, non_empty_list(task.services, &service_to_json/1))
     |> maybe_put(:retry, task.retry)
     |> maybe_put(:timeout, task.timeout)
-    |> maybe_put(:target, task.target_name)
     |> maybe_put(:k8s, if(task.k8s, do: Sykli.K8s.to_json(task.k8s), else: nil))
     |> maybe_put(:requires, non_empty(task.requires))
     |> maybe_put(:provides, non_empty_list(task.provides, &provide_to_json/1))

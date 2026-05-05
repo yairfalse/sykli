@@ -28,7 +28,6 @@ p.task('build').run('go build -o /out/app')
   .output('binary', '/out/app')
   .provides('binary', '/out/app')
   .k8s({ memory: '4Gi', cpu: '2' })
-  .target('docker')
   .requires('docker');
 
 p.gate('approve-deploy').after('build')
