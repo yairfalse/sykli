@@ -68,32 +68,51 @@ A pipeline is a program. It deserves a programming language.
 
 ## How it works
 
-```
-sdk file (Go/Rust/TS/Elixir/Python)
-   │
-   │  --emit
-   ▼
-JSON task graph (stdout)
-   │
-   ▼
-sykli engine: validate DAG → schedule levels → execute → observe
-   │
-   ▼
-.sykli/ — structured occurrences, attestations, run history
+```mermaid
+flowchart LR
+    SDK["SDK file<br/><sub>Go · Rust · TS · Elixir · Python</sub>"]
+    JSON["Pipeline JSON<br/><sub>version 1 · 2 · 3</sub>"]
+    Schema[("sykli-pipeline.<br/>schema.json")]
+    Engine["sykli engine<br/><sub>parse · DAG validate · schedule · execute</sub>"]
+    CLI["Human CLI<br/><sub>● ○ ✕ ─ ⠋</sub>"]
+    Sykli[".sykli/<br/><sub>FALSE Protocol occurrences<br/>SLSA attestations · run history</sub>"]
+    Agents["Agents · MCP server · CI tooling"]
+
+    SDK -- "--emit" --> JSON
+    JSON -. "canonical contract" .-> Schema
+    JSON --> Engine
+    Engine --> CLI
+    Engine --> Sykli
+    Sykli --> Agents
+
+    classDef contract fill:#0d1b2a,stroke:#4ec5d4,color:#e6e6e6,stroke-width:2px;
+    class Schema contract;
 ```
 
 1. **Define.** Write your graph in a real language. Use variables, functions, types.
-2. **Emit.** sykli runs your SDK file with `--emit` and reads the resulting JSON.
+2. **Emit.** sykli runs your SDK file with `--emit` and reads the resulting JSON. The shape is governed by [`schemas/sykli-pipeline.schema.json`](schemas/sykli-pipeline.schema.json) — the canonical, versioned wire contract.
 3. **Execute.** The engine validates the DAG (cycle detection, schema, capability resolution), schedules tasks level-by-level in parallel, applies caching and retries.
 4. **Observe.** Every event becomes a [FALSE Protocol](https://github.com/false-systems) occurrence written to `.sykli/`. AI agents and downstream tools read structured data, not log scrolls.
 
 The engine runs on the BEAM VM. Same code on your laptop, in Docker, on Kubernetes, or across a mesh of nodes.
 
+**Wire-format versions are explicit**, not advisory: `"1"` baseline graphs, `"2"` adds resources/containers/mounts, `"3"` adds agent-native semantic fields starting with `task_type`. SDKs auto-detect from features used. See [`docs/sdk-schema.md`](docs/sdk-schema.md) for the field-by-field contract.
+
+## Distributed-by-default. Deterministic by design.
+
+Two properties that pipelines normally trade against each other — running across a fleet, and replaying byte-identically — both fall out of how the engine is built.
+
+- **Mesh execution without a control plane.** Cluster one sykli node onto another and either can pick up the other's tasks. No broker, no separate orchestration tier. The engine *is* the coordinator. `--mesh` and `sykli daemon start` are the user surface; capability-based placement (`requires("gpu")`) routes work to nodes that can run it.
+- **Deterministic replay.** Time, randomness, and I/O are routed through transport APIs; given a seed, runs replay byte-identically. A custom lint (`NoWallClock`) fails on raw `System.monotonic_time` or `:rand.uniform` so determinism doesn't drift.
+- **Supervision = retry semantics.** Each task runs under its own supervisor. A crashed task doesn't take the run with it; the engine sees structured exit and decides to retry, skip, or fail-and-analyze based on the task's `on_fail` declaration.
+
+The engine is built on the BEAM VM. That's what makes a single-process distributed runtime and seedable simulation possible without a second clustering layer. The substrate is incidental; the outcomes aren't.
+
 ## Agentic review as code
 
 SYKLI Reviews are experimental. A review node represents a structured review step in the execution graph; it does not yet run Codex, Claude, or any other provider directly. It models the review step so future runners can execute agents in a controlled, inspectable way.
 
-The builder API is currently available in the Go SDK only. Rust, TypeScript, Elixir, and Python SDK builders still need parity work; until then, review nodes are an experimental Go-first graph feature.
+Builders are available in **all five SDKs** (Go, Rust, TypeScript, Elixir, Python) with byte-equivalent JSON output. The schema rejects task-execution fields (`command`, `outputs`, `services`, `mounts`, `k8s`, `retry`, `timeout`, `task_type`) on review nodes — review primitives and shell tasks have separate, non-overlapping surfaces.
 
 Agentic workflows need primitives, not prompts. Asking an LLM to "review this PR" is too underspecified to be repeatable. Defining a review node with constrained inputs, expected outputs, and explicit rules is.
 
@@ -123,12 +142,12 @@ Planned primitives: `security-boundaries`, `api-breakage`, `behavior-regression`
 
 | Use case | What sykli gives you |
 |---|---|
-| **CI pipelines** | The whole CI graph as code, content-addressed cache, parallel-by-dependency-level execution, deterministic replay |
+| **Agentic workflows** | Agents are executors; the graph defines what runs, what it depends on, and what it outputs |
 | **PR reviews** | Reviews as graph nodes — agents and linters fulfill the same node contract |
 | **Release checks** | SLSA v1.0 provenance attestations per task, signed by the engine, verifiable downstream |
 | **Security validation** | Secret-scoped tasks, OIDC token exchange to cloud providers, SSRF-guarded webhooks |
 | **Infrastructure validation** | Same task graph against `local`, `k8s`, or a self-hosted mesh of nodes |
-| **Agentic workflows** | Agents are executors; the graph defines what runs, what it depends on, and what it outputs |
+| **CI pipelines** | The whole CI graph as code, content-addressed cache, parallel-by-dependency-level execution, deterministic replay |
 
 ## Design principles
 
@@ -273,9 +292,9 @@ This is the layer agents and downstream tools read. No log parsing, no regex, no
 
 | Component | Status |
 |-----------|--------|
-| Core engine, Go / Rust / TS / Elixir SDKs, local execution, containers, FALSE Protocol output | **Stable** |
-| Python SDK, mesh distribution, K8s target, gates, SLSA attestations, remote cache (S3) | **Beta** |
-| GitHub-native receiver (App + webhook + Checks API), review primitives, multi-agent execution | **In development** |
+| Core engine, all 5 SDKs (Go/Rust/TS/Elixir/Python), local execution, containers, FALSE Protocol output, canonical schema, GitHub-native receiver (App + webhook + Checks API) | **Stable** |
+| Mesh distribution, K8s target, gates, SLSA attestations, remote cache (S3), review-node graph support across all SDKs, `task_type` (v3 semantic contract) | **Beta** |
+| Review primitive implementations (security/api-breakage/coverage agents), multi-agent execution, structured review outputs | **In development** |
 
 ---
 
@@ -311,6 +330,6 @@ See [CLAUDE.md](CLAUDE.md) for architecture notes, conventions, and the design r
 
 **sykli** (Finnish: *cycle*) — built in Berlin, powered by BEAM.
 
-**[Install](#install)** · **[ADRs](docs/adr/)** · **[Issues](https://github.com/yairfalse/sykli/issues)**
+**[Install](#install)** · **[Schema](schemas/sykli-pipeline.schema.json)** · **[Contract](docs/sdk-schema.md)** · **[Issues](https://github.com/yairfalse/sykli/issues)**
 
 </div>

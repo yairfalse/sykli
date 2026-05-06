@@ -4,9 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Recent changes
 
+- **Pipeline contract is canonical.** `schemas/sykli-pipeline.schema.json` (JSON Schema 2020-12) is the source of truth for SDK-emitted JSON. `scripts/validate-conformance-schema.py` runs at the top of `tests/conformance/run.sh` and validates every fixture against it. Engine remains permissive; SDKs must emit only the canonical shape.
+- **Phase 3B `task_type` (version `"3"`).** Closed 12-value enum (`build`, `test`, `lint`, `format`, `scan`, `package`, `publish`, `deploy`, `migrate`, `generate`, `verify`, `cleanup`) classifying executable tasks. Engine vocabulary lives in `Sykli.TaskType`. Triple-layered enforcement: schema `if/then`, `Sykli.Graph.parse_task_type/4`, `Sykli.Validate.check_task_types/3`. Rejected on review nodes. Design rationale: `docs/agent-contract-semantics.md`.
+- **`target` field removed from canonical SDK output.** All five SDK builder methods are deprecated no-ops (Python raises `DeprecationWarning`). The engine never read `target`; this was contract cleanup.
+- **Review nodes (`kind: "review"`) experimental** across all five SDKs. Schema rejects task-execution fields on reviews (`command`, `outputs`, `services`, `mounts`, `k8s`, `retry`, `timeout`, `task_type`).
 - **GitHub-native foundation** shipped — GitHub App auth, webhook receiver (Plug + Bandit), Checks API client, `Sykli.Mesh.Roles`. See `docs/github-native.md`.
 - **CLI visual reset** shipped — Nordic-minimal renderer (`Sykli.CLI.Renderer/Theme/Live/FixRenderer`). The output rules are testable; banned vocabulary in §"CLI output rules" below.
-- **Cache fingerprint** scheme includes repo-relative workdir; occurrences from before this change are not backward-compatible.
 
 ## What is Sykli?
 
@@ -38,6 +41,7 @@ tests/conformance/run.sh                    # all SDKs, all cases
 tests/conformance/run.sh --sdk go           # single SDK
 tests/conformance/run.sh case-name          # single case
 ```
+The runner first runs `scripts/validate-conformance-schema.py` against `schemas/sykli-pipeline.schema.json`. The schema step gracefully skips when Python <3.12 or the `jsonschema` package is unavailable. Pin the interpreter with `SYKLI_CONFORMANCE_PYTHON=python3.X` — the runner hard-errors if that explicit value fails the >=3.12 check (rather than silently substituting another interpreter). Auto-detection probes a venv, then `python3.14`/`3.13`/`3.12`/`python3`.
 
 Black-box tests (run against the built binary — cases listed in `test/blackbox/dataset.json`):
 ```bash
@@ -70,6 +74,8 @@ eval/harness/run.sh --case 001 --dry-run    # preview without running
 - `GETTING_STARTED.md` — installation and first-pipeline walkthrough.
 - `RELEASE.md` — release process (Burrito builds, signing, tagging).
 - `CHANGELOG.md` — Keep-a-Changelog format; current line is 0.6.x.
+- `docs/sdk-schema.md` — current canonical wire contract, field-by-field.
+- `docs/agent-contract-semantics.md` — Phase 3 design doc (normative for future Phase 3 PRs).
 - `examples/` and `test_projects/` — runnable sample pipelines for manual testing.
 
 Before every commit: `mix format && mix test && mix escript.build`
@@ -189,11 +195,15 @@ See `docs/false-protocol-schema.md` for the on-disk schema, sample documents, st
 
 ## SDKs
 
-Five SDKs in `sdk/` — Go, Rust, TypeScript, Elixir, Python. All support the full API including semantic metadata, containers, mounts, services, K8s options, caches, secrets, gates, matrix, capabilities.
+Five SDKs in `sdk/` — Go, Rust, TypeScript, Elixir, Python. All support the full API: semantic metadata, containers, mounts, services, K8s options, caches, secrets, gates, matrix, capabilities, **review nodes** (`kind: "review"`), and the v3 **`task_type`** semantic field.
+
+**Wire-format version auto-detect** (consistent across all five SDKs): `"3"` if any executable task uses `task_type`; else `"2"` if any container/mount/dir/cache resource is used; else `"1"`. v3 is a *superset* of v2 — when both are present, the pipeline emits version `"3"` *and* a populated `resources` block.
+
+**SDK ↔ engine boundary.** Each SDK is a separate project (`sdk/<lang>/`) with its own dependency tree. SDKs cannot import engine modules — the engine's `Sykli.TaskType` is unreachable from the Elixir SDK at `sdk/elixir/`. Each SDK carries its own copy of shared vocabulary (the 12 task_type values, etc.). When the canonical contract gains a value, update *every* SDK's local copy plus the schema plus `Sykli.TaskType`.
 
 SDK detection order: `.go` → `.rs` → `.exs` → `.ts` → `.py`
 
-SDKs are run with `--emit`, must output valid JSON to stdout. When changing task schema fields, update all five SDKs and their conformance test cases.
+SDKs are run with `--emit`, must output valid JSON to stdout. When changing task schema fields, update: (1) `schemas/sykli-pipeline.schema.json`, (2) all five SDK emitters, (3) `Sykli.Graph` parse path + `Sykli.Validate` check path, (4) at least one `tests/conformance/cases/*.json` fixture with per-SDK fixtures.
 
 The project dogfoods itself via `sykli.exs` (root-level pipeline) and `.github/workflows/sykli-ci.yml`.
 
@@ -216,6 +226,7 @@ Key env vars (see `cli.ex` and module docs for full details):
 - `SYKLI_GITHUB_WEBHOOK_SECRET` — HMAC secret for webhook signature verification
 - `SYKLI_GITHUB_RECEIVER_PORT` — Port the receiver binds (only on the node holding `:webhook_receiver`)
 - `GITHUB_TOKEN` / `GITLAB_TOKEN` / `BITBUCKET_TOKEN` — SCM commit status integration (legacy direct-token path superseded by the GitHub App receiver but kept as a documented fallback)
+- `SYKLI_CONFORMANCE_PYTHON` — pin the Python interpreter `tests/conformance/run.sh` uses for the schema-validation step and Python SDK fixtures. Must be Python ≥3.12 with the `jsonschema` package installed for schema validation to actually run (otherwise the schema step skips with an install hint).
 
 ## Testing Patterns
 
@@ -255,6 +266,9 @@ Some cases carry `expected_failure: true`, which marks them as known-broken cont
 - **~s() with parens gotcha** — `~s()` uses `()` as delimiters, so `~s(matches(x, "y"))` breaks. Use `~s[]` or `~S||` instead
 - **No wall-clock or global RNG in simulator-facing code** — the custom `CredoSykli.Check.NoWallClock` check (`core/lib/credo_sykli/check/no_wall_clock.ex`) fails on `System.monotonic_time/os_time/system_time`, `DateTime.utc_now`, `NaiveDateTime.utc_now`, `:os.system_time`, `:erlang.now`, and bare `:rand.uniform`. Route time through transport APIs (e.g. `now_ms/0`) and randomness through explicit seeded state
 - **Runtime isolation** — no module outside `core/lib/sykli/runtime/` may name a specific runtime implementation (`Sykli.Runtime.Docker`, `Podman`, `Shell`, `Fake`, `Containerd`). Selection flows through `Sykli.Runtime.Resolver`. Enforced by `core/test/sykli/runtime_isolation_test.exs` — the test greps the source tree and fails on any offender
+- **Schema is the canonical contract for SDK emission.** `schemas/sykli-pipeline.schema.json` is strict (`additionalProperties: false`) and gates new fields by `version`. The engine in `graph.ex` is more permissive (legacy compatibility paths: unknown keys ignored, `condition` aliasing `when`, list-form `outputs`). SDK output must validate against the schema; engine acceptance is *not* the SDK's bar. Document permissive paths in `docs/sdk-schema.md` under "Contract boundary".
+- **Engine vocabulary modules** — values shared across `graph.ex` and `validate.ex` (e.g., `task_type`'s 12-value enum) live in dedicated modules like `Sykli.TaskType` (`Sykli.TaskType.all/0`, `Sykli.TaskType.valid?/1`). When adding a new closed-enum field, follow this pattern instead of duplicating the literal across modules. SDKs must carry their own copies (separate Mix projects).
+- **Engine error formatting** — parse-time errors render via `Sykli.Graph.format_error/1` (also delegated to from `Sykli.MCP.Tools`); validate-time errors render via `Sykli.Validate.format_errors/1`. Validate-path strings prefix `"Error: "`; parse-path strings don't. Keep new error tuples consistent with the path that produces them.
 
 ## CLI output rules
 
