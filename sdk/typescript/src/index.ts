@@ -774,6 +774,16 @@ export class Task {
     return this._gate !== undefined;
   }
 
+  /** @internal Check if this is a review node */
+  _isReview(): boolean {
+    return false;
+  }
+
+  /** @internal Get review primitive */
+  _getPrimitive(): string | undefined {
+    return undefined;
+  }
+
   // ─────────────────────────────────────────────────────────────────────────────
   // Internal accessors (for Template and Pipeline use)
   // ─────────────────────────────────────────────────────────────────────────────
@@ -955,6 +965,139 @@ export class Task {
 }
 
 // =============================================================================
+// REVIEW
+// =============================================================================
+
+/** Experimental review node in the pipeline graph */
+export class Review {
+  private _primitive?: string;
+  private _agent?: string;
+  private _context: string[] = [];
+  private _inputs: string[] = [];
+  private _dependsOn: string[] = [];
+  private _deterministic = false;
+
+  constructor(
+    private readonly pipeline: Pipeline,
+    public readonly name: string
+  ) {}
+
+  /** Set the review primitive identifier */
+  primitive(name: string): this {
+    if (!name) {
+      throw new Error(`review '${this.name}': primitive cannot be empty`);
+    }
+    this._primitive = name;
+    return this;
+  }
+
+  /** Set the agent identifier for this review */
+  agent(name: string): this {
+    if (!name) {
+      throw new Error(`review '${this.name}': agent cannot be empty`);
+    }
+    this._agent = name;
+    return this;
+  }
+
+  /** Add review context paths */
+  context(...paths: string[]): this {
+    for (const path of paths) {
+      if (!path) {
+        throw new Error(`review '${this.name}': context path cannot be empty`);
+      }
+      this._context.push(path);
+    }
+    return this;
+  }
+
+  /** Add review input references */
+  inputs(...refs: string[]): this {
+    for (const ref of refs) {
+      if (!ref) {
+        throw new Error(`review '${this.name}': input reference cannot be empty`);
+      }
+      this._inputs.push(ref);
+    }
+    return this;
+  }
+
+  /** Set dependencies for this review node */
+  after(...tasks: string[]): this {
+    for (const task of tasks) {
+      if (task && !this._dependsOn.includes(task)) {
+        this._dependsOn.push(task);
+      }
+    }
+    return this;
+  }
+
+  /** Set whether this review is deterministic */
+  deterministic(value: boolean): this {
+    this._deterministic = value;
+    return this;
+  }
+
+  /** @internal Check if this is a gate task */
+  _isGate(): boolean {
+    return false;
+  }
+
+  /** @internal Check if this is a review node */
+  _isReview(): boolean {
+    return true;
+  }
+
+  /** @internal Get dependencies */
+  _getDependsOn(): string[] {
+    return this._dependsOn;
+  }
+
+  /** @internal Get command */
+  _getCommand(): string | undefined {
+    return undefined;
+  }
+
+  /** @internal Get container image */
+  _getContainer(): string | undefined {
+    return undefined;
+  }
+
+  /** @internal Get mounts */
+  _getMounts(): Mount[] {
+    return [];
+  }
+
+  /** @internal Get K8s options */
+  _getK8s(): K8sOptions | undefined {
+    return undefined;
+  }
+
+  /** @internal Set K8s options */
+  _setK8s(_opts: K8sOptions): void {}
+
+  /** @internal Get primitive */
+  _getPrimitive(): string | undefined {
+    return this._primitive;
+  }
+
+  /** Convert to JSON representation (internal) */
+  _toJSON(): Record<string, unknown> {
+    const json: Record<string, unknown> = {
+      name: this.name,
+      kind: 'review',
+      primitive: this._primitive,
+      deterministic: this._deterministic,
+    };
+    if (this._agent) json.agent = this._agent;
+    if (this._context.length > 0) json.context = this._context;
+    if (this._inputs.length > 0) json.inputs = this._inputs;
+    if (this._dependsOn.length > 0) json.depends_on = this._dependsOn;
+    return json;
+  }
+}
+
+// =============================================================================
 // TASK GROUP
 // =============================================================================
 
@@ -1005,7 +1148,7 @@ const enum Color {
 
 /** CI pipeline with tasks and resources */
 export class Pipeline {
-  private tasks: Task[] = [];
+  private tasks: Array<Task | Review> = [];
   private templates: Map<string, Template> = new Map();
   private directories: Directory[] = [];
   private caches: CacheVolume[] = [];
@@ -1028,6 +1171,19 @@ export class Pipeline {
     const task = new Task(this, name);
     this.tasks.push(task);
     return task;
+  }
+
+  /** Create an experimental review node */
+  review(name: string): Review {
+    if (!name || name.trim() === '') {
+      throw new ValidationError('Review name cannot be empty', 'EMPTY_NAME');
+    }
+    if (this.tasks.some((t) => t.name === name)) {
+      throw new ValidationError(`Duplicate task/gate/review name: "${name}"`, 'DUPLICATE_TASK');
+    }
+    const review = new Review(this, name);
+    this.tasks.push(review);
+    return review;
   }
 
   /** Create an approval gate that pauses the pipeline until approved */
@@ -1155,8 +1311,16 @@ export class Pipeline {
       }
       taskNames.add(task.name);
 
-      // Missing command check (gates don't need a command)
-      if (!task._getCommand() && !task._isGate()) {
+      if (task._isReview() && !task._getPrimitive()) {
+        throw new ValidationError(
+          `Review "${task.name}" has no primitive`,
+          'MISSING_COMMAND',
+          'did you forget to call .primitive()?'
+        );
+      }
+
+      // Missing command check (gates and review nodes don't need a command)
+      if (!task._getCommand() && !task._isGate() && !task._isReview()) {
         throw new ValidationError(
           `Task "${task.name}" has no command`,
           'MISSING_COMMAND',
@@ -1479,9 +1643,9 @@ export class Pipeline {
    * Topological sort using Kahn's algorithm.
    * Returns tasks in dependency order for display.
    */
-  private topologicalSort(): Task[] {
+  private topologicalSort(): Array<Task | Review> {
     const inDegree = new Map<string, number>();
-    const taskMap = new Map<string, Task>();
+    const taskMap = new Map<string, Task | Review>();
 
     // Initialize
     for (const task of this.tasks) {
@@ -1504,7 +1668,7 @@ export class Pipeline {
       }
     }
 
-    const sorted: Task[] = [];
+    const sorted: Array<Task | Review> = [];
     while (queue.length > 0) {
       const name = queue.shift()!;
       sorted.push(taskMap.get(name)!);
@@ -1526,7 +1690,7 @@ export class Pipeline {
   /**
    * Get the effective condition string for a task.
    */
-  private getTaskCondition(task: Task): string | undefined {
+  private getTaskCondition(task: Task | Review): string | undefined {
     // Access internal state via JSON output
     const json = task._toJSON();
     return json.when as string | undefined;
@@ -1537,7 +1701,7 @@ export class Pipeline {
    * Returns skip reason or undefined if task would run.
    */
   private wouldSkip(
-    task: Task,
+    task: Task | Review,
     ctx: { branch: string; tag: string; event: string; ci: boolean }
   ): string | undefined {
     const condition = this.getTaskCondition(task);

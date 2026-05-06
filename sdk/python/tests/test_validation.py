@@ -104,6 +104,40 @@ class TestDeferredValidation:
         # Should not raise — gates don't need commands
         p.validate()
 
+    def test_review_no_command_ok(self):
+        p = Pipeline()
+        p.review("review-code").primitive("lint")
+        p.validate()
+
+    def test_review_requires_primitive(self):
+        p = Pipeline()
+        p.review("review-code")
+        with pytest.raises(ValidationError) as exc_info:
+            p.validate()
+        assert exc_info.value.code == "MISSING_COMMAND"
+        assert exc_info.value.task == "review-code"
+
+    def test_empty_review_name(self):
+        p = Pipeline()
+        with pytest.raises(ValueError):
+            p.review("")
+
+    def test_duplicate_review_name(self):
+        p = Pipeline()
+        p.task("review-code").run("echo test")
+        with pytest.raises(ValueError):
+            p.review("review-code")
+
+    def test_empty_review_primitive(self):
+        p = Pipeline()
+        with pytest.raises(ValueError):
+            p.review("review-code").primitive("")
+
+    def test_review_deterministic_requires_bool(self):
+        p = Pipeline()
+        with pytest.raises(ValueError):
+            p.review("review-code").deterministic("yes")
+
     def test_unknown_dependency(self):
         p = Pipeline()
         p.task("test").run("pytest").after("lint")

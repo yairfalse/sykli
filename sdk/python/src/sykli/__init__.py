@@ -56,6 +56,7 @@ __all__ = [
     # Core
     "Pipeline",
     "Task",
+    "Review",
     "TaskGroup",
     # Resources
     "Directory",
@@ -850,6 +851,84 @@ class Task:
 
 
 # =============================================================================
+# REVIEW
+# =============================================================================
+
+
+class Review:
+    """Experimental review node in the pipeline graph."""
+
+    def __init__(self, pipeline: Pipeline, name: str) -> None:
+        self._pipeline = pipeline
+        self._name = name
+        self._primitive: str = ""
+        self._agent: str = ""
+        self._context: list[str] = []
+        self._inputs: list[str] = []
+        self._depends_on: list[str] = []
+        self._deterministic: bool = False
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    def primitive(self, name: str) -> Self:
+        if not name:
+            raise ValueError(f"review {self._name!r}: primitive cannot be empty")
+        self._primitive = name
+        return self
+
+    def agent(self, name: str) -> Self:
+        if not name:
+            raise ValueError(f"review {self._name!r}: agent cannot be empty")
+        self._agent = name
+        return self
+
+    def context(self, *paths: str) -> Self:
+        for path in paths:
+            if not path:
+                raise ValueError(f"review {self._name!r}: context path cannot be empty")
+            self._context.append(path)
+        return self
+
+    def inputs(self, *refs: str) -> Self:
+        for ref in refs:
+            if not ref:
+                raise ValueError(f"review {self._name!r}: input reference cannot be empty")
+            self._inputs.append(ref)
+        return self
+
+    def after(self, *tasks: str) -> Self:
+        for task in tasks:
+            if task and task not in self._depends_on:
+                self._depends_on.append(task)
+        return self
+
+    def deterministic(self, value: bool) -> Self:
+        if not isinstance(value, bool):
+            raise ValueError(f"review {self._name!r}: deterministic must be a boolean")
+        self._deterministic = value
+        return self
+
+    def _to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {
+            "name": self._name,
+            "kind": "review",
+            "primitive": self._primitive,
+            "deterministic": self._deterministic,
+        }
+        if self._agent:
+            d["agent"] = self._agent
+        if self._context:
+            d["context"] = list(self._context)
+        if self._inputs:
+            d["inputs"] = list(self._inputs)
+        if self._depends_on:
+            d["depends_on"] = list(self._depends_on)
+        return d
+
+
+# =============================================================================
 # PIPELINE
 # =============================================================================
 
@@ -866,7 +945,7 @@ class Pipeline:
     """
 
     def __init__(self, *, k8s_defaults: K8sOptions | None = None) -> None:
-        self._tasks: list[Task] = []
+        self._tasks: list[Task | Review] = []
         self._task_names: set[str] = set()
         self._dirs: list[Directory] = []
         self._caches: list[CacheVolume] = []
@@ -899,6 +978,18 @@ class Pipeline:
         self._task_names.add(name)
         log.debug("registered gate %r", name)
         return t
+
+    def review(self, name: str) -> Review:
+        """Create an experimental review node."""
+        if not name:
+            raise ValueError("review name cannot be empty")
+        if name in self._task_names:
+            raise ValueError(f"task/gate/review {name!r} already exists")
+        r = Review(self, name)
+        self._tasks.append(r)
+        self._task_names.add(name)
+        log.debug("registered review %r", name)
+        return r
 
     # ─────────────────────────────────────────────────────────────────────────
     # RESOURCES
@@ -1013,9 +1104,16 @@ class Pipeline:
 
     def validate(self) -> None:
         """Validate the pipeline. Raises ValidationError on problems."""
-        # Check all non-gate tasks have commands
+        # Check all non-gate, non-review tasks have commands.
         for t in self._tasks:
-            if not t._is_gate and not t._command:
+            if isinstance(t, Review):
+                if not t._primitive:
+                    raise ValidationError(
+                        code="MISSING_COMMAND",
+                        message=f"review {t._name!r} has no primitive",
+                        task=t._name,
+                    )
+            elif not t._is_gate and not t._command:
                 raise ValidationError(
                     code="MISSING_COMMAND",
                     message=f"task {t._name!r} has no command",
@@ -1042,6 +1140,8 @@ class Pipeline:
 
         # K8s validation
         for t in self._tasks:
+            if isinstance(t, Review):
+                continue
             k8s = t._k8s
             if k8s is None and self._k8s_defaults:
                 k8s = self._k8s_defaults
@@ -1091,6 +1191,8 @@ class Pipeline:
             prefix = "  "
             if t._is_gate:
                 kind = f"gate ({t._gate_strategy})"
+            elif isinstance(t, Review):
+                kind = f"review ({t._primitive})"
             else:
                 kind = t._command
             deps = f" (after: {', '.join(t._depends_on)})" if t._depends_on else ""
@@ -1118,6 +1220,8 @@ class Pipeline:
         if self._dirs or self._caches:
             return True
         for t in self._tasks:
+            if isinstance(t, Review):
+                continue
             if t._container or t._mounts:
                 return True
         return False

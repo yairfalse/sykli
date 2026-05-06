@@ -19,11 +19,20 @@ defmodule Sykli.Emitter do
       raise "duplicate task names detected"
     end
 
-    # Check all non-gate tasks have commands
+    # Check all non-gate, non-review tasks have commands
     Enum.each(pipeline.tasks, fn task ->
-      if is_nil(task.gate) and (is_nil(task.command) or task.command == "") do
-        Logger.error("task has no command", task: task.name)
-        raise "task #{inspect(task.name)} has no command"
+      cond do
+        task.kind == :review and (is_nil(task.primitive) or task.primitive == "") ->
+          Logger.error("review has no primitive", review: task.name)
+          raise "review #{inspect(task.name)} has no primitive"
+
+        task.kind != :review and is_nil(task.gate) and
+            (is_nil(task.command) or task.command == "") ->
+          Logger.error("task has no command", task: task.name)
+          raise "task #{inspect(task.name)} has no command"
+
+        true ->
+          :ok
       end
     end)
 
@@ -176,6 +185,27 @@ defmodule Sykli.Emitter do
   end
 
   defp task_to_json(task) do
+    if task.kind == :review do
+      review_to_json(task)
+    else
+      regular_task_to_json(task)
+    end
+  end
+
+  defp review_to_json(task) do
+    %{
+      name: task.name,
+      kind: "review",
+      primitive: task.primitive,
+      deterministic: task.deterministic
+    }
+    |> maybe_put(:agent, task.agent)
+    |> maybe_put(:context, non_empty(task.context))
+    |> maybe_put(:inputs, non_empty(task.inputs))
+    |> maybe_put(:depends_on, non_empty(task.depends_on))
+  end
+
+  defp regular_task_to_json(task) do
     # Use when_cond if set, otherwise use condition string
     condition =
       case task.when_cond do

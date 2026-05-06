@@ -52,6 +52,55 @@ describe('Pipeline', () => {
       const json = p.toJSON();
       expect(json.version).toBe('2');
     });
+
+    it('creates an experimental review node', () => {
+      const p = new Pipeline();
+      p.task('test').run('go test ./...');
+      p.review('review-code')
+        .primitive('lint')
+        .agent('claude')
+        .context('src/**/*.go')
+        .after('test')
+        .deterministic(true);
+
+      const json = p.toJSON();
+      const review = (json.tasks as any[])[1];
+
+      expect(review).toEqual({
+        name: 'review-code',
+        kind: 'review',
+        primitive: 'lint',
+        agent: 'claude',
+        context: ['src/**/*.go'],
+        depends_on: ['test'],
+        deterministic: true,
+      });
+      expect(review.command).toBeUndefined();
+      expect(review.outputs).toBeUndefined();
+    });
+
+    it('does not require commands for review nodes', () => {
+      const p = new Pipeline();
+      p.review('review-code').primitive('lint');
+
+      expect(() => p.toJSON()).not.toThrow();
+    });
+
+    it('rejects empty review names', () => {
+      const p = new Pipeline();
+      expect(() => p.review('')).toThrow(ValidationError);
+    });
+
+    it('rejects duplicate review names', () => {
+      const p = new Pipeline();
+      p.task('review-code').run('echo test');
+      expect(() => p.review('review-code')).toThrow(ValidationError);
+    });
+
+    it('rejects empty review primitives', () => {
+      const p = new Pipeline();
+      expect(() => p.review('review-code').primitive('')).toThrow('primitive cannot be empty');
+    });
   });
 
   describe('conditions', () => {

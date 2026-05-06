@@ -111,6 +111,42 @@ defmodule SykliTest do
       task = hd(result.tasks)
       assert length(task.mounts) == 2
     end
+
+    test "review node" do
+      use Sykli
+
+      result =
+        pipeline do
+          task "test" do
+            run("go test ./...")
+          end
+
+          review "review-code" do
+            primitive("lint")
+            agent("claude")
+            context(["src/**/*.go"])
+            after_(["test"])
+            deterministic(true)
+          end
+        end
+
+      json = Sykli.Emitter.to_json(result)
+      decoded = Jason.decode!(json)
+      review = Enum.at(decoded["tasks"], 1)
+
+      assert review == %{
+               "name" => "review-code",
+               "kind" => "review",
+               "primitive" => "lint",
+               "agent" => "claude",
+               "context" => ["src/**/*.go"],
+               "depends_on" => ["test"],
+               "deterministic" => true
+             }
+
+      refute Map.has_key?(review, "command")
+      refute Map.has_key?(review, "outputs")
+    end
   end
 
   describe "validation" do
@@ -138,6 +174,57 @@ defmodule SykliTest do
           end
         end
         |> Sykli.Emitter.validate!()
+      end
+    end
+
+    test "review does not require command" do
+      use Sykli
+
+      pipeline =
+        pipeline do
+          review "review-code" do
+            primitive("lint")
+          end
+        end
+
+      assert Sykli.Emitter.validate!(pipeline) == pipeline
+    end
+
+    test "review requires primitive" do
+      use Sykli
+
+      assert_raise RuntimeError, ~r/has no primitive/, fn ->
+        pipeline do
+          review "review-code" do
+          end
+        end
+        |> Sykli.Emitter.validate!()
+      end
+    end
+
+    test "review rejects task execution options" do
+      use Sykli
+
+      assert_raise RuntimeError, ~r/run cannot be used inside a review block/, fn ->
+        pipeline do
+          review "review-code" do
+            primitive("lint")
+            run("echo nope")
+          end
+        end
+      end
+    end
+
+    test "review rejects task metadata options" do
+      use Sykli
+
+      assert_raise RuntimeError, ~r/env cannot be used inside a review block/, fn ->
+        pipeline do
+          review "review-code" do
+            primitive("lint")
+            env("CI", "true")
+          end
+        end
       end
     end
 

@@ -16,6 +16,32 @@ class TestJsonWireFormat:
         task = d["tasks"][0]
         assert task == {"name": "test", "command": "pytest"}
 
+    def test_review_node(self):
+        p = Pipeline()
+        p.task("test").run("go test ./...")
+        (
+            p.review("review-code")
+            .primitive("lint")
+            .agent("claude")
+            .context("src/**/*.go")
+            .after("test")
+            .deterministic(True)
+        )
+
+        d = p.to_dict()
+        review = d["tasks"][1]
+        assert review == {
+            "name": "review-code",
+            "kind": "review",
+            "primitive": "lint",
+            "agent": "claude",
+            "context": ["src/**/*.go"],
+            "depends_on": ["test"],
+            "deterministic": True,
+        }
+        assert "command" not in review
+        assert "outputs" not in review
+
     def test_full_task(self):
         p = Pipeline()
         with pytest.warns(DeprecationWarning, match="Task.target\\(\\) is deprecated"):

@@ -76,12 +76,49 @@ defmodule Sykli.DSL do
   end
 
   # ============================================================================
+  # REVIEW MACRO
+  # ============================================================================
+
+  @doc """
+  Defines an experimental review node in the pipeline graph.
+
+      review "review-code" do
+        primitive "lint"
+        agent "claude"
+        context ["lib/**/*.ex"]
+        after_ ["test"]
+        deterministic true
+      end
+  """
+  defmacro review(name, do: block) do
+    quote do
+      Process.put(:sykli_current_task, %Sykli.Task{
+        name: unquote(name),
+        kind: :review
+      })
+
+      unquote(block)
+
+      completed_task = Process.get(:sykli_current_task)
+      tasks = Process.get(:sykli_tasks)
+      Process.put(:sykli_tasks, [completed_task | tasks])
+
+      Logger.debug("registered review", review: unquote(name))
+
+      Process.delete(:sykli_current_task)
+    end
+  end
+
+  # ============================================================================
   # TASK OPTIONS
   # ============================================================================
 
   @doc "Sets the command to run."
   def run(command) when is_binary(command) do
-    update_current_task(fn t -> %{t | command: command} end)
+    update_current_task(fn t ->
+      reject_review_option!(t, "run")
+      %{t | command: command}
+    end)
   end
 
   @doc "Sets task dependencies."
@@ -109,6 +146,7 @@ defmodule Sykli.DSL do
   def input_from(from_task, output_name, dest_path)
       when is_binary(from_task) and is_binary(output_name) and is_binary(dest_path) do
     update_current_task(fn t ->
+      reject_review_option!(t, "input_from")
       task_input = %{from_task: from_task, output: output_name, dest: dest_path}
 
       # Add dependency if not already present
@@ -131,17 +169,51 @@ defmodule Sykli.DSL do
 
   @doc "Sets the container image."
   def container(image) when is_binary(image) do
-    update_current_task(fn t -> %{t | container: image} end)
+    update_current_task(fn t ->
+      reject_review_option!(t, "container")
+      %{t | container: image}
+    end)
   end
 
   @doc "Sets the working directory inside container."
   def workdir(path) when is_binary(path) do
-    update_current_task(fn t -> %{t | workdir: path} end)
+    update_current_task(fn t ->
+      reject_review_option!(t, "workdir")
+      %{t | workdir: path}
+    end)
   end
 
   @doc "Sets input file patterns for caching."
   def inputs(patterns) when is_list(patterns) do
     update_current_task(fn t -> %{t | inputs: patterns} end)
+  end
+
+  @doc "Sets the review primitive identifier."
+  def primitive(name) when is_binary(name) and name != "" do
+    update_current_task(fn t -> %{t | primitive: name} end)
+  end
+
+  def primitive("") do
+    raise ArgumentError, "review primitive cannot be empty"
+  end
+
+  @doc "Sets the review agent identifier."
+  def agent(name) when is_binary(name) and name != "" do
+    update_current_task(fn t -> %{t | agent: name} end)
+  end
+
+  def agent("") do
+    raise ArgumentError, "review agent cannot be empty"
+  end
+
+  @doc "Sets review context paths."
+  def context(paths) when is_list(paths) do
+    update_current_task(fn t -> %{t | context: paths} end)
+  end
+
+  @doc "Sets whether a review is deterministic."
+  def deterministic(value) when is_boolean(value) do
+    update_current_task(fn t -> %{t | deterministic: value} end)
   end
 
   @doc "Sets output paths."
@@ -151,17 +223,26 @@ defmodule Sykli.DSL do
       |> Enum.with_index()
       |> Map.new(fn {path, i} -> {"output_#{i}", path} end)
 
-    update_current_task(fn t -> %{t | outputs: output_map} end)
+    update_current_task(fn t ->
+      reject_review_option!(t, "outputs")
+      %{t | outputs: output_map}
+    end)
   end
 
   @doc "Sets a named output."
   def output(name, path) do
-    update_current_task(fn t -> %{t | outputs: Map.put(t.outputs, name, path)} end)
+    update_current_task(fn t ->
+      reject_review_option!(t, "output")
+      %{t | outputs: Map.put(t.outputs, name, path)}
+    end)
   end
 
   @doc "Sets an environment variable."
   def env(key, value) when is_binary(key) and key != "" do
-    update_current_task(fn t -> %{t | env: Map.put(t.env, key, value)} end)
+    update_current_task(fn t ->
+      reject_review_option!(t, "env")
+      %{t | env: Map.put(t.env, key, value)}
+    end)
   end
 
   def env("", _value) do
@@ -170,7 +251,10 @@ defmodule Sykli.DSL do
 
   @doc "Sets a condition for when this task runs."
   def when_(condition) when is_binary(condition) do
-    update_current_task(fn t -> %{t | condition: condition} end)
+    update_current_task(fn t ->
+      reject_review_option!(t, "when_")
+      %{t | condition: condition}
+    end)
   end
 
   @doc """
@@ -188,17 +272,26 @@ defmodule Sykli.DSL do
       end
   """
   def when_cond(%Sykli.Condition{} = condition) do
-    update_current_task(fn t -> %{t | when_cond: condition} end)
+    update_current_task(fn t ->
+      reject_review_option!(t, "when_cond")
+      %{t | when_cond: condition}
+    end)
   end
 
   @doc "Declares a required secret."
   def secret(name) when is_binary(name) do
-    update_current_task(fn t -> %{t | secrets: t.secrets ++ [name]} end)
+    update_current_task(fn t ->
+      reject_review_option!(t, "secret")
+      %{t | secrets: t.secrets ++ [name]}
+    end)
   end
 
   @doc "Declares multiple required secrets."
   def secrets(names) when is_list(names) do
-    update_current_task(fn t -> %{t | secrets: t.secrets ++ names} end)
+    update_current_task(fn t ->
+      reject_review_option!(t, "secrets")
+      %{t | secrets: t.secrets ++ names}
+    end)
   end
 
   @doc """
@@ -216,7 +309,11 @@ defmodule Sykli.DSL do
   """
   def secret_from(name, %Sykli.SecretRef{} = ref) when is_binary(name) do
     secret_ref = %{ref | name: name}
-    update_current_task(fn t -> %{t | secret_refs: t.secret_refs ++ [secret_ref]} end)
+
+    update_current_task(fn t ->
+      reject_review_option!(t, "secret_from")
+      %{t | secret_refs: t.secret_refs ++ [secret_ref]}
+    end)
   end
 
   @doc """
@@ -227,12 +324,18 @@ defmodule Sykli.DSL do
   """
   @deprecated "target/1 no longer affects emitted pipeline JSON; use concrete execution requirement fields instead"
   def target(name) when is_binary(name) do
-    update_current_task(fn t -> t end)
+    update_current_task(fn t ->
+      reject_review_option!(t, "target")
+      t
+    end)
   end
 
   @doc "Adds a matrix dimension."
   def matrix(key, values) when is_binary(key) and is_list(values) do
-    update_current_task(fn t -> %{t | matrix: Map.put(t.matrix, key, values)} end)
+    update_current_task(fn t ->
+      reject_review_option!(t, "matrix")
+      %{t | matrix: Map.put(t.matrix, key, values)}
+    end)
   end
 
   @doc """
@@ -253,7 +356,10 @@ defmodule Sykli.DSL do
       end
   """
   def requires(labels) when is_list(labels) do
-    update_current_task(fn t -> %{t | requires: labels} end)
+    update_current_task(fn t ->
+      reject_review_option!(t, "requires")
+      %{t | requires: labels}
+    end)
   end
 
   @doc """
@@ -272,18 +378,26 @@ defmodule Sykli.DSL do
       end
   """
   def verify(mode) when mode in ~w(cross_platform always never) do
-    update_current_task(fn t -> %{t | verify: mode} end)
+    update_current_task(fn t ->
+      reject_review_option!(t, "verify")
+      %{t | verify: mode}
+    end)
   end
 
   @doc "Adds a service container."
   def service(image, name) do
     svc = %{image: image, name: name}
-    update_current_task(fn t -> %{t | services: t.services ++ [svc]} end)
+
+    update_current_task(fn t ->
+      reject_review_option!(t, "service")
+      %{t | services: t.services ++ [svc]}
+    end)
   end
 
   @doc "Sets retry count."
   def retry(count) when is_integer(count) and count >= 0 do
     update_current_task(fn t ->
+      reject_review_option!(t, "retry")
       Logger.debug("setting retry", task: t.name, retry: count)
       %{t | retry: count}
     end)
@@ -292,6 +406,7 @@ defmodule Sykli.DSL do
   @doc "Sets timeout in seconds."
   def timeout(seconds) when is_integer(seconds) and seconds > 0 do
     update_current_task(fn t ->
+      reject_review_option!(t, "timeout")
       Logger.debug("setting timeout", task: t.name, timeout: seconds)
       %{t | timeout: seconds}
     end)
@@ -316,6 +431,7 @@ defmodule Sykli.DSL do
   """
   def k8s(%Sykli.K8s{} = opts) do
     update_current_task(fn t ->
+      reject_review_option!(t, "k8s")
       Logger.debug("setting k8s options", task: t.name)
       %{t | k8s: opts}
     end)
@@ -324,13 +440,21 @@ defmodule Sykli.DSL do
   @doc "Mounts a directory into the container."
   def mount(resource_name, path) do
     mount = %{resource: resource_name, path: path, type: :directory}
-    update_current_task(fn t -> %{t | mounts: t.mounts ++ [mount]} end)
+
+    update_current_task(fn t ->
+      reject_review_option!(t, "mount")
+      %{t | mounts: t.mounts ++ [mount]}
+    end)
   end
 
   @doc "Mounts a cache volume into the container."
   def mount_cache(cache_name, path) do
     mount = %{resource: cache_name, path: path, type: :cache}
-    update_current_task(fn t -> %{t | mounts: t.mounts ++ [mount]} end)
+
+    update_current_task(fn t ->
+      reject_review_option!(t, "mount_cache")
+      %{t | mounts: t.mounts ++ [mount]}
+    end)
   end
 
   # ============================================================================
@@ -352,6 +476,7 @@ defmodule Sykli.DSL do
   """
   def covers(patterns) when is_list(patterns) do
     update_current_task(fn t ->
+      reject_review_option!(t, "covers")
       semantic = t.semantic || %{covers: [], intent: nil, criticality: nil}
       %{t | semantic: %{semantic | covers: patterns}}
     end)
@@ -371,6 +496,7 @@ defmodule Sykli.DSL do
   """
   def intent(description) when is_binary(description) do
     update_current_task(fn t ->
+      reject_review_option!(t, "intent")
       semantic = t.semantic || %{covers: [], intent: nil, criticality: nil}
       %{t | semantic: %{semantic | intent: description}}
     end)
@@ -407,6 +533,7 @@ defmodule Sykli.DSL do
   """
   def set_criticality(level) when level in [:high, :medium, :low] do
     update_current_task(fn t ->
+      reject_review_option!(t, "set_criticality")
       semantic = t.semantic || %{covers: [], intent: nil, criticality: nil}
       %{t | semantic: %{semantic | criticality: level}}
     end)
@@ -429,6 +556,7 @@ defmodule Sykli.DSL do
   """
   def on_fail(action) when action in [:analyze, :retry, :skip] do
     update_current_task(fn t ->
+      reject_review_option!(t, "on_fail")
       ai_hooks = t.ai_hooks || %{on_fail: nil, select: nil}
       %{t | ai_hooks: %{ai_hooks | on_fail: action}}
     end)
@@ -451,6 +579,7 @@ defmodule Sykli.DSL do
   """
   def select_mode(mode) when mode in [:smart, :always, :manual] do
     update_current_task(fn t ->
+      reject_review_option!(t, "select_mode")
       ai_hooks = t.ai_hooks || %{on_fail: nil, select: nil}
       %{t | ai_hooks: %{ai_hooks | select: mode}}
     end)
@@ -498,6 +627,7 @@ defmodule Sykli.DSL do
   """
   def provides(name, value \\ nil) when is_binary(name) do
     update_current_task(fn t ->
+      reject_review_option!(t, "provides")
       entry = if value, do: %{name: name, value: value}, else: %{name: name}
       %{t | provides: t.provides ++ [entry]}
     end)
@@ -516,7 +646,10 @@ defmodule Sykli.DSL do
       end
   """
   def needs(names) when is_list(names) do
-    update_current_task(fn t -> %{t | needs: t.needs ++ names} end)
+    update_current_task(fn t ->
+      reject_review_option!(t, "needs")
+      %{t | needs: t.needs ++ names}
+    end)
   end
 
   # ============================================================================
@@ -531,6 +664,7 @@ defmodule Sykli.DSL do
   def gate_strategy(strategy)
       when is_binary(strategy) and strategy in ~w(prompt env file webhook) do
     update_current_task(fn t ->
+      reject_review_option!(t, "gate_strategy")
       gate = t.gate || raise "gate_strategy can only be used inside a gate block"
       %{t | gate: %{gate | strategy: strategy}}
     end)
@@ -539,6 +673,7 @@ defmodule Sykli.DSL do
   @doc "Sets the approval prompt message for this gate task."
   def gate_message(message) when is_binary(message) do
     update_current_task(fn t ->
+      reject_review_option!(t, "gate_message")
       gate = t.gate || raise "gate_message can only be used inside a gate block"
       %{t | gate: %{gate | message: message}}
     end)
@@ -547,6 +682,7 @@ defmodule Sykli.DSL do
   @doc "Sets the timeout in seconds for this gate task."
   def gate_timeout(seconds) when is_integer(seconds) and seconds > 0 do
     update_current_task(fn t ->
+      reject_review_option!(t, "gate_timeout")
       gate = t.gate || raise "gate_timeout can only be used inside a gate block"
       %{t | gate: %{gate | timeout: seconds}}
     end)
@@ -555,6 +691,7 @@ defmodule Sykli.DSL do
   @doc "Sets the environment variable to poll for the env strategy."
   def gate_env_var(var) when is_binary(var) do
     update_current_task(fn t ->
+      reject_review_option!(t, "gate_env_var")
       gate = t.gate || raise "gate_env_var can only be used inside a gate block"
       %{t | gate: %{gate | env_var: var}}
     end)
@@ -563,6 +700,7 @@ defmodule Sykli.DSL do
   @doc "Sets the file path to poll for the file strategy."
   def gate_file_path(path) when is_binary(path) do
     update_current_task(fn t ->
+      reject_review_option!(t, "gate_file_path")
       gate = t.gate || raise "gate_file_path can only be used inside a gate block"
       %{t | gate: %{gate | file_path: path}}
     end)
@@ -574,7 +712,11 @@ defmodule Sykli.DSL do
   """
   def mount_cwd do
     mount = %{resource: "src:.", path: "/work", type: :directory}
-    update_current_task(fn t -> %{t | mounts: t.mounts ++ [mount], workdir: "/work"} end)
+
+    update_current_task(fn t ->
+      reject_review_option!(t, "mount_cwd")
+      %{t | mounts: t.mounts ++ [mount], workdir: "/work"}
+    end)
   end
 
   @doc """
@@ -586,7 +728,11 @@ defmodule Sykli.DSL do
     end
 
     mount = %{resource: "src:.", path: container_path, type: :directory}
-    update_current_task(fn t -> %{t | mounts: t.mounts ++ [mount], workdir: container_path} end)
+
+    update_current_task(fn t ->
+      reject_review_option!(t, "mount_cwd_at")
+      %{t | mounts: t.mounts ++ [mount], workdir: container_path}
+    end)
   end
 
   # ============================================================================
@@ -953,4 +1099,10 @@ defmodule Sykli.DSL do
     current = Process.get(:sykli_current_task)
     Process.put(:sykli_current_task, update_fn.(current))
   end
+
+  defp reject_review_option!(%Sykli.Task{kind: :review}, option) do
+    raise "#{option} cannot be used inside a review block"
+  end
+
+  defp reject_review_option!(%Sykli.Task{}, _option), do: :ok
 end

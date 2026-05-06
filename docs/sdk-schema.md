@@ -69,7 +69,7 @@ The full canonical field list, with stability labels:
 | JSON key | Stability | Required? | Notes |
 |---|---|---|---|
 | `name` | stable | yes | unique, non-empty |
-| `kind` | experimental (non-Go SDKs) | no | `"task"` (default) or `"review"`; only Go emits `"review"` |
+| `kind` | experimental | no | `"task"` (default) or `"review"` |
 | `command` | stable | conditional | required unless `gate` is set or `kind == "review"` |
 | `container` | stable | no | triggers v2 |
 | `workdir` | stable | no | |
@@ -108,7 +108,7 @@ Unique within the pipeline, non-empty. The engine rejects empty/whitespace/non-b
 
 ### `kind`
 
-`"task"` (default; SDKs do not emit `kind` in this case) or `"review"`. When `kind == "review"`, `command` is not required and the review-only fields below become meaningful. Today only the Go SDK constructs review nodes (`sdk/go/sykli.go:559-570`, `:2241-2247`); engine support is complete (`graph.ex:420-429`, `parse_review/1`). Cross-SDK parity for review nodes is a future work item — not part of this schema's scope.
+`"task"` (default; SDKs do not emit `kind` in this case) or `"review"`. When `kind == "review"`, `command` is not required and the review-only fields below become meaningful. Review nodes are experimental graph nodes for review/reasoning/check primitives, not shell-command tasks.
 
 ### `command`
 
@@ -242,7 +242,13 @@ When `kind == "review"`, the engine reads four additional fields via `parse_revi
 - `context` — array of context file references.
 - `deterministic` — boolean; engine default `false`.
 
-These are meaningful only when `kind == "review"`. The schema **rejects** them on regular tasks (encoded via `if/then` in the task `allOf`): if `kind` is absent or not `"review"`, none of `primitive`, `agent`, `context`, or `deterministic` may appear. The engine itself is permissive — `parse_review/1` (`graph.ex:420-429`) is simply never entered for non-review tasks, so any review fields would be silently ignored — but the schema treats them as a likely typo. Cross-SDK support is incomplete: only Go currently emits review nodes.
+These are meaningful only when `kind == "review"`. The schema **rejects** them on regular tasks (encoded via `if/then` in the task `allOf`): if `kind` is absent or not `"review"`, none of `primitive`, `agent`, `context`, or `deterministic` may appear. The engine itself is permissive — `parse_review/1` (`graph.ex:420-429`) is simply never entered for non-review tasks, so any review fields would be silently ignored — but the schema treats them as a likely typo.
+
+Review nodes do not have canonical `outputs` behavior yet. SDKs should not emit
+`outputs` for review nodes; review results/structured outputs are intentionally
+left out of the current experimental contract. The schema rejects task execution
+fields on review nodes: `command`, `outputs`, `gate`, `container`, `services`,
+`k8s`, `mounts`, `retry`, and `timeout`.
 
 ## Normalization behavior
 
@@ -352,7 +358,7 @@ introduce a replacement field.
 These are **descriptive, not prescriptive**. The schema documents current behavior; resolving these is Phase 2C / future work.
 
 1. **`version` is advisory only today.** SDKs emit `"1"` or `"2"`; engine ignores. This document defines it as the pipeline wire-format/schema version and describes the migration path to version-aware parsing.
-2. **Review nodes are Go-only.** Engine supports `kind: "review"` and the four review-only fields, but only the Go SDK constructs them. No conformance coverage.
+2. **Review nodes are experimental.** Engine supports `kind: "review"` and the four review-only fields, and SDKs expose minimal review builders. Review outputs are not canonical.
 3. **`verify` and `oidc` are reserved with no SDK emit.** Engine reads them; SDKs have no API. Either implement SDK support or drop from the schema once a decision lands.
 4. **`history_hint` is engine-internal.** SDKs MUST NOT emit. Schema marks `readOnly` for clarity.
 5. **TypeScript K8s interface drift.** `K8sOptions` interface declares 15 fields; only 4 are serialized. The other 11 silently disappear at emit. The schema reflects the wire contract (4 fields); the TypeScript drift is a TS-side issue, not a schema issue.

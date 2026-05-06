@@ -264,8 +264,7 @@ func TestReviewNodeEmitsMetadata(t *testing.T) {
 		Agent("local").
 		Diff("main...HEAD").
 		Context("README.md", "docs/architecture.md").
-		After("test").
-		Outputs("reviews/api-breakage.local.json")
+		After("test")
 
 	result, err := emitJSON(p)
 	if err != nil {
@@ -311,15 +310,61 @@ func TestReviewNodeEmitsMetadata(t *testing.T) {
 		t.Errorf("expected context files, got %v", context)
 	}
 
-	outputs := review["outputs"].([]interface{})
-	if len(outputs) != 1 || outputs[0] != "reviews/api-breakage.local.json" {
-		t.Errorf("expected review output path, got %v", outputs)
+	if _, ok := review["outputs"]; ok {
+		t.Errorf("review node should not emit outputs")
 	}
 
 	deps := review["depends_on"].([]interface{})
 	if len(deps) != 1 || deps[0] != "test" {
 		t.Errorf("expected dependency on test, got %v", deps)
 	}
+}
+
+func TestReviewOutputsIsNoop(t *testing.T) {
+	p := New()
+	p.Review("review").
+		Primitive("lint").
+		Outputs("reviews/lint.json")
+
+	result, err := emitJSON(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	review := result["tasks"].([]interface{})[0].(map[string]interface{})
+	if _, ok := review["outputs"]; ok {
+		t.Errorf("review node should not emit outputs")
+	}
+}
+
+func TestReviewEmptyNamePanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for empty review name")
+		}
+	}()
+	p := New()
+	p.Review("")
+}
+
+func TestReviewDuplicateNamePanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for duplicate review name")
+		}
+	}()
+	p := New()
+	p.Task("review").Run("echo test")
+	p.Review("review")
+}
+
+func TestReviewEmptyPrimitivePanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for empty review primitive")
+		}
+	}()
+	p := New()
+	p.Review("review").Primitive("")
 }
 
 func TestUnknownDependencyFails(t *testing.T) {

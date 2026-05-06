@@ -73,6 +73,28 @@
               ]
             }
           }
+        },
+        {
+          "description": "Review nodes are graph metadata nodes, not shell-command tasks. The canonical review-node contract rejects task execution fields.",
+          "if": {
+            "properties": { "kind": { "const": "review" } },
+            "required": ["kind"]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                { "required": ["command"] },
+                { "required": ["outputs"] },
+                { "required": ["gate"] },
+                { "required": ["container"] },
+                { "required": ["services"] },
+                { "required": ["k8s"] },
+                { "required": ["mounts"] },
+                { "required": ["retry"] },
+                { "required": ["timeout"] }
+              ]
+            }
+          }
         }
       ],
       "properties": {
@@ -82,7 +104,7 @@
           "minLength": 1
         },
         "kind": {
-          "description": "Task kind. Default is task. The review kind is currently emitted only by the Go SDK; engine support is complete but cross-SDK coverage is incomplete. Experimental.",
+          "description": "Task kind. Default is task. The review kind is experimental.",
           "enum": ["task", "review"]
         },
         "command": {

@@ -4,7 +4,12 @@ defmodule Sykli.Task do
   """
 
   defstruct name: nil,
+            kind: :task,
             command: nil,
+            primitive: nil,
+            agent: nil,
+            context: [],
+            deterministic: false,
             container: nil,
             workdir: nil,
             env: %{},
@@ -69,7 +74,12 @@ defmodule Sykli.Task do
 
   @type t :: %__MODULE__{
           name: String.t(),
+          kind: :task | :review,
           command: String.t() | nil,
+          primitive: String.t() | nil,
+          agent: String.t() | nil,
+          context: [String.t()],
+          deterministic: boolean(),
           container: String.t() | nil,
           workdir: String.t() | nil,
           env: %{String.t() => String.t()},

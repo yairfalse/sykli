@@ -457,6 +457,19 @@ pub struct Task<'a> {
     index: usize,
 }
 
+/// An experimental review node in the pipeline graph.
+pub struct Review<'a> {
+    pipeline: &'a mut Pipeline,
+    index: usize,
+}
+
+#[derive(Clone, Default, PartialEq)]
+enum NodeKind {
+    #[default]
+    Task,
+    Review,
+}
+
 /// Represents an input artifact from another task's output.
 #[derive(Clone, Default)]
 struct TaskInput {
@@ -723,8 +736,13 @@ impl std::fmt::Display for Condition {
 
 #[derive(Clone, Default)]
 struct TaskData {
+    kind: NodeKind,
     name: String,
     command: String,
+    primitive: Option<String>,
+    agent: Option<String>,
+    context: Vec<String>,
+    deterministic: bool,
     container: Option<String>,
     workdir: Option<String>,
     env: HashMap<String, String>,
@@ -1560,6 +1578,87 @@ impl<'a> Task<'a> {
     }
 }
 
+impl<'a> Review<'a> {
+    /// Returns the review node's name.
+    pub fn name(&self) -> String {
+        self.pipeline.tasks[self.index].name.clone()
+    }
+
+    /// Sets the review primitive identifier.
+    ///
+    /// # Panics
+    /// Panics if `name` is empty.
+    #[must_use]
+    pub fn primitive(self, name: &str) -> Self {
+        assert!(!name.is_empty(), "review primitive cannot be empty");
+        self.pipeline.tasks[self.index].primitive = Some(name.to_string());
+        self
+    }
+
+    /// Sets the agent identifier for this review node.
+    ///
+    /// # Panics
+    /// Panics if `name` is empty.
+    #[must_use]
+    pub fn agent(self, name: &str) -> Self {
+        assert!(!name.is_empty(), "review agent cannot be empty");
+        self.pipeline.tasks[self.index].agent = Some(name.to_string());
+        self
+    }
+
+    /// Adds context paths for the review.
+    ///
+    /// # Panics
+    /// Panics if any path is empty.
+    #[must_use]
+    pub fn context(self, paths: &[&str]) -> Self {
+        for path in paths {
+            assert!(!path.is_empty(), "review context path cannot be empty");
+        }
+        self.pipeline.tasks[self.index]
+            .context
+            .extend(paths.iter().map(|s| (*s).to_string()));
+        self
+    }
+
+    /// Records review input references.
+    ///
+    /// # Panics
+    /// Panics if any input reference is empty.
+    #[must_use]
+    pub fn inputs(self, refs: &[&str]) -> Self {
+        for reference in refs {
+            assert!(
+                !reference.is_empty(),
+                "review input reference cannot be empty"
+            );
+        }
+        self.pipeline.tasks[self.index]
+            .inputs
+            .extend(refs.iter().map(|s| (*s).to_string()));
+        self
+    }
+
+    /// Sets dependencies for this review node. Duplicates are ignored.
+    #[must_use]
+    pub fn after(self, tasks: &[&str]) -> Self {
+        let task = &mut self.pipeline.tasks[self.index];
+        for name in tasks {
+            if !name.is_empty() && !task.depends_on.iter().any(|dep| dep == name) {
+                task.depends_on.push((*name).to_string());
+            }
+        }
+        self
+    }
+
+    /// Sets whether the review is deterministic.
+    #[must_use]
+    pub fn deterministic(self, value: bool) -> Self {
+        self.pipeline.tasks[self.index].deterministic = value;
+        self
+    }
+}
+
 // =============================================================================
 // EXPLAIN CONTEXT
 // =============================================================================
@@ -1708,6 +1807,28 @@ impl Pipeline {
         });
         let index = self.tasks.len() - 1;
         Task {
+            pipeline: self,
+            index,
+        }
+    }
+
+    /// Creates an experimental review node with the given name.
+    ///
+    /// # Panics
+    /// Panics if `name` is empty or if a node with the same name already exists.
+    pub fn review(&mut self, name: &str) -> Review<'_> {
+        assert!(!name.is_empty(), "review name cannot be empty");
+        assert!(
+            !self.tasks.iter().any(|t| t.name == name),
+            "task/gate/review {name:?} already exists"
+        );
+        self.tasks.push(TaskData {
+            kind: NodeKind::Review,
+            name: name.to_string(),
+            ..Default::default()
+        });
+        let index = self.tasks.len() - 1;
+        Review {
             pipeline: self,
             index,
         }
@@ -2047,7 +2168,14 @@ impl Pipeline {
         // Validate
         let task_names: Vec<_> = self.tasks.iter().map(|t| t.name.as_str()).collect();
         for t in &self.tasks {
-            if t.command.is_empty() && t.gate.is_none() {
+            if t.kind == NodeKind::Review {
+                if t.primitive.as_deref().unwrap_or("").is_empty() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("review {:?} has no primitive", t.name),
+                    ));
+                }
+            } else if t.command.is_empty() && t.gate.is_none() {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
                     format!("task {:?} has no command", t.name),
@@ -2152,7 +2280,36 @@ impl Pipeline {
                 .iter()
                 .map(|t| JsonTask {
                     name: t.name.clone(),
-                    command: if t.command.is_empty() { None } else { Some(t.command.clone()) },
+                    kind: if t.kind == NodeKind::Review {
+                        Some("review".to_string())
+                    } else {
+                        None
+                    },
+                    command: if t.kind == NodeKind::Review || t.command.is_empty() {
+                        None
+                    } else {
+                        Some(t.command.clone())
+                    },
+                    primitive: if t.kind == NodeKind::Review {
+                        t.primitive.clone()
+                    } else {
+                        None
+                    },
+                    agent: if t.kind == NodeKind::Review {
+                        t.agent.clone()
+                    } else {
+                        None
+                    },
+                    context: if t.kind == NodeKind::Review && !t.context.is_empty() {
+                        Some(t.context.clone())
+                    } else {
+                        None
+                    },
+                    deterministic: if t.kind == NodeKind::Review {
+                        Some(t.deterministic)
+                    } else {
+                        None
+                    },
                     container: t.container.clone(),
                     workdir: t.workdir.clone(),
                     env: if t.env.is_empty() {
@@ -2193,7 +2350,7 @@ impl Pipeline {
                                 .collect(),
                         )
                     },
-                    outputs: if t.outputs.is_empty() {
+                    outputs: if t.kind == NodeKind::Review || t.outputs.is_empty() {
                         None
                     } else {
                         Some(t.outputs.clone())
@@ -2298,7 +2455,11 @@ impl Pipeline {
                             None
                         } else {
                             Some(JsonSemantic {
-                                covers: if s.covers.is_empty() { None } else { Some(s.covers.clone()) },
+                                covers: if s.covers.is_empty() {
+                                    None
+                                } else {
+                                    Some(s.covers.clone())
+                                },
                                 intent: s.intent.clone(),
                                 criticality: s.criticality.as_ref().map(|c| match c {
                                     Criticality::High => "high".to_string(),
@@ -2552,7 +2713,17 @@ struct JsonAiHooks {
 struct JsonTask {
     name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     command: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    primitive: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    agent: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    context: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    deterministic: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     container: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2680,6 +2851,74 @@ mod tests {
         let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
 
         assert_eq!(json["tasks"][1]["depends_on"][0], "test");
+    }
+
+    #[test]
+    fn test_review_node_serialization() {
+        let mut p = Pipeline::new();
+        p.task("test").run("go test ./...");
+        p.review("review-code")
+            .primitive("lint")
+            .agent("claude")
+            .context(&["src/**/*.go"])
+            .after(&["test"])
+            .deterministic(true);
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+        let review = &json["tasks"][1];
+
+        assert_eq!(review["name"], "review-code");
+        assert_eq!(review["kind"], "review");
+        assert_eq!(review["primitive"], "lint");
+        assert_eq!(review["agent"], "claude");
+        assert_eq!(review["context"][0], "src/**/*.go");
+        assert_eq!(review["depends_on"][0], "test");
+        assert_eq!(review["deterministic"], true);
+        assert!(review.get("command").is_none());
+        assert!(review.get("outputs").is_none());
+    }
+
+    #[test]
+    fn test_review_node_does_not_require_command() {
+        let mut p = Pipeline::new();
+        p.review("review-code").primitive("lint");
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+    }
+
+    #[test]
+    fn test_review_node_requires_primitive() {
+        let mut p = Pipeline::new();
+        p.review("review-code");
+
+        let mut buf = Vec::new();
+        let err = p.emit_to(&mut buf).unwrap_err();
+        assert!(err.to_string().contains("has no primitive"));
+    }
+
+    #[test]
+    #[should_panic(expected = "review name cannot be empty")]
+    fn test_review_empty_name_panics() {
+        let mut p = Pipeline::new();
+        p.review("");
+    }
+
+    #[test]
+    #[should_panic(expected = "already exists")]
+    fn test_review_duplicate_name_panics() {
+        let mut p = Pipeline::new();
+        p.task("review-code").run("echo test");
+        p.review("review-code");
+    }
+
+    #[test]
+    #[should_panic(expected = "review primitive cannot be empty")]
+    fn test_review_empty_primitive_panics() {
+        let mut p = Pipeline::new();
+        p.review("review-code").primitive("");
     }
 
     #[test]
@@ -3860,13 +4099,11 @@ mod tests {
     #[test]
     fn test_k8s_gpu() {
         let mut p = Pipeline::new();
-        p.task("train")
-            .run("python train.py")
-            .k8s(K8sOptions {
-                memory: Some("32Gi".into()),
-                gpu: Some(2),
-                ..Default::default()
-            });
+        p.task("train").run("python train.py").k8s(K8sOptions {
+            memory: Some("32Gi".into()),
+            gpu: Some(2),
+            ..Default::default()
+        });
 
         let mut buf = Vec::new();
         p.emit_to(&mut buf).unwrap();
@@ -3897,7 +4134,10 @@ mod tests {
         assert_eq!(json["tasks"][0]["k8s"]["memory"], "32Gi");
         assert_eq!(json["tasks"][0]["k8s"]["gpu"], 1);
         // Raw JSON passed through
-        assert!(json["tasks"][0]["k8s"]["raw"].as_str().unwrap().contains("nodeSelector"));
+        assert!(json["tasks"][0]["k8s"]["raw"]
+            .as_str()
+            .unwrap()
+            .contains("nodeSelector"));
     }
 
     #[test]
@@ -3912,7 +4152,10 @@ mod tests {
         p.emit_to(&mut buf).unwrap();
         let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
 
-        assert!(json["tasks"][0]["k8s"]["raw"].as_str().unwrap().contains("serviceAccount"));
+        assert!(json["tasks"][0]["k8s"]["raw"]
+            .as_str()
+            .unwrap()
+            .contains("serviceAccount"));
     }
 
     #[test]
@@ -4092,7 +4335,9 @@ mod tests {
             .gate_timeout(600)
             .gate_message("Approve deployment to production?")
             .gate_env_var("DEPLOY_APPROVED");
-        p.task("deploy").run("make deploy").after(&["approve-deploy"]);
+        p.task("deploy")
+            .run("make deploy")
+            .after(&["approve-deploy"]);
 
         let mut buf = Vec::new();
         p.emit_to(&mut buf).unwrap();
@@ -4104,7 +4349,10 @@ mod tests {
         // Gate config
         assert_eq!(json["tasks"][1]["gate"]["strategy"], "env");
         assert_eq!(json["tasks"][1]["gate"]["timeout"], 600);
-        assert_eq!(json["tasks"][1]["gate"]["message"], "Approve deployment to production?");
+        assert_eq!(
+            json["tasks"][1]["gate"]["message"],
+            "Approve deployment to production?"
+        );
         assert_eq!(json["tasks"][1]["gate"]["env_var"], "DEPLOY_APPROVED");
         // Non-gate tasks still have commands
         assert_eq!(json["tasks"][0]["command"], "make build");

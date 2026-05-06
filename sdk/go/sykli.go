@@ -799,14 +799,11 @@ func (r *Review) Context(paths ...string) *Review {
 	return r
 }
 
-// Outputs records structured output paths produced by this review node.
+// Outputs is deprecated for review nodes and no longer affects emitted JSON.
+//
+// Review outputs are not part of the canonical review-node contract. Keep this
+// method for source compatibility with early experimental users.
 func (r *Review) Outputs(paths ...string) *Review {
-	for _, path := range paths {
-		if path == "" {
-			log.Panic().Str("review", r.name).Msg("output path cannot be empty")
-		}
-		r.outputs = append(r.outputs, path)
-	}
 	return r
 }
 
@@ -1015,7 +1012,7 @@ func (t *Task) After(tasks ...string) *Task {
 // The condition is evaluated at runtime based on CI context variables:
 //   - branch == 'main' - run only on main branch
 //   - branch != 'main' - run on all branches except main
-//   - tag != '' - run only when a tag is present
+//   - tag != ” - run only when a tag is present
 //   - event == 'push' - run only on push events
 //   - ci == true - run only in CI environment
 func (t *Task) When(condition string) *Task {
@@ -1882,6 +1879,10 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 		}
 	}
 	for _, r := range p.reviews {
+		if r.primitive == "" {
+			log.Error().Str("review", r.name).Msg("review has no primitive")
+			return fmt.Errorf("review %q has no primitive", r.name)
+		}
 		for _, dep := range r.dependsOn {
 			if !taskNames[dep] {
 				log.Error().Str("review", r.name).Str("dependency", dep).Msg("unknown dependency")
@@ -2235,9 +2236,6 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 			Context:       r.context,
 			DependsOn:     r.dependsOn,
 			Deterministic: &deterministic,
-		}
-		if len(r.outputs) > 0 {
-			jt.Outputs = r.outputs
 		}
 		tasks = append(tasks, jt)
 	}
