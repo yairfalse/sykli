@@ -93,19 +93,24 @@ const (
 	TaskTypeCleanup  TaskType = "cleanup"
 )
 
-var validTaskTypes = map[TaskType]bool{
-	TaskTypeBuild:    true,
-	TaskTypeTest:     true,
-	TaskTypeLint:     true,
-	TaskTypeFormat:   true,
-	TaskTypeScan:     true,
-	TaskTypePackage:  true,
-	TaskTypePublish:  true,
-	TaskTypeDeploy:   true,
-	TaskTypeMigrate:  true,
-	TaskTypeGenerate: true,
-	TaskTypeVerify:   true,
-	TaskTypeCleanup:  true,
+func validTaskType(taskType TaskType) bool {
+	switch taskType {
+	case TaskTypeBuild,
+		TaskTypeTest,
+		TaskTypeLint,
+		TaskTypeFormat,
+		TaskTypeScan,
+		TaskTypePackage,
+		TaskTypePublish,
+		TaskTypeDeploy,
+		TaskTypeMigrate,
+		TaskTypeGenerate,
+		TaskTypeVerify,
+		TaskTypeCleanup:
+		return true
+	default:
+		return false
+	}
 }
 
 // PipelineOption configures a Pipeline.
@@ -783,7 +788,7 @@ func (t *Task) Run(cmd string) *Task {
 
 // TaskType sets the semantic class of this executable task.
 func (t *Task) TaskType(taskType TaskType) *Task {
-	if !validTaskTypes[taskType] {
+	if !validTaskType(taskType) {
 		log.Panic().Str("task", t.name).Str("task_type", string(taskType)).Msg("invalid task_type")
 	}
 	t.taskType = taskType
@@ -1966,6 +1971,9 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 		}
 		if t.container != "" || len(t.mounts) > 0 {
 			hasV2Features = true
+		}
+		if hasV2Features && hasV3Features {
+			break
 		}
 	}
 	if hasV3Features {

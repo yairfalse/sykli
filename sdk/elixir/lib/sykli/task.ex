@@ -3,6 +3,21 @@ defmodule Sykli.Task do
   Represents a single task in a pipeline.
   """
 
+  @task_types [
+    :build,
+    :test,
+    :lint,
+    :format,
+    :scan,
+    :package,
+    :publish,
+    :deploy,
+    :migrate,
+    :generate,
+    :verify,
+    :cleanup
+  ]
+
   defstruct name: nil,
             kind: :task,
             task_type: nil,
@@ -124,4 +139,10 @@ defmodule Sykli.Task do
   def new(name) when is_binary(name) do
     %__MODULE__{name: name}
   end
+
+  @doc "Returns the allowed task_type values."
+  def task_types, do: @task_types
+
+  @doc "Returns true when the value is an allowed task_type."
+  def valid_task_type?(type), do: type in @task_types
 end

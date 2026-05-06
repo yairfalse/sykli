@@ -47,6 +47,7 @@ from typing import (
     IO,
     Any,
     Callable,
+    get_args,
     Literal,
     NoReturn,
     Self,
@@ -126,20 +127,7 @@ TaskType = Literal[
     "cleanup",
 ]
 
-TASK_TYPES: tuple[str, ...] = (
-    "build",
-    "test",
-    "lint",
-    "format",
-    "scan",
-    "package",
-    "publish",
-    "deploy",
-    "migrate",
-    "generate",
-    "verify",
-    "cleanup",
-)
+TASK_TYPES: tuple[str, ...] = get_args(TaskType)
 
 
 @dataclass(frozen=True)
@@ -420,7 +408,7 @@ class Task:
         self._pipeline = pipeline
         self._name = name
         self._is_gate = is_gate
-        self._task_type: str = ""
+        self._task_type: TaskType | None = None
         self._command: str = ""
         self._container: str = ""
         self._workdir: str = ""
@@ -748,7 +736,7 @@ class Task:
 
         if self._command:
             d["command"] = self._command
-        if self._task_type:
+        if self._task_type is not None:
             d["task_type"] = self._task_type
         if self._container:
             d["container"] = self._container
@@ -1269,7 +1257,7 @@ class Pipeline:
         return False
 
     def _has_v3_features(self) -> bool:
-        return any(isinstance(t, Task) and bool(t._task_type) for t in self._tasks)
+        return any(isinstance(t, Task) and t._task_type is not None for t in self._tasks)
 
     def _build_output(self) -> dict[str, Any]:
         has_v2_features = self._has_v2_features()

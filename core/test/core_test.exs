@@ -38,13 +38,13 @@ defmodule SykliTest do
 
   test "formats task_type parse errors" do
     assert Sykli.Graph.format_error({:task_type_on_review, "review-code"}) ==
-             "Review node 'review-code' cannot declare task_type"
+             "Error: Review node 'review-code' cannot declare task_type"
 
     assert Sykli.Graph.format_error({:task_type_requires_version_3, "test", "2", "test"}) ==
-             ~s(Task 'test' declares task_type but pipeline version is "2", not "3")
+             ~s(Error: Task 'test' declares task_type but pipeline version is "2", not "3")
 
     assert Sykli.Graph.format_error({:unknown_task_type, "thing", "custom"}) ==
-             ~s(Task 'thing' declares unknown task_type "custom")
+             ~s(Error: Task 'thing' declares unknown task_type "custom")
   end
 
   test "parses review nodes with metadata" do

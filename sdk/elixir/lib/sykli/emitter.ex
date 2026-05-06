@@ -5,21 +5,6 @@ defmodule Sykli.Emitter do
 
   require Logger
 
-  @task_types [
-    :build,
-    :test,
-    :lint,
-    :format,
-    :scan,
-    :package,
-    :publish,
-    :deploy,
-    :migrate,
-    :generate,
-    :verify,
-    :cleanup
-  ]
-
   # ============================================================================
   # VALIDATION
   # ============================================================================
@@ -41,7 +26,8 @@ defmodule Sykli.Emitter do
           Logger.error("review cannot declare task_type", review: task.name)
           raise "review #{inspect(task.name)} cannot declare task_type"
 
-        task.kind != :review and not is_nil(task.task_type) and task.task_type not in @task_types ->
+        task.kind != :review and not is_nil(task.task_type) and
+            not Sykli.Task.valid_task_type?(task.task_type) ->
           Logger.error("invalid task_type", task: task.name, task_type: inspect(task.task_type))
           raise "task #{inspect(task.name)} has invalid task_type #{inspect(task.task_type)}"
 

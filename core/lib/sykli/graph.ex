@@ -373,15 +373,15 @@ defmodule Sykli.Graph do
   end
 
   def format_error({:task_type_on_review, task_name}) do
-    "Review node '#{task_name}' cannot declare task_type"
+    "Error: Review node '#{task_name}' cannot declare task_type"
   end
 
   def format_error({:task_type_requires_version_3, task_name, version, _task_type}) do
-    "Task '#{task_name}' declares task_type but pipeline version is #{inspect(version)}, not \"3\""
+    "Error: Task '#{task_name}' declares task_type but pipeline version is #{inspect(version)}, not \"3\""
   end
 
   def format_error({:unknown_task_type, task_name, task_type}) do
-    "Task '#{task_name}' declares unknown task_type #{inspect(task_type)}"
+    "Error: Task '#{task_name}' declares unknown task_type #{inspect(task_type)}"
   end
 
   def format_error(reason), do: inspect(reason)

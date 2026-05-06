@@ -90,21 +90,7 @@ export type OnFailAction = 'analyze' | 'retry' | 'skip';
 export type SelectMode = 'smart' | 'always' | 'manual';
 
 /** Semantic class of an executable task */
-export type TaskType =
-  | 'build'
-  | 'test'
-  | 'lint'
-  | 'format'
-  | 'scan'
-  | 'package'
-  | 'publish'
-  | 'deploy'
-  | 'migrate'
-  | 'generate'
-  | 'verify'
-  | 'cleanup';
-
-const TASK_TYPES: readonly TaskType[] = [
+const TASK_TYPES = [
   'build',
   'test',
   'lint',
@@ -117,7 +103,9 @@ const TASK_TYPES: readonly TaskType[] = [
   'generate',
   'verify',
   'cleanup',
-];
+] as const;
+
+export type TaskType = (typeof TASK_TYPES)[number];
 
 function isTaskType(value: string): value is TaskType {
   return (TASK_TYPES as readonly string[]).includes(value);
