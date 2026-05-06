@@ -270,6 +270,67 @@ defmodule Sykli.ValidateTest do
     end
   end
 
+  describe "validate_json/1 -- success_criteria" do
+    test "accepts success_criteria in version 3" do
+      json =
+        ~s({"version":"3","tasks":[{"name":"test","command":"go test ./...","success_criteria":[{"type":"exit_code","equals":0},{"type":"file_exists","path":"coverage.out"}]}]})
+
+      result = Validate.validate_json(json)
+
+      assert result.valid == true
+    end
+
+    test "rejects success_criteria before version 3" do
+      json =
+        ~s({"version":"2","tasks":[{"name":"test","command":"go test ./...","success_criteria":[{"type":"exit_code","equals":0}]}]})
+
+      result = Validate.validate_json(json)
+
+      assert result.valid == false
+      assert Enum.any?(result.errors, &(&1.type == :success_criteria_requires_version_3))
+    end
+
+    test "rejects success_criteria on review nodes" do
+      json =
+        ~s({"version":"3","tasks":[{"name":"review-code","kind":"review","primitive":"lint","success_criteria":[{"type":"exit_code","equals":0}]}]})
+
+      result = Validate.validate_json(json)
+
+      assert result.valid == false
+      assert Enum.any?(result.errors, &(&1.type == :success_criteria_on_review))
+    end
+
+    test "rejects unknown criterion type" do
+      json =
+        ~s({"version":"3","tasks":[{"name":"test","command":"go test ./...","success_criteria":[{"type":"custom","path":"x"}]}]})
+
+      result = Validate.validate_json(json)
+
+      assert result.valid == false
+      assert Enum.any?(result.errors, &(&1.type == :unknown_success_criterion_type))
+    end
+
+    test "rejects missing required criterion fields" do
+      json =
+        ~s({"version":"3","tasks":[{"name":"test","command":"go test ./...","success_criteria":[{"type":"file_exists"}]}]})
+
+      result = Validate.validate_json(json)
+
+      assert result.valid == false
+      assert Enum.any?(result.errors, &(&1.type == :invalid_success_criteria))
+    end
+
+    test "rejects duplicate exit_code criteria" do
+      json =
+        ~s({"version":"3","tasks":[{"name":"test","command":"go test ./...","success_criteria":[{"type":"exit_code","equals":0},{"type":"exit_code","equals":1}]}]})
+
+      result = Validate.validate_json(json)
+
+      assert result.valid == false
+      assert Enum.any?(result.errors, &(&1.type == :duplicate_exit_code_criteria))
+    end
+  end
+
   describe "format_errors/1" do
     test "formats errors for CLI output" do
       result = %Validate.Result{

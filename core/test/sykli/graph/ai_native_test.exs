@@ -53,6 +53,29 @@ defmodule Sykli.Graph.AiNativeTest do
       assert hooks.select == :smart
     end
 
+    test "parses task with success criteria metadata" do
+      json = ~s|{
+	        "version": "3",
+	        "tasks": [{
+	          "name": "test",
+	          "command": "mix test",
+	          "task_type": "test",
+	          "success_criteria": [
+	            { "type": "exit_code", "equals": 0 },
+	            { "type": "file_exists", "path": "coverage.out" }
+	          ]
+	        }]
+	      }|
+
+      {:ok, graph} = Graph.parse(json)
+      task = graph["test"]
+
+      assert Task.success_criteria(task) == [
+               %{"type" => "exit_code", "equals" => 0},
+               %{"type" => "file_exists", "path" => "coverage.out"}
+             ]
+    end
+
     test "parses task with history hints" do
       json = ~s|{
         "tasks": [{

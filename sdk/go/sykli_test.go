@@ -118,6 +118,59 @@ func TestTaskTypeWithV2FeaturesEmitsVersion3(t *testing.T) {
 	}
 }
 
+func TestSuccessCriteriaSerialization(t *testing.T) {
+	p := New()
+	p.Task("test").
+		Run("go test ./...").
+		SuccessCriteria(ExitCode(0), FileExists("coverage.out"))
+
+	result, err := emitJSON(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if result["version"] != "3" {
+		t.Fatalf("expected version '3', got %v", result["version"])
+	}
+
+	tasks := result["tasks"].([]interface{})
+	task := tasks[0].(map[string]interface{})
+	criteria := task["success_criteria"].([]interface{})
+	if len(criteria) != 2 {
+		t.Fatalf("expected 2 success criteria, got %d", len(criteria))
+	}
+	exitCode := criteria[0].(map[string]interface{})
+	if exitCode["type"] != "exit_code" || exitCode["equals"] != float64(0) {
+		t.Fatalf("unexpected exit_code criterion: %#v", exitCode)
+	}
+}
+
+func TestSuccessCriteriaOmittedWhenUnset(t *testing.T) {
+	p := New()
+	p.Task("test").Run("go test ./...")
+
+	result, err := emitJSON(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	task := result["tasks"].([]interface{})[0].(map[string]interface{})
+	if _, ok := task["success_criteria"]; ok {
+		t.Fatal("expected success_criteria to be omitted")
+	}
+}
+
+func TestDuplicateExitCodeCriteriaPanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for duplicate exit_code criteria")
+		}
+	}()
+
+	p := New()
+	p.Task("test").Run("go test ./...").SuccessCriteria(ExitCode(0), ExitCode(1))
+}
+
 func TestInvalidTaskTypePanics(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {

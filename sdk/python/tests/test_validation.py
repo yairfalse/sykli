@@ -80,6 +80,23 @@ class TestFailFastValidation:
         p = Pipeline()
         assert not hasattr(p.review("review-code"), "task_type")
 
+    def test_invalid_success_criteria_type(self):
+        p = Pipeline()
+        with pytest.raises(ValueError, match="invalid success_criteria type"):
+            p.task("test").success_criteria([{"type": "custom", "path": "x"}])
+
+    def test_duplicate_exit_code_success_criteria(self):
+        p = Pipeline()
+        with pytest.raises(ValueError, match="multiple exit_code"):
+            p.task("test").success_criteria([
+                {"type": "exit_code", "equals": 0},
+                {"type": "exit_code", "equals": 1},
+            ])
+
+    def test_review_nodes_do_not_expose_success_criteria(self):
+        p = Pipeline()
+        assert not hasattr(p.review("review-code"), "success_criteria")
+
     def test_invalid_gate_strategy(self):
         p = Pipeline()
         with pytest.raises(ValueError):

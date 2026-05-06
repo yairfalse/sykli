@@ -480,6 +480,49 @@ pub enum TaskType {
     Cleanup,
 }
 
+/// Declared verification metadata for executable task success.
+/// Phase 3C-1 SDKs emit this metadata, but the engine does not evaluate it yet.
+#[derive(Clone, Debug, PartialEq)]
+pub enum SuccessCriterion {
+    ExitCode(i32),
+    FileExists(String),
+    FileNonEmpty(String),
+}
+
+impl SuccessCriterion {
+    fn to_json(&self) -> JsonSuccessCriterion {
+        match self {
+            SuccessCriterion::ExitCode(code) => JsonSuccessCriterion {
+                type_: "exit_code".to_string(),
+                equals: Some(*code),
+                path: None,
+            },
+            SuccessCriterion::FileExists(path) => {
+                assert!(
+                    !path.is_empty(),
+                    "file_exists success criterion path cannot be empty"
+                );
+                JsonSuccessCriterion {
+                    type_: "file_exists".to_string(),
+                    equals: None,
+                    path: Some(path.clone()),
+                }
+            }
+            SuccessCriterion::FileNonEmpty(path) => {
+                assert!(
+                    !path.is_empty(),
+                    "file_non_empty success criterion path cannot be empty"
+                );
+                JsonSuccessCriterion {
+                    type_: "file_non_empty".to_string(),
+                    equals: None,
+                    path: Some(path.clone()),
+                }
+            }
+        }
+    }
+}
+
 impl TaskType {
     fn as_str(&self) -> &'static str {
         match self {
@@ -775,6 +818,7 @@ struct TaskData {
     kind: NodeKind,
     name: String,
     task_type: Option<TaskType>,
+    success_criteria: Vec<SuccessCriterion>,
     command: String,
     primitive: Option<String>,
     agent: Option<String>,
@@ -877,6 +921,36 @@ impl<'a> Task<'a> {
     #[must_use]
     pub fn task_type(self, task_type: TaskType) -> Self {
         self.pipeline.tasks[self.index].task_type = Some(task_type);
+        self
+    }
+
+    /// Declares verification metadata for this executable task.
+    ///
+    /// Phase 3C-1 emits these criteria but does not change execution behavior.
+    #[must_use]
+    pub fn success_criteria(self, criteria: &[SuccessCriterion]) -> Self {
+        let exit_code_count = criteria
+            .iter()
+            .filter(|criterion| matches!(criterion, SuccessCriterion::ExitCode(_)))
+            .count();
+        assert!(
+            exit_code_count <= 1,
+            "multiple exit_code success criteria are not allowed"
+        );
+        for criterion in criteria {
+            match criterion {
+                SuccessCriterion::FileExists(path) | SuccessCriterion::FileNonEmpty(path) => {
+                    assert!(
+                        !path.is_empty(),
+                        "file success criterion path cannot be empty"
+                    );
+                }
+                SuccessCriterion::ExitCode(_) => {}
+            }
+        }
+        self.pipeline.tasks[self.index]
+            .success_criteria
+            .extend(criteria.iter().cloned());
         self
     }
 
@@ -2277,7 +2351,10 @@ impl Pipeline {
                 .iter()
                 .any(|t| t.container.is_some() || !t.mounts.is_empty());
 
-        let has_v3_features = self.tasks.iter().any(|t| t.task_type.is_some());
+        let has_v3_features = self
+            .tasks
+            .iter()
+            .any(|t| t.task_type.is_some() || !t.success_criteria.is_empty());
 
         let version = if has_v3_features {
             "3"
@@ -2341,6 +2418,17 @@ impl Pipeline {
                         None
                     } else {
                         t.task_type.as_ref().map(|tt| tt.as_str().to_string())
+                    },
+                    success_criteria: if t.kind == NodeKind::Review || t.success_criteria.is_empty()
+                    {
+                        None
+                    } else {
+                        Some(
+                            t.success_criteria
+                                .iter()
+                                .map(SuccessCriterion::to_json)
+                                .collect(),
+                        )
                     },
                     command: if t.kind == NodeKind::Review || t.command.is_empty() {
                         None
@@ -2735,6 +2823,16 @@ struct JsonTaskInput {
 }
 
 #[derive(Serialize)]
+struct JsonSuccessCriterion {
+    #[serde(rename = "type")]
+    type_: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    equals: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    path: Option<String>,
+}
+
+#[derive(Serialize)]
 struct JsonSecretRef {
     name: String,
     source: String,
@@ -2773,6 +2871,8 @@ struct JsonTask {
     kind: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     task_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    success_criteria: Option<Vec<JsonSuccessCriterion>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     command: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2935,6 +3035,41 @@ mod tests {
         let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
 
         assert_eq!(json["version"], "3");
+    }
+
+    #[test]
+    fn test_success_criteria_serialization() {
+        let mut p = Pipeline::new();
+        let _ = p.task("test").run("go test ./...").success_criteria(&[
+            SuccessCriterion::ExitCode(0),
+            SuccessCriterion::FileExists("coverage.out".into()),
+        ]);
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        assert_eq!(json["version"], "3");
+        assert_eq!(json["tasks"][0]["success_criteria"][0]["type"], "exit_code");
+        assert_eq!(json["tasks"][0]["success_criteria"][0]["equals"], 0);
+        assert_eq!(
+            json["tasks"][0]["success_criteria"][1]["type"],
+            "file_exists"
+        );
+        assert_eq!(
+            json["tasks"][0]["success_criteria"][1]["path"],
+            "coverage.out"
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "multiple exit_code success criteria are not allowed")]
+    fn test_duplicate_exit_code_success_criteria_panics() {
+        let mut p = Pipeline::new();
+        let _ = p
+            .task("test")
+            .run("go test ./...")
+            .success_criteria(&[SuccessCriterion::ExitCode(0), SuccessCriterion::ExitCode(1)]);
     }
 
     #[test]

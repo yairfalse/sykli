@@ -86,6 +86,45 @@ describe('Pipeline', () => {
       expect((p.review('review-code') as any).taskType).toBeUndefined();
     });
 
+    it('serializes success_criteria and emits version 3', () => {
+      const p = new Pipeline();
+      p.task('test').run('go test ./...').successCriteria([
+        { type: 'exit_code', equals: 0 },
+        { type: 'file_exists', path: 'coverage.out' },
+      ]);
+
+      const json = p.toJSON();
+      const task = (json.tasks as any[])[0];
+
+      expect(json.version).toBe('3');
+      expect(task.success_criteria).toEqual([
+        { type: 'exit_code', equals: 0 },
+        { type: 'file_exists', path: 'coverage.out' },
+      ]);
+    });
+
+    it('rejects invalid success_criteria at runtime', () => {
+      const p = new Pipeline();
+      expect(() =>
+        p.task('test').run('go test ./...').successCriteria([{ type: 'custom', path: 'x' } as any])
+      ).toThrow("invalid success_criteria type 'custom'");
+    });
+
+    it('rejects duplicate exit_code success criteria', () => {
+      const p = new Pipeline();
+      expect(() =>
+        p.task('test').run('go test ./...').successCriteria([
+          { type: 'exit_code', equals: 0 },
+          { type: 'exit_code', equals: 1 },
+        ])
+      ).toThrow('multiple exit_code success criteria are not allowed');
+    });
+
+    it('does not expose successCriteria on review nodes', () => {
+      const p = new Pipeline();
+      expect((p.review('review-code') as any).successCriteria).toBeUndefined();
+    });
+
     it('creates an experimental review node', () => {
       const p = new Pipeline();
       p.task('test').run('go test ./...');

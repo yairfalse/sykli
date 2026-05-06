@@ -8,7 +8,7 @@
   "additionalProperties": false,
   "allOf": [
     {
-      "description": "`task_type` is the first agent-native semantic field and requires pipeline version 3.",
+      "description": "Agent-native semantic fields require pipeline version 3.",
       "if": {
         "properties": { "version": { "not": { "const": "3" } } },
         "required": ["version"]
@@ -16,9 +16,14 @@
       "then": {
         "properties": {
           "tasks": {
-            "items": {
-              "not": { "required": ["task_type"] }
-            }
+	            "items": {
+	              "not": {
+	                "anyOf": [
+	                  { "required": ["task_type"] },
+	                  { "required": ["success_criteria"] }
+	                ]
+	              }
+	            }
           }
         }
       }
@@ -26,7 +31,7 @@
   ],
   "properties": {
     "version": {
-      "description": "Pipeline wire-format/schema version. SDKs auto-detect: '3' if any executable task uses task_type; otherwise '2' if any container, mount, dir, or cache resource is used; '1' otherwise.",
+      "description": "Pipeline wire-format/schema version. SDKs auto-detect: '3' if any executable task uses semantic fields such as task_type or success_criteria; otherwise '2' if any container, mount, dir, or cache resource is used; '1' otherwise.",
       "enum": ["1", "2", "3"]
     },
     "tasks": {
@@ -61,6 +66,41 @@
           "description": "Cache name. Required for type=cache.",
           "type": "string"
         }
+      }
+    },
+    "successCriterion": {
+      "description": "One declared success criterion. Criteria are conjunctive: all criteria in success_criteria must pass when engine checking is implemented.",
+      "oneOf": [
+        { "$ref": "#/$defs/exitCodeCriterion" },
+        { "$ref": "#/$defs/fileExistsCriterion" },
+        { "$ref": "#/$defs/fileNonEmptyCriterion" }
+      ]
+    },
+    "exitCodeCriterion": {
+      "type": "object",
+      "required": ["type", "equals"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "exit_code" },
+        "equals": { "type": "integer" }
+      }
+    },
+    "fileExistsCriterion": {
+      "type": "object",
+      "required": ["type", "path"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "file_exists" },
+        "path": { "type": "string", "minLength": 1 }
+      }
+    },
+    "fileNonEmptyCriterion": {
+      "type": "object",
+      "required": ["type", "path"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "file_non_empty" },
+        "path": { "type": "string", "minLength": 1 }
       }
     },
     "task": {
@@ -107,12 +147,13 @@
                 { "required": ["container"] },
                 { "required": ["services"] },
                 { "required": ["k8s"] },
-                { "required": ["mounts"] },
-                { "required": ["retry"] },
-                { "required": ["timeout"] },
-                { "required": ["task_type"] }
-              ]
-            }
+	                { "required": ["mounts"] },
+	                { "required": ["retry"] },
+	                { "required": ["timeout"] },
+	                { "required": ["task_type"] },
+	                { "required": ["success_criteria"] }
+	              ]
+	            }
           }
         }
       ],
@@ -130,8 +171,8 @@
           "description": "Shell command to execute. Required for regular (non-gate, non-review) tasks; the engine raises `missing_command` otherwise (validate.ex:230-253). Gates and review tasks have no command.",
           "type": "string"
         },
-        "task_type": {
-          "description": "Agent-native semantic class of an executable task. Requires top-level version == \"3\". Rejected on review nodes.",
+	        "task_type": {
+	          "description": "Agent-native semantic class of an executable task. Requires top-level version == \"3\". Rejected on review nodes.",
           "enum": [
             "build",
             "test",
@@ -145,8 +186,25 @@
             "generate",
             "verify",
             "cleanup"
-          ]
-        },
+	          ]
+	        },
+	        "success_criteria": {
+	          "description": "Declared verification metadata for executable task success beyond command completion. Requires top-level version == \"3\". Rejected on review nodes. Metadata only in Phase 3C-1; the engine does not evaluate these criteria yet.",
+	          "type": "array",
+	          "items": { "$ref": "#/$defs/successCriterion" },
+	          "allOf": [
+	            {
+	              "description": "At most one exit_code criterion is allowed per task.",
+	              "contains": {
+	                "type": "object",
+	                "properties": { "type": { "const": "exit_code" } },
+	                "required": ["type"]
+	              },
+	              "minContains": 0,
+	              "maxContains": 1
+	            }
+	          ]
+	        },
         "container": {
           "description": "Container image (e.g., `golang:1.21`). Triggers v2 emission.",
           "type": "string"

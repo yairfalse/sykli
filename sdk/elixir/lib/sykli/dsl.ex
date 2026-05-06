@@ -133,6 +133,31 @@ defmodule Sykli.DSL do
     end
   end
 
+  @doc "Declares verification metadata for executable task success."
+  def success_criteria(criteria) when is_list(criteria) do
+    validate_success_criteria!(criteria)
+
+    update_current_task(fn t ->
+      reject_review_option!(t, "success_criteria")
+      %{t | success_criteria: t.success_criteria ++ criteria}
+    end)
+  end
+
+  @doc "Builds an exit_code success criterion."
+  def exit_code(code) when is_integer(code), do: %{type: "exit_code", equals: code}
+
+  @doc "Builds a file_exists success criterion."
+  def file_exists(path) when is_binary(path) and path != "",
+    do: %{type: "file_exists", path: path}
+
+  def file_exists(_), do: raise(ArgumentError, "file_exists path cannot be empty")
+
+  @doc "Builds a file_non_empty success criterion."
+  def file_non_empty(path) when is_binary(path) and path != "",
+    do: %{type: "file_non_empty", path: path}
+
+  def file_non_empty(_), do: raise(ArgumentError, "file_non_empty path cannot be empty")
+
   @doc "Sets task dependencies."
   def after_(deps) when is_list(deps) do
     update_current_task(fn t -> %{t | depends_on: t.depends_on ++ deps} end)
@@ -1117,4 +1142,50 @@ defmodule Sykli.DSL do
   end
 
   defp reject_review_option!(%Sykli.Task{}, _option), do: :ok
+
+  defp validate_success_criteria!(criteria) do
+    exit_code_count =
+      Enum.count(criteria, &(&1[:type] == "exit_code" or &1["type"] == "exit_code"))
+
+    if exit_code_count > 1 do
+      raise ArgumentError, "multiple exit_code success criteria are not allowed"
+    end
+
+    Enum.each(criteria, &validate_success_criterion!/1)
+  end
+
+  defp validate_success_criterion!(%{type: "exit_code", equals: equals}) when is_integer(equals),
+    do: :ok
+
+  defp validate_success_criterion!(%{type: "file_exists", path: path})
+       when is_binary(path) and path != "",
+       do: :ok
+
+  defp validate_success_criterion!(%{type: "file_non_empty", path: path})
+       when is_binary(path) and path != "",
+       do: :ok
+
+  defp validate_success_criterion!(%{"type" => "exit_code", "equals" => equals})
+       when is_integer(equals),
+       do: :ok
+
+  defp validate_success_criterion!(%{"type" => "file_exists", "path" => path})
+       when is_binary(path) and path != "",
+       do: :ok
+
+  defp validate_success_criterion!(%{"type" => "file_non_empty", "path" => path})
+       when is_binary(path) and path != "",
+       do: :ok
+
+  defp validate_success_criterion!(%{type: type}) do
+    raise ArgumentError, "invalid success_criteria type #{inspect(type)}"
+  end
+
+  defp validate_success_criterion!(%{"type" => type}) do
+    raise ArgumentError, "invalid success_criteria type #{inspect(type)}"
+  end
+
+  defp validate_success_criterion!(_criterion) do
+    raise ArgumentError, "invalid success_criteria criterion"
+  end
 end

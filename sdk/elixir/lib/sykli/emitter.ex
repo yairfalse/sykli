@@ -31,6 +31,14 @@ defmodule Sykli.Emitter do
           Logger.error("invalid task_type", task: task.name, task_type: inspect(task.task_type))
           raise "task #{inspect(task.name)} has invalid task_type #{inspect(task.task_type)}"
 
+        task.kind == :review and task.success_criteria != [] ->
+          Logger.error("review cannot declare success_criteria", review: task.name)
+          raise "review #{inspect(task.name)} cannot declare success_criteria"
+
+        task.kind != :review and not valid_success_criteria?(task.success_criteria) ->
+          Logger.error("invalid success_criteria", task: task.name)
+          raise "task #{inspect(task.name)} has invalid success_criteria"
+
         task.kind == :review and (is_nil(task.primitive) or task.primitive == "") ->
           Logger.error("review has no primitive", review: task.name)
           raise "review #{inspect(task.name)} has no primitive"
@@ -174,7 +182,8 @@ defmodule Sykli.Emitter do
           t.container != nil or length(t.mounts) > 0
         end)
 
-    has_v3_features = Enum.any?(pipeline.tasks, &(!is_nil(&1.task_type)))
+    has_v3_features =
+      Enum.any?(pipeline.tasks, &(!is_nil(&1.task_type) or &1.success_criteria != []))
 
     version =
       cond do
@@ -231,6 +240,10 @@ defmodule Sykli.Emitter do
 
     %{name: task.name}
     |> maybe_put(:task_type, if(task.task_type, do: Atom.to_string(task.task_type), else: nil))
+    |> maybe_put(
+      :success_criteria,
+      non_empty_list(task.success_criteria, &success_criterion_to_json/1)
+    )
     |> maybe_put(:command, task.command)
     |> maybe_put(:container, task.container)
     |> maybe_put(:workdir, task.workdir)
@@ -265,6 +278,56 @@ defmodule Sykli.Emitter do
     |> maybe_put(:message, gate.message)
     |> maybe_put(:env_var, gate.env_var)
     |> maybe_put(:file_path, gate.file_path)
+  end
+
+  defp valid_success_criteria?(criteria) when is_list(criteria) do
+    exit_code_count = Enum.count(criteria, &criterion_type?(&1, "exit_code"))
+    exit_code_count <= 1 and Enum.all?(criteria, &valid_success_criterion?/1)
+  end
+
+  defp valid_success_criteria?(_), do: false
+
+  defp valid_success_criterion?(%{type: "exit_code", equals: equals}), do: is_integer(equals)
+
+  defp valid_success_criterion?(%{type: type, path: path})
+       when type in ["file_exists", "file_non_empty"],
+       do: is_binary(path) and path != ""
+
+  defp valid_success_criterion?(%{"type" => "exit_code", "equals" => equals}),
+    do: is_integer(equals)
+
+  defp valid_success_criterion?(%{"type" => type, "path" => path})
+       when type in ["file_exists", "file_non_empty"],
+       do: is_binary(path) and path != ""
+
+  defp valid_success_criterion?(_), do: false
+
+  defp criterion_type?(%{type: type}, expected), do: type == expected
+  defp criterion_type?(%{"type" => type}, expected), do: type == expected
+  defp criterion_type?(_, _), do: false
+
+  defp success_criterion_to_json(%{type: "exit_code", equals: equals}) do
+    %{type: "exit_code", equals: equals}
+  end
+
+  defp success_criterion_to_json(%{type: "file_exists", path: path}) do
+    %{type: "file_exists", path: path}
+  end
+
+  defp success_criterion_to_json(%{type: "file_non_empty", path: path}) do
+    %{type: "file_non_empty", path: path}
+  end
+
+  defp success_criterion_to_json(%{"type" => "exit_code", "equals" => equals}) do
+    %{type: "exit_code", equals: equals}
+  end
+
+  defp success_criterion_to_json(%{"type" => "file_exists", "path" => path}) do
+    %{type: "file_exists", path: path}
+  end
+
+  defp success_criterion_to_json(%{"type" => "file_non_empty", "path" => path}) do
+    %{type: "file_non_empty", path: path}
   end
 
   defp semantic_to_json(nil), do: nil

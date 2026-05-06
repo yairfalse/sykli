@@ -1,0 +1,32 @@
+{
+  "version": "3",
+  "tasks": [
+    {
+      "name": "test",
+      "command": "go test ./...",
+      "task_type": "test",
+      "success_criteria": [
+        {
+          "type": "exit_code",
+          "equals": 0
+        },
+        {
+          "type": "file_exists",
+          "path": "coverage.out"
+        }
+      ]
+    },
+    {
+      "name": "package",
+      "command": "go build -o dist/app ./...",
+      "task_type": "package",
+      "success_criteria": [
+        {
+          "type": "file_non_empty",
+          "path": "dist/app"
+        }
+      ],
+      "depends_on": ["test"]
+    }
+  ]
+}

@@ -111,6 +111,37 @@ function isTaskType(value: string): value is TaskType {
   return (TASK_TYPES as readonly string[]).includes(value);
 }
 
+/** Declared verification metadata for executable task success. */
+export type SuccessCriterion =
+  | { type: 'exit_code'; equals: number }
+  | { type: 'file_exists'; path: string }
+  | { type: 'file_non_empty'; path: string };
+
+function validateSuccessCriteria(taskName: string, criteria: SuccessCriterion[]): void {
+  let exitCodeCount = 0;
+  for (const criterion of criteria) {
+    switch (criterion.type) {
+      case 'exit_code':
+        exitCodeCount++;
+        if (!Number.isInteger(criterion.equals)) {
+          throw new Error(`task '${taskName}': exit_code.equals must be an integer`);
+        }
+        break;
+      case 'file_exists':
+      case 'file_non_empty':
+        if (!criterion.path) {
+          throw new Error(`task '${taskName}': ${criterion.type}.path cannot be empty`);
+        }
+        break;
+      default:
+        throw new Error(`task '${taskName}': invalid success_criteria type '${(criterion as any).type}'`);
+    }
+  }
+  if (exitCodeCount > 1) {
+    throw new Error(`task '${taskName}': multiple exit_code success criteria are not allowed`);
+  }
+}
+
 /** Semantic metadata for AI understanding */
 interface Semantic {
   covers: string[];
@@ -392,6 +423,7 @@ export class Template {
 export class Task {
   private _command?: string;
   private _taskType?: TaskType;
+  private _successCriteria: SuccessCriterion[] = [];
   private _container?: string;
   private _workdir?: string;
   private _env: Record<string, string> = {};
@@ -440,6 +472,13 @@ export class Task {
       throw new Error(`task '${this.name}': invalid task_type '${taskType}'`);
     }
     this._taskType = taskType;
+    return this;
+  }
+
+  /** Declare verification metadata for this executable task */
+  successCriteria(criteria: SuccessCriterion[]): this {
+    validateSuccessCriteria(this.name, criteria);
+    this._successCriteria.push(...criteria);
     return this;
   }
 
@@ -821,6 +860,11 @@ export class Task {
     return this._taskType !== undefined;
   }
 
+  /** @internal Whether this task declares success_criteria */
+  _hasSuccessCriteria(): boolean {
+    return this._successCriteria.length > 0;
+  }
+
   // ─────────────────────────────────────────────────────────────────────────────
   // Internal accessors (for Template and Pipeline use)
   // ─────────────────────────────────────────────────────────────────────────────
@@ -887,6 +931,7 @@ export class Task {
     };
     if (this._command) json.command = this._command;
     if (this._taskType) json.task_type = this._taskType;
+    if (this._successCriteria.length > 0) json.success_criteria = this._successCriteria;
 
     if (this._container) json.container = this._container;
     if (this._workdir) json.workdir = this._workdir;
@@ -1121,6 +1166,11 @@ export class Review {
 
   /** @internal Whether this review declares task_type */
   _hasTaskType(): boolean {
+    return false;
+  }
+
+  /** @internal Whether this review declares success_criteria */
+  _hasSuccessCriteria(): boolean {
     return false;
   }
 
@@ -1563,7 +1613,7 @@ export class Pipeline {
       this.directories.length > 0 ||
       this.caches.length > 0 ||
       this.tasks.some((t) => t._getContainer() || t._getMounts().length > 0);
-    const hasV3Features = this.tasks.some((t) => t._hasTaskType());
+    const hasV3Features = this.tasks.some((t) => t._hasTaskType() || t._hasSuccessCriteria());
 
     const json: Record<string, unknown> = {
       version: hasV3Features ? '3' : hasV2Features ? '2' : '1',

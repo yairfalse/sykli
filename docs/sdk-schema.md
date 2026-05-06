@@ -44,9 +44,9 @@ The engine is currently **more permissive** than the schema in three known ways:
 - **Meaning:** pipeline wire-format/schema version. It is not an execution capability selector and not an SDK, engine, runtime, or JSON Schema draft version.
 - `"1"` is the baseline task graph format.
 - `"2"` is the resource-aware format: resources, mounts, caches, containers, and related execution-environment metadata.
-- `"3"` is the semantic contract format, beginning with `task_type`.
-- SDKs auto-detect: `"3"` if any executable task has `task_type`; otherwise `"2"` if any task has `container` set, or any task has non-empty `mounts`, or the pipeline has any directory or cache resources; `"1"` otherwise.
-- **Current behavior:** version-aware for `task_type`. The schema and engine validation reject `task_type` unless `version == "3"`. Other version-aware parser behavior is still intentionally narrow.
+- `"3"` is the semantic contract format, beginning with `task_type` and `success_criteria`.
+- SDKs auto-detect: `"3"` if any executable task has semantic fields such as `task_type` or `success_criteria`; otherwise `"2"` if any task has `container` set, or any task has non-empty `mounts`, or the pipeline has any directory or cache resources; `"1"` otherwise.
+- **Current behavior:** version-aware for `task_type` and `success_criteria`. The schema and engine validation reject these fields unless `version == "3"`. Other version-aware parser behavior is still intentionally narrow.
 - **Intended future behavior:** the engine should accept known supported versions and reject unknown future versions unless an explicit compatibility mode exists. It should never silently reinterpret a newer document as an older version.
 
 ### `tasks`
@@ -74,6 +74,7 @@ The full canonical field list, with stability labels:
 | `kind` | experimental | no | `"task"` (default) or `"review"` |
 | `command` | stable | conditional | required unless `gate` is set or `kind == "review"` |
 | `task_type` | stable, v3-only | no | executable-task semantic class |
+| `success_criteria` | experimental, v3-only | no | declared executable-task success checks; metadata-only in 3C-1 |
 | `container` | stable | no | triggers v2 |
 | `workdir` | stable | no | |
 | `env` | stable | no | object of string values |
@@ -146,6 +147,40 @@ Allowed values:
 - `generate`
 - `verify`
 - `cleanup`
+
+### `success_criteria`
+
+Declared verification metadata for executable task success beyond command
+completion.
+
+Rules:
+
+- Requires top-level `version: "3"`.
+- Applies only to executable tasks (`kind` omitted or `kind == "task"`).
+- Rejected on `kind == "review"` nodes.
+- Optional.
+- Criteria are conjunctive: all declared criteria must pass when engine checking
+  is implemented.
+- Does not change execution behavior in Phase 3C-1.
+- Does not replace `task_type`, review-node `primitive`, or `outputs`.
+
+Phase 3C-1 stores, validates, and emits `success_criteria` as declared
+verification metadata. It is intended to become engine-checked in Phase 3C-2,
+but the engine must not silently pretend to enforce it yet. In 3C-1, no
+executor, retry, cache, target, or runtime behavior changes.
+
+Initial criterion types:
+
+- `{ "type": "exit_code", "equals": 0 }`
+- `{ "type": "file_exists", "path": "coverage.out" }`
+- `{ "type": "file_non_empty", "path": "coverage.out" }`
+
+Only one `exit_code` criterion may appear on a task. `equals` must be an
+integer. File criteria require a non-empty string `path`.
+
+Declared `outputs` are artifact expectations and do not imply success checks.
+To require an output path to exist or be non-empty, declare an explicit
+`success_criteria` entry.
 
 ### `container`, `workdir`, `env`
 
@@ -281,7 +316,7 @@ Review nodes do not have canonical `outputs` behavior yet. SDKs should not emit
 `outputs` for review nodes; review results/structured outputs are intentionally
 left out of the current experimental contract. The schema rejects task execution
 fields on review nodes: `command`, `outputs`, `gate`, `container`, `services`,
-`k8s`, `mounts`, `retry`, `timeout`, and `task_type`.
+`k8s`, `mounts`, `retry`, `timeout`, `task_type`, and `success_criteria`.
 
 ## Normalization behavior
 
@@ -318,14 +353,14 @@ tooling, and the engine parser.
 
 It is **not** an execution capability version. It does not mean "run with v1
 features" or "run with v2 features" at execution time, and the current engine
-uses it only for narrow `task_type` validation. It is also not the
+uses it only for narrow semantic-field validation. It is also not the
 version of a particular SDK package, engine release, runtime, or JSON Schema
 draft.
 
 Current behavior is partially version-aware: SDKs emit `version`, the canonical
-schema requires `"1"`, `"2"`, or `"3"`, and the engine rejects `task_type` unless
-the top-level version is `"3"`. See the [`version` field](#version) above for
-the per-value definitions.
+schema requires `"1"`, `"2"`, or `"3"`, and the engine rejects `task_type` and
+`success_criteria` unless the top-level version is `"3"`. See the
+[`version` field](#version) above for the per-value definitions.
 
 Future engine behavior should become version-aware in a later implementation
 phase:
@@ -389,7 +424,7 @@ introduce a replacement field.
 
 These are **descriptive, not prescriptive**. The schema documents current behavior; resolving these is Phase 2C / future work.
 
-1. **Version-aware behavior is still narrow.** SDKs emit `"1"`, `"2"`, or `"3"`; engine validation now checks `task_type` compatibility with `version: "3"`, but broader unknown-version rejection is still future work.
+1. **Version-aware behavior is still narrow.** SDKs emit `"1"`, `"2"`, or `"3"`; engine validation now checks `task_type` and `success_criteria` compatibility with `version: "3"`, but broader unknown-version rejection is still future work.
 2. **Review nodes are experimental.** Engine supports `kind: "review"` and the four review-only fields, and SDKs expose minimal review builders. Review outputs are not canonical.
 3. **`verify` and `oidc` are reserved with no SDK emit.** Engine reads them; SDKs have no API. Either implement SDK support or drop from the schema once a decision lands.
 4. **`history_hint` is engine-internal.** SDKs MUST NOT emit. Schema marks `readOnly` for clarity.
@@ -403,7 +438,6 @@ The following Phase 3 fields are **not** included in this schema:
 
 - Structured `inputs` (typed: `files | env | secret | artifact`)
 - Structured `outputs` (typed: `file | report | artifact` with format)
-- `success_criteria` (first-class assertions beyond exit code)
 - `side_effects` (closed-vocab list of network / filesystem / database effects)
 - `expected` (duration / memory / non-zero exit codes for planning)
 

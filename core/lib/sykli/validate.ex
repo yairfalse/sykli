@@ -97,6 +97,7 @@ defmodule Sykli.Validate do
       |> check_missing_deps(tasks, task_names)
       |> check_missing_commands(tasks)
       |> check_task_types(tasks, version)
+      |> check_success_criteria(tasks, version)
       |> check_cycles(tasks)
 
     warnings =
@@ -298,10 +299,78 @@ defmodule Sykli.Validate do
     end)
   end
 
+  defp check_success_criteria(errors, tasks, version) do
+    tasks
+    |> Enum.filter(fn t -> valid_name?(t["name"]) and Map.has_key?(t, "success_criteria") end)
+    |> Enum.reduce(errors, fn t, acc ->
+      name = t["name"]
+      kind = if t["kind"] == "review", do: :review, else: :task
+
+      case Sykli.SuccessCriteria.validate(t["success_criteria"], kind, version, name) do
+        :ok ->
+          acc
+
+        {:error, reason} ->
+          [success_criteria_error_to_map(reason) | acc]
+      end
+    end)
+  end
+
+  defp success_criteria_error_to_map({:success_criteria_on_review, task_name}) do
+    %{
+      type: :success_criteria_on_review,
+      task: task_name,
+      message: "Review node '#{task_name}' cannot declare success_criteria"
+    }
+  end
+
+  defp success_criteria_error_to_map({:success_criteria_requires_version_3, task_name, _version}) do
+    %{
+      type: :success_criteria_requires_version_3,
+      task: task_name,
+      message: "Task '#{task_name}' declares success_criteria but pipeline version is not 3"
+    }
+  end
+
+  defp success_criteria_error_to_map({:invalid_success_criteria, task_name, reason}) do
+    %{
+      type: :invalid_success_criteria,
+      task: task_name,
+      message: "Task '#{task_name}' declares invalid success_criteria: #{reason}"
+    }
+  end
+
+  defp success_criteria_error_to_map({:unknown_success_criterion_type, task_name, type}) do
+    %{
+      type: :unknown_success_criterion_type,
+      task: task_name,
+      message: "Task '#{task_name}' declares unknown success_criteria type '#{type}'"
+    }
+  end
+
+  defp success_criteria_error_to_map({:duplicate_exit_code_criteria, task_name}) do
+    %{
+      type: :duplicate_exit_code_criteria,
+      task: task_name,
+      message: "Task '#{task_name}' declares multiple exit_code success criteria"
+    }
+  end
+
   defp format_error(%{type: :missing_command, message: msg}), do: "Error: #{msg}"
   defp format_error(%{type: :task_type_on_review, message: msg}), do: "Error: #{msg}"
   defp format_error(%{type: :task_type_requires_version_3, message: msg}), do: "Error: #{msg}"
   defp format_error(%{type: :unknown_task_type, message: msg}), do: "Error: #{msg}"
+  defp format_error(%{type: :success_criteria_on_review, message: msg}), do: "Error: #{msg}"
+
+  defp format_error(%{type: :success_criteria_requires_version_3, message: msg}),
+    do: "Error: #{msg}"
+
+  defp format_error(%{type: :invalid_success_criteria, message: msg}), do: "Error: #{msg}"
+
+  defp format_error(%{type: :unknown_success_criterion_type, message: msg}),
+    do: "Error: #{msg}"
+
+  defp format_error(%{type: :duplicate_exit_code_criteria, message: msg}), do: "Error: #{msg}"
   defp format_error(%{type: :cycle, message: msg}), do: "Error: #{msg}"
   defp format_error(%{type: :missing_dependency, message: msg}), do: "Error: #{msg}"
   defp format_error(%{type: :duplicate_task, message: msg}), do: "Error: #{msg}"

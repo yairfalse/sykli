@@ -93,6 +93,51 @@ const (
 	TaskTypeCleanup  TaskType = "cleanup"
 )
 
+// SuccessCriterion is declared verification metadata for executable task success.
+// Phase 3C-1 emits this metadata, but the engine does not evaluate it yet.
+type SuccessCriterion struct {
+	criterionType string
+	equals        *int
+	path          string
+}
+
+// ExitCode declares an expected process exit code.
+func ExitCode(code int) SuccessCriterion {
+	return SuccessCriterion{criterionType: "exit_code", equals: &code}
+}
+
+// FileExists declares that a path should exist after task completion.
+func FileExists(path string) SuccessCriterion {
+	return SuccessCriterion{criterionType: "file_exists", path: path}
+}
+
+// FileNonEmpty declares that a path should exist and be non-empty after task completion.
+func FileNonEmpty(path string) SuccessCriterion {
+	return SuccessCriterion{criterionType: "file_non_empty", path: path}
+}
+
+func validateSuccessCriteria(taskName string, criteria []SuccessCriterion) {
+	exitCodeCount := 0
+	for _, criterion := range criteria {
+		switch criterion.criterionType {
+		case "exit_code":
+			exitCodeCount++
+			if criterion.equals == nil {
+				log.Panic().Str("task", taskName).Msg("exit_code success criterion requires equals")
+			}
+		case "file_exists", "file_non_empty":
+			if criterion.path == "" {
+				log.Panic().Str("task", taskName).Str("type", criterion.criterionType).Msg("file success criterion requires path")
+			}
+		default:
+			log.Panic().Str("task", taskName).Str("type", criterion.criterionType).Msg("invalid success criterion type")
+		}
+	}
+	if exitCodeCount > 1 {
+		log.Panic().Str("task", taskName).Msg("multiple exit_code success criteria are not allowed")
+	}
+}
+
 func validTaskType(taskType TaskType) bool {
 	switch taskType {
 	case TaskTypeBuild,
@@ -559,30 +604,31 @@ type gateConfig struct {
 
 // Task represents a single task in the pipeline.
 type Task struct {
-	pipeline   *Pipeline
-	name       string
-	taskType   TaskType
-	command    string
-	container  string
-	workdir    string
-	env        map[string]string
-	mounts     []Mount
-	inputs     []string    // v1-style input file patterns
-	taskInputs []TaskInput // v2-style inputs from other tasks
-	outputs    map[string]string
-	dependsOn  []string
-	when       string
-	whenCond   Condition   // Type-safe condition (alternative to string)
-	secrets    []string    // v1-style secret names
-	secretRefs []SecretRef // v2-style typed secret references
-	matrix     map[string][]string
-	services   []Service
-	retry      int
-	timeout    int         // seconds
-	k8sOptions *K8sOptions // Kubernetes-specific options
-	k8sRaw     string      // Raw K8s JSON for advanced options
-	targetName string      // Deprecated: no longer serialized
-	requires   []string    // Required node labels for placement
+	pipeline        *Pipeline
+	name            string
+	taskType        TaskType
+	successCriteria []SuccessCriterion
+	command         string
+	container       string
+	workdir         string
+	env             map[string]string
+	mounts          []Mount
+	inputs          []string    // v1-style input file patterns
+	taskInputs      []TaskInput // v2-style inputs from other tasks
+	outputs         map[string]string
+	dependsOn       []string
+	when            string
+	whenCond        Condition   // Type-safe condition (alternative to string)
+	secrets         []string    // v1-style secret names
+	secretRefs      []SecretRef // v2-style typed secret references
+	matrix          map[string][]string
+	services        []Service
+	retry           int
+	timeout         int         // seconds
+	k8sOptions      *K8sOptions // Kubernetes-specific options
+	k8sRaw          string      // Raw K8s JSON for advanced options
+	targetName      string      // Deprecated: no longer serialized
+	requires        []string    // Required node labels for placement
 	// AI-native fields
 	semantic Semantic
 	aiHooks  AiHooks
@@ -617,11 +663,12 @@ func (p *Pipeline) Task(name string) *Task {
 		log.Panic().Str("task", name).Msg("task/review already exists")
 	}
 	t := &Task{
-		pipeline: p,
-		name:     name,
-		env:      make(map[string]string),
-		mounts:   make([]Mount, 0),
-		outputs:  make(map[string]string),
+		pipeline:        p,
+		name:            name,
+		env:             make(map[string]string),
+		mounts:          make([]Mount, 0),
+		outputs:         make(map[string]string),
+		successCriteria: make([]SuccessCriterion, 0),
 	}
 	log.Debug().Str("task", name).Msg("registered task")
 	p.tasks = append(p.tasks, t)
@@ -660,11 +707,12 @@ func (p *Pipeline) Gate(name string) *Task {
 		log.Panic().Str("gate", name).Msg("task/gate/review already exists with this name")
 	}
 	t := &Task{
-		pipeline: p,
-		name:     name,
-		env:      make(map[string]string),
-		mounts:   make([]Mount, 0),
-		outputs:  make(map[string]string),
+		pipeline:        p,
+		name:            name,
+		env:             make(map[string]string),
+		mounts:          make([]Mount, 0),
+		outputs:         make(map[string]string),
+		successCriteria: make([]SuccessCriterion, 0),
 		gate: &gateConfig{
 			strategy: "prompt",
 			timeout:  3600,
@@ -792,6 +840,14 @@ func (t *Task) TaskType(taskType TaskType) *Task {
 		log.Panic().Str("task", t.name).Str("task_type", string(taskType)).Msg("invalid task_type")
 	}
 	t.taskType = taskType
+	return t
+}
+
+// SuccessCriteria declares verification metadata for this executable task.
+// Phase 3C-1 emits these criteria but does not change execution behavior.
+func (t *Task) SuccessCriteria(criteria ...SuccessCriterion) *Task {
+	validateSuccessCriteria(t.name, criteria)
+	t.successCriteria = append(t.successCriteria, criteria...)
 	return t
 }
 
@@ -1969,6 +2025,9 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 		if t.taskType != "" {
 			hasV3Features = true
 		}
+		if len(t.successCriteria) > 0 {
+			hasV3Features = true
+		}
 		if t.container != "" || len(t.mounts) > 0 {
 			hasV2Features = true
 		}
@@ -1998,6 +2057,12 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 		FromTask   string `json:"from_task"`
 		OutputName string `json:"output"`
 		DestPath   string `json:"dest"`
+	}
+
+	type jsonSuccessCriterion struct {
+		Type   string `json:"type"`
+		Equals *int   `json:"equals,omitempty"`
+		Path   string `json:"path,omitempty"`
 	}
 
 	type jsonSecretRef struct {
@@ -2042,31 +2107,32 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 	}
 
 	type jsonTask struct {
-		Name          string              `json:"name"`
-		Kind          string              `json:"kind,omitempty"`
-		TaskType      string              `json:"task_type,omitempty"`
-		Command       string              `json:"command,omitempty"`
-		Container     string              `json:"container,omitempty"`
-		Workdir       string              `json:"workdir,omitempty"`
-		Env           map[string]string   `json:"env,omitempty"`
-		Mounts        []jsonMount         `json:"mounts,omitempty"`
-		Inputs        []string            `json:"inputs,omitempty"`      // v1-style file patterns
-		TaskInputs    []jsonTaskInput     `json:"task_inputs,omitempty"` // v2-style inputs from other tasks
-		Outputs       any                 `json:"outputs,omitempty"`
-		DependsOn     []string            `json:"depends_on,omitempty"`
-		Primitive     string              `json:"primitive,omitempty"`
-		Agent         string              `json:"agent,omitempty"`
-		Context       []string            `json:"context,omitempty"`
-		Deterministic *bool               `json:"deterministic,omitempty"`
-		When          string              `json:"when,omitempty"`
-		Secrets       []string            `json:"secrets,omitempty"`
-		SecretRefs    []jsonSecretRef     `json:"secret_refs,omitempty"` // v2-style typed secrets
-		Matrix        map[string][]string `json:"matrix,omitempty"`
-		Services      []jsonService       `json:"services,omitempty"`
-		Retry         int                 `json:"retry,omitempty"`
-		Timeout       int                 `json:"timeout,omitempty"`
-		K8s           *jsonK8sOptions     `json:"k8s,omitempty"`      // K8s-specific options
-		Requires      []string            `json:"requires,omitempty"` // Required node labels
+		Name            string                 `json:"name"`
+		Kind            string                 `json:"kind,omitempty"`
+		TaskType        string                 `json:"task_type,omitempty"`
+		SuccessCriteria []jsonSuccessCriterion `json:"success_criteria,omitempty"`
+		Command         string                 `json:"command,omitempty"`
+		Container       string                 `json:"container,omitempty"`
+		Workdir         string                 `json:"workdir,omitempty"`
+		Env             map[string]string      `json:"env,omitempty"`
+		Mounts          []jsonMount            `json:"mounts,omitempty"`
+		Inputs          []string               `json:"inputs,omitempty"`      // v1-style file patterns
+		TaskInputs      []jsonTaskInput        `json:"task_inputs,omitempty"` // v2-style inputs from other tasks
+		Outputs         any                    `json:"outputs,omitempty"`
+		DependsOn       []string               `json:"depends_on,omitempty"`
+		Primitive       string                 `json:"primitive,omitempty"`
+		Agent           string                 `json:"agent,omitempty"`
+		Context         []string               `json:"context,omitempty"`
+		Deterministic   *bool                  `json:"deterministic,omitempty"`
+		When            string                 `json:"when,omitempty"`
+		Secrets         []string               `json:"secrets,omitempty"`
+		SecretRefs      []jsonSecretRef        `json:"secret_refs,omitempty"` // v2-style typed secrets
+		Matrix          map[string][]string    `json:"matrix,omitempty"`
+		Services        []jsonService          `json:"services,omitempty"`
+		Retry           int                    `json:"retry,omitempty"`
+		Timeout         int                    `json:"timeout,omitempty"`
+		K8s             *jsonK8sOptions        `json:"k8s,omitempty"`      // K8s-specific options
+		Requires        []string               `json:"requires,omitempty"` // Required node labels
 		// Capability-based dependencies
 		Provides []jsonProvide `json:"provides,omitempty"`
 		Needs    []string      `json:"needs,omitempty"`
@@ -2194,23 +2260,36 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 			when = t.whenCond.expr
 		}
 
+		var successCriteria []jsonSuccessCriterion
+		if len(t.successCriteria) > 0 {
+			successCriteria = make([]jsonSuccessCriterion, len(t.successCriteria))
+			for j, criterion := range t.successCriteria {
+				successCriteria[j] = jsonSuccessCriterion{
+					Type:   criterion.criterionType,
+					Equals: criterion.equals,
+					Path:   criterion.path,
+				}
+			}
+		}
+
 		jt := jsonTask{
-			Name:       t.name,
-			TaskType:   string(t.taskType),
-			Command:    t.command,
-			Container:  t.container,
-			Workdir:    t.workdir,
-			Env:        env,
-			Mounts:     mounts,
-			Inputs:     t.inputs,   // v1-style file patterns
-			TaskInputs: taskInputs, // v2-style inputs from other tasks
-			DependsOn:  t.dependsOn,
-			When:       when,
-			Secrets:    t.secrets,
-			SecretRefs: secretRefs, // v2-style typed secrets
-			Matrix:     t.matrix,
-			Retry:      t.retry,
-			Timeout:    t.timeout,
+			Name:            t.name,
+			TaskType:        string(t.taskType),
+			SuccessCriteria: successCriteria,
+			Command:         t.command,
+			Container:       t.container,
+			Workdir:         t.workdir,
+			Env:             env,
+			Mounts:          mounts,
+			Inputs:          t.inputs,   // v1-style file patterns
+			TaskInputs:      taskInputs, // v2-style inputs from other tasks
+			DependsOn:       t.dependsOn,
+			When:            when,
+			Secrets:         t.secrets,
+			SecretRefs:      secretRefs, // v2-style typed secrets
+			Matrix:          t.matrix,
+			Retry:           t.retry,
+			Timeout:         t.timeout,
 			Services: func() []jsonService {
 				if len(t.services) == 0 {
 					return nil

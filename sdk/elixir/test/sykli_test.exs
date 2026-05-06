@@ -188,6 +188,32 @@ defmodule SykliTest do
       decoded = result |> Sykli.Emitter.to_json() |> Jason.decode!()
       assert decoded["version"] == "3"
     end
+
+    test "success_criteria emits version 3" do
+      use Sykli
+
+      result =
+        pipeline do
+          task "test" do
+            run("go test ./...")
+
+            success_criteria([
+              exit_code(0),
+              file_exists("coverage.out")
+            ])
+          end
+        end
+
+      decoded = result |> Sykli.Emitter.to_json() |> Jason.decode!()
+      task = Enum.at(decoded["tasks"], 0)
+
+      assert decoded["version"] == "3"
+
+      assert task["success_criteria"] == [
+               %{"type" => "exit_code", "equals" => 0},
+               %{"type" => "file_exists", "path" => "coverage.out"}
+             ]
+    end
   end
 
   describe "validation" do
@@ -252,6 +278,45 @@ defmodule SykliTest do
           review "review-code" do
             primitive("lint")
             task_type(:lint)
+          end
+        end
+      end
+    end
+
+    test "rejects invalid success_criteria" do
+      use Sykli
+
+      assert_raise ArgumentError, ~r/invalid success_criteria type/, fn ->
+        pipeline do
+          task "test" do
+            success_criteria([%{type: "custom", path: "x"}])
+            run("go test ./...")
+          end
+        end
+      end
+    end
+
+    test "rejects duplicate exit_code success_criteria" do
+      use Sykli
+
+      assert_raise ArgumentError, ~r/multiple exit_code/, fn ->
+        pipeline do
+          task "test" do
+            success_criteria([exit_code(0), exit_code(1)])
+            run("go test ./...")
+          end
+        end
+      end
+    end
+
+    test "rejects success_criteria inside review" do
+      use Sykli
+
+      assert_raise RuntimeError, ~r/success_criteria cannot be used inside a review block/, fn ->
+        pipeline do
+          review "review-code" do
+            primitive("lint")
+            success_criteria([exit_code(0)])
           end
         end
       end

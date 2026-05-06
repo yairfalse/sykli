@@ -594,8 +594,12 @@ verification checks against declared status or artifacts. They do not sandbox
 syscalls, network use, filesystem writes, external API calls, or database
 writes.
 
-Initial implementation may choose to store and emit only, but the semantic
-direction is engine-checkable verification.
+Phase 3C-1 stores, validates, and emits `success_criteria` only. It does not
+wire criteria into executor result, retry, cache, target, or runtime paths. The
+engine must not silently pretend to enforce criteria before target-level
+checking exists.
+
+The semantic direction remains engine-checkable verification for Phase 3C-2.
 
 ### Outputs relationship
 

@@ -32,6 +32,20 @@ class TestJsonWireFormat:
 
         assert p.to_dict()["version"] == "3"
 
+    def test_success_criteria_serialization(self):
+        p = Pipeline()
+        p.task("test").run("go test ./...").success_criteria([
+            {"type": "exit_code", "equals": 0},
+            {"type": "file_exists", "path": "coverage.out"},
+        ])
+
+        d = p.to_dict()
+        assert d["version"] == "3"
+        assert d["tasks"][0]["success_criteria"] == [
+            {"type": "exit_code", "equals": 0},
+            {"type": "file_exists", "path": "coverage.out"},
+        ]
+
     def test_review_node(self):
         p = Pipeline()
         p.task("test").run("go test ./...")
@@ -129,6 +143,7 @@ class TestOmitempty:
             "secrets", "secret_refs", "matrix", "services",
             "retry", "timeout", "target", "k8s", "requires",
             "provides", "needs", "semantic", "ai_hooks", "gate", "task_type",
+            "success_criteria",
         ]
         for field in omitted:
             assert field not in task, f"field {field!r} should be omitted"

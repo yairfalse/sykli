@@ -72,6 +72,7 @@ defmodule Sykli.Graph do
       :name,
       :kind,
       :task_type,
+      :success_criteria,
       :command,
       :inputs,
       :outputs,
@@ -147,6 +148,10 @@ defmodule Sykli.Graph do
     @doc "Returns the executable task semantic class."
     @spec task_type(t()) :: String.t() | nil
     def task_type(%__MODULE__{task_type: task_type}), do: task_type
+
+    @doc "Returns declared task success criteria."
+    @spec success_criteria(t()) :: [map()]
+    def success_criteria(%__MODULE__{success_criteria: criteria}), do: criteria || []
 
     @doc "Returns the task command."
     @spec command(t()) :: String.t()
@@ -384,6 +389,26 @@ defmodule Sykli.Graph do
     "Error: Task '#{task_name}' declares unknown task_type #{inspect(task_type)}"
   end
 
+  def format_error({:success_criteria_on_review, _task_name} = reason) do
+    Sykli.SuccessCriteria.format_error(reason)
+  end
+
+  def format_error({:success_criteria_requires_version_3, _task_name, _version} = reason) do
+    Sykli.SuccessCriteria.format_error(reason)
+  end
+
+  def format_error({:invalid_success_criteria, _task_name, _reason} = reason) do
+    Sykli.SuccessCriteria.format_error(reason)
+  end
+
+  def format_error({:unknown_success_criterion_type, _task_name, _type} = reason) do
+    Sykli.SuccessCriteria.format_error(reason)
+  end
+
+  def format_error({:duplicate_exit_code_criteria, _task_name} = reason) do
+    Sykli.SuccessCriteria.format_error(reason)
+  end
+
   def format_error(reason), do: inspect(reason)
 
   defp parse_task(map, version) do
@@ -391,6 +416,8 @@ defmodule Sykli.Graph do
     kind = parse_kind(map["kind"])
 
     with {:ok, task_type} <- parse_task_type(map["task_type"], kind, version, task_name),
+         {:ok, success_criteria} <-
+           Sykli.SuccessCriteria.parse(map["success_criteria"], kind, version, task_name),
          {:ok, services} <- parse_services(map["services"], task_name),
          {:ok, mounts} <- parse_mounts(map["mounts"], task_name) do
       {:ok,
@@ -398,6 +425,7 @@ defmodule Sykli.Graph do
          name: task_name,
          kind: kind,
          task_type: task_type,
+         success_criteria: success_criteria,
          command: map["command"],
          inputs: map["inputs"] || [],
          outputs: normalize_outputs(map["outputs"], kind),
