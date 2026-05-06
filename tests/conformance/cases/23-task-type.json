@@ -1,0 +1,16 @@
+{
+  "version": "3",
+  "tasks": [
+    {
+      "name": "build",
+      "command": "go build ./...",
+      "task_type": "build"
+    },
+    {
+      "name": "test",
+      "command": "go test ./...",
+      "task_type": "test",
+      "depends_on": ["build"]
+    }
+  ]
+}

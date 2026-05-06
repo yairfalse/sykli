@@ -7,6 +7,46 @@ defmodule SykliTest do
     assert Map.has_key?(graph, "test")
   end
 
+  test "parses task_type on version 3 executable tasks" do
+    json =
+      ~s({"version":"3","tasks":[{"name":"test","command":"go test ./...","task_type":"test"}]})
+
+    assert {:ok, graph} = Sykli.Graph.parse(json)
+    task = Map.fetch!(graph, "test")
+    assert Sykli.Graph.Task.task_type(task) == "test"
+  end
+
+  test "rejects task_type before version 3" do
+    json =
+      ~s({"version":"2","tasks":[{"name":"test","command":"go test ./...","task_type":"test"}]})
+
+    assert {:error, {:task_type_requires_version_3, "test", "2", "test"}} =
+             Sykli.Graph.parse(json)
+  end
+
+  test "rejects unknown task_type" do
+    json = ~s({"version":"3","tasks":[{"name":"thing","command":"echo hi","task_type":"custom"}]})
+    assert {:error, {:unknown_task_type, "thing", "custom"}} = Sykli.Graph.parse(json)
+  end
+
+  test "rejects task_type on review nodes" do
+    json =
+      ~s({"version":"3","tasks":[{"name":"review-code","kind":"review","primitive":"lint","task_type":"lint"}]})
+
+    assert {:error, {:task_type_on_review, "review-code"}} = Sykli.Graph.parse(json)
+  end
+
+  test "formats task_type parse errors" do
+    assert Sykli.Graph.format_error({:task_type_on_review, "review-code"}) ==
+             "Error: Review node 'review-code' cannot declare task_type"
+
+    assert Sykli.Graph.format_error({:task_type_requires_version_3, "test", "2", "test"}) ==
+             ~s(Error: Task 'test' declares task_type but pipeline version is "2", not "3")
+
+    assert Sykli.Graph.format_error({:unknown_task_type, "thing", "custom"}) ==
+             ~s(Error: Task 'thing' declares unknown task_type "custom")
+  end
+
   test "parses review nodes with metadata" do
     json =
       ~s({"tasks":[{"name":"test","command":"go test ./..."},{"name":"review:api-breakage","kind":"review","primitive":"api-breakage","agent":"local","inputs":["main...HEAD"],"context":["README.md","docs/architecture.md"],"outputs":["reviews/api-breakage.local.json"],"depends_on":["test"],"deterministic":false}]})

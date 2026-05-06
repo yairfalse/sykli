@@ -71,6 +71,7 @@ defmodule Sykli.Graph do
     defstruct [
       :name,
       :kind,
+      :task_type,
       :command,
       :inputs,
       :outputs,
@@ -142,6 +143,10 @@ defmodule Sykli.Graph do
     @spec kind(t()) :: :task | :review
     def kind(%__MODULE__{kind: :review}), do: :review
     def kind(_), do: :task
+
+    @doc "Returns the executable task semantic class."
+    @spec task_type(t()) :: String.t() | nil
+    def task_type(%__MODULE__{task_type: task_type}), do: task_type
 
     @doc "Returns the task command."
     @spec command(t()) :: String.t()
@@ -347,8 +352,10 @@ defmodule Sykli.Graph do
 
   def parse(json) do
     case Jason.decode(json) do
-      {:ok, %{"tasks" => tasks}} ->
-        case map_ok(tasks, &parse_task/1) do
+      {:ok, %{"tasks" => tasks} = data} ->
+        version = Map.get(data, "version", "1")
+
+        case map_ok(tasks, &parse_task(&1, version)) do
           {:ok, parsed_tasks} ->
             parsed = Map.new(parsed_tasks, fn task -> {task.name, task} end)
             {:ok, parsed}
@@ -365,16 +372,32 @@ defmodule Sykli.Graph do
     end
   end
 
-  defp parse_task(map) do
+  def format_error({:task_type_on_review, task_name}) do
+    "Error: Review node '#{task_name}' cannot declare task_type"
+  end
+
+  def format_error({:task_type_requires_version_3, task_name, version, _task_type}) do
+    "Error: Task '#{task_name}' declares task_type but pipeline version is #{inspect(version)}, not \"3\""
+  end
+
+  def format_error({:unknown_task_type, task_name, task_type}) do
+    "Error: Task '#{task_name}' declares unknown task_type #{inspect(task_type)}"
+  end
+
+  def format_error(reason), do: inspect(reason)
+
+  defp parse_task(map, version) do
     task_name = map["name"]
     kind = parse_kind(map["kind"])
 
-    with {:ok, services} <- parse_services(map["services"], task_name),
+    with {:ok, task_type} <- parse_task_type(map["task_type"], kind, version, task_name),
+         {:ok, services} <- parse_services(map["services"], task_name),
          {:ok, mounts} <- parse_mounts(map["mounts"], task_name) do
       {:ok,
        %Task{
          name: task_name,
          kind: kind,
+         task_type: task_type,
          command: map["command"],
          inputs: map["inputs"] || [],
          outputs: normalize_outputs(map["outputs"], kind),
@@ -416,6 +439,24 @@ defmodule Sykli.Graph do
   defp parse_kind("review"), do: :review
   defp parse_kind(:review), do: :review
   defp parse_kind(_), do: :task
+
+  defp parse_task_type(nil, _kind, _version, _task_name), do: {:ok, nil}
+
+  defp parse_task_type(_task_type, :review, _version, task_name) do
+    {:error, {:task_type_on_review, task_name}}
+  end
+
+  defp parse_task_type(task_type, _kind, version, task_name) when version != "3" do
+    {:error, {:task_type_requires_version_3, task_name, version, task_type}}
+  end
+
+  defp parse_task_type(task_type, _kind, "3", task_name) do
+    if Sykli.TaskType.valid?(task_type) do
+      {:ok, task_type}
+    else
+      {:error, {:unknown_task_type, task_name, task_type}}
+    end
+  end
 
   defp parse_review(map, :review) do
     %Review{

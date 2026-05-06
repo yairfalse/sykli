@@ -78,6 +78,57 @@ func TestBasicTask(t *testing.T) {
 	}
 }
 
+func TestTaskTypeSerialization(t *testing.T) {
+	p := New()
+	p.Task("build").Run("go build ./...").TaskType(TaskTypeBuild)
+	p.Task("test").Run("go test ./...").TaskType(TaskTypeTest).After("build")
+
+	result, err := emitJSON(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if result["version"] != "3" {
+		t.Fatalf("expected version '3', got %v", result["version"])
+	}
+
+	tasks := result["tasks"].([]interface{})
+	build := tasks[0].(map[string]interface{})
+	test := tasks[1].(map[string]interface{})
+
+	if build["task_type"] != "build" {
+		t.Errorf("expected build task_type, got %v", build["task_type"])
+	}
+	if test["task_type"] != "test" {
+		t.Errorf("expected test task_type, got %v", test["task_type"])
+	}
+}
+
+func TestTaskTypeWithV2FeaturesEmitsVersion3(t *testing.T) {
+	p := New()
+	p.Task("test").Run("go test ./...").TaskType(TaskTypeTest).Container("golang:1.22")
+
+	result, err := emitJSON(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if result["version"] != "3" {
+		t.Fatalf("expected version '3', got %v", result["version"])
+	}
+}
+
+func TestInvalidTaskTypePanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for invalid task_type")
+		}
+	}()
+
+	p := New()
+	p.Task("test").Run("go test ./...").TaskType(TaskType("custom"))
+}
+
 func TestTaskWithInputs(t *testing.T) {
 	p := New()
 	p.Task("test").Run("go test").Inputs("**/*.go", "go.mod")

@@ -22,6 +22,15 @@ defmodule Sykli.Emitter do
     # Check all non-gate, non-review tasks have commands
     Enum.each(pipeline.tasks, fn task ->
       cond do
+        task.kind == :review and not is_nil(task.task_type) ->
+          Logger.error("review cannot declare task_type", review: task.name)
+          raise "review #{inspect(task.name)} cannot declare task_type"
+
+        task.kind != :review and not is_nil(task.task_type) and
+            not Sykli.Task.valid_task_type?(task.task_type) ->
+          Logger.error("invalid task_type", task: task.name, task_type: inspect(task.task_type))
+          raise "task #{inspect(task.name)} has invalid task_type #{inspect(task.task_type)}"
+
         task.kind == :review and (is_nil(task.primitive) or task.primitive == "") ->
           Logger.error("review has no primitive", review: task.name)
           raise "review #{inspect(task.name)} has no primitive"
@@ -165,7 +174,14 @@ defmodule Sykli.Emitter do
           t.container != nil or length(t.mounts) > 0
         end)
 
-    version = if has_v2_features, do: "2", else: "1"
+    has_v3_features = Enum.any?(pipeline.tasks, &(!is_nil(&1.task_type)))
+
+    version =
+      cond do
+        has_v3_features -> "3"
+        has_v2_features -> "2"
+        true -> "1"
+      end
 
     Logger.debug("emitting pipeline", version: version, tasks: length(pipeline.tasks))
 
@@ -214,6 +230,7 @@ defmodule Sykli.Emitter do
       end
 
     %{name: task.name}
+    |> maybe_put(:task_type, if(task.task_type, do: Atom.to_string(task.task_type), else: nil))
     |> maybe_put(:command, task.command)
     |> maybe_put(:container, task.container)
     |> maybe_put(:workdir, task.workdir)

@@ -82,6 +82,7 @@ defmodule Sykli.Validate do
 
   defp validate_data(data) do
     tasks = data["tasks"] || []
+    version = Map.get(data, "version", "1")
 
     task_names =
       tasks
@@ -95,6 +96,7 @@ defmodule Sykli.Validate do
       |> check_self_deps(tasks)
       |> check_missing_deps(tasks, task_names)
       |> check_missing_commands(tasks)
+      |> check_task_types(tasks, version)
       |> check_cycles(tasks)
 
     warnings =
@@ -252,7 +254,54 @@ defmodule Sykli.Validate do
     end)
   end
 
+  defp check_task_types(errors, tasks, version) do
+    tasks
+    |> Enum.filter(fn t -> valid_name?(t["name"]) and Map.has_key?(t, "task_type") end)
+    |> Enum.reduce(errors, fn t, acc ->
+      name = t["name"]
+      task_type = t["task_type"]
+
+      cond do
+        t["kind"] == "review" ->
+          [
+            %{
+              type: :task_type_on_review,
+              task: name,
+              message: "Review node '#{name}' cannot declare task_type"
+            }
+            | acc
+          ]
+
+        version != "3" ->
+          [
+            %{
+              type: :task_type_requires_version_3,
+              task: name,
+              message: "Task '#{name}' declares task_type but pipeline version is not 3"
+            }
+            | acc
+          ]
+
+        not Sykli.TaskType.valid?(task_type) ->
+          [
+            %{
+              type: :unknown_task_type,
+              task: name,
+              message: "Task '#{name}' declares unknown task_type '#{task_type}'"
+            }
+            | acc
+          ]
+
+        true ->
+          acc
+      end
+    end)
+  end
+
   defp format_error(%{type: :missing_command, message: msg}), do: "Error: #{msg}"
+  defp format_error(%{type: :task_type_on_review, message: msg}), do: "Error: #{msg}"
+  defp format_error(%{type: :task_type_requires_version_3, message: msg}), do: "Error: #{msg}"
+  defp format_error(%{type: :unknown_task_type, message: msg}), do: "Error: #{msg}"
   defp format_error(%{type: :cycle, message: msg}), do: "Error: #{msg}"
   defp format_error(%{type: :missing_dependency, message: msg}), do: "Error: #{msg}"
   defp format_error(%{type: :duplicate_task, message: msg}), do: "Error: #{msg}"

@@ -229,6 +229,47 @@ defmodule Sykli.ValidateTest do
     end
   end
 
+  describe "validate_json/1 -- task_type" do
+    test "accepts task_type in version 3" do
+      json =
+        ~s({"version":"3","tasks":[{"name":"test","command":"go test ./...","task_type":"test"}]})
+
+      result = Validate.validate_json(json)
+
+      assert result.valid == true
+    end
+
+    test "rejects task_type before version 3" do
+      json =
+        ~s({"version":"2","tasks":[{"name":"test","command":"go test ./...","task_type":"test"}]})
+
+      result = Validate.validate_json(json)
+
+      assert result.valid == false
+      assert Enum.any?(result.errors, &(&1.type == :task_type_requires_version_3))
+    end
+
+    test "rejects unknown task_type" do
+      json =
+        ~s({"version":"3","tasks":[{"name":"thing","command":"echo hi","task_type":"custom"}]})
+
+      result = Validate.validate_json(json)
+
+      assert result.valid == false
+      assert Enum.any?(result.errors, &(&1.type == :unknown_task_type))
+    end
+
+    test "rejects task_type on review nodes" do
+      json =
+        ~s({"version":"3","tasks":[{"name":"review-code","kind":"review","primitive":"lint","task_type":"lint"}]})
+
+      result = Validate.validate_json(json)
+
+      assert result.valid == false
+      assert Enum.any?(result.errors, &(&1.type == :task_type_on_review))
+    end
+  end
+
   describe "format_errors/1" do
     test "formats errors for CLI output" do
       result = %Validate.Result{

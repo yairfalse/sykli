@@ -16,6 +16,22 @@ class TestJsonWireFormat:
         task = d["tasks"][0]
         assert task == {"name": "test", "command": "pytest"}
 
+    def test_task_type_serialization(self):
+        p = Pipeline()
+        p.task("build").run("go build ./...").task_type("build")
+        p.task("test").run("go test ./...").task_type("test").after("build")
+
+        d = p.to_dict()
+        assert d["version"] == "3"
+        assert d["tasks"][0]["task_type"] == "build"
+        assert d["tasks"][1]["task_type"] == "test"
+
+    def test_task_type_with_v2_features_emits_version_3(self):
+        p = Pipeline()
+        p.task("test").run("go test ./...").task_type("test").container("golang:1.22")
+
+        assert p.to_dict()["version"] == "3"
+
     def test_review_node(self):
         p = Pipeline()
         p.task("test").run("go test ./...")
@@ -112,7 +128,7 @@ class TestOmitempty:
             "task_inputs", "outputs", "depends_on", "when",
             "secrets", "secret_refs", "matrix", "services",
             "retry", "timeout", "target", "k8s", "requires",
-            "provides", "needs", "semantic", "ai_hooks", "gate",
+            "provides", "needs", "semantic", "ai_hooks", "gate", "task_type",
         ]
         for field in omitted:
             assert field not in task, f"field {field!r} should be omitted"

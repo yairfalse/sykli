@@ -463,6 +463,42 @@ pub struct Review<'a> {
     index: usize,
 }
 
+/// Semantic class of an executable task.
+#[derive(Clone, Debug, PartialEq)]
+pub enum TaskType {
+    Build,
+    Test,
+    Lint,
+    Format,
+    Scan,
+    Package,
+    Publish,
+    Deploy,
+    Migrate,
+    Generate,
+    Verify,
+    Cleanup,
+}
+
+impl TaskType {
+    fn as_str(&self) -> &'static str {
+        match self {
+            TaskType::Build => "build",
+            TaskType::Test => "test",
+            TaskType::Lint => "lint",
+            TaskType::Format => "format",
+            TaskType::Scan => "scan",
+            TaskType::Package => "package",
+            TaskType::Publish => "publish",
+            TaskType::Deploy => "deploy",
+            TaskType::Migrate => "migrate",
+            TaskType::Generate => "generate",
+            TaskType::Verify => "verify",
+            TaskType::Cleanup => "cleanup",
+        }
+    }
+}
+
 #[derive(Clone, Default, PartialEq)]
 enum NodeKind {
     #[default]
@@ -738,6 +774,7 @@ impl std::fmt::Display for Condition {
 struct TaskData {
     kind: NodeKind,
     name: String,
+    task_type: Option<TaskType>,
     command: String,
     primitive: Option<String>,
     agent: Option<String>,
@@ -833,6 +870,13 @@ impl<'a> Task<'a> {
     pub fn run(self, cmd: &str) -> Self {
         assert!(!cmd.is_empty(), "command cannot be empty");
         self.pipeline.tasks[self.index].command = cmd.to_string();
+        self
+    }
+
+    /// Sets the semantic class of this executable task.
+    #[must_use]
+    pub fn task_type(self, task_type: TaskType) -> Self {
+        self.pipeline.tasks[self.index].task_type = Some(task_type);
         self
     }
 
@@ -2233,7 +2277,15 @@ impl Pipeline {
                 .iter()
                 .any(|t| t.container.is_some() || !t.mounts.is_empty());
 
-        let version = if has_v2_features { "2" } else { "1" };
+        let has_v3_features = self.tasks.iter().any(|t| t.task_type.is_some());
+
+        let version = if has_v3_features {
+            "3"
+        } else if has_v2_features {
+            "2"
+        } else {
+            "1"
+        };
 
         // Build output
         let output = JsonPipeline {
@@ -2284,6 +2336,11 @@ impl Pipeline {
                         Some("review".to_string())
                     } else {
                         None
+                    },
+                    task_type: if t.kind == NodeKind::Review {
+                        None
+                    } else {
+                        t.task_type.as_ref().map(|tt| tt.as_str().to_string())
                     },
                     command: if t.kind == NodeKind::Review || t.command.is_empty() {
                         None
@@ -2715,6 +2772,8 @@ struct JsonTask {
     #[serde(skip_serializing_if = "Option::is_none")]
     kind: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    task_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     command: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     primitive: Option<String>,
@@ -2838,6 +2897,44 @@ mod tests {
         assert_eq!(json["version"], "1");
         assert_eq!(json["tasks"][0]["name"], "test");
         assert_eq!(json["tasks"][0]["command"], "cargo test");
+    }
+
+    #[test]
+    fn test_task_type_serialization() {
+        let mut p = Pipeline::new();
+        let _ = p
+            .task("build")
+            .run("go build ./...")
+            .task_type(TaskType::Build);
+        let _ = p
+            .task("test")
+            .run("go test ./...")
+            .task_type(TaskType::Test)
+            .after(&["build"]);
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        assert_eq!(json["version"], "3");
+        assert_eq!(json["tasks"][0]["task_type"], "build");
+        assert_eq!(json["tasks"][1]["task_type"], "test");
+    }
+
+    #[test]
+    fn test_task_type_with_v2_features_emits_version_3() {
+        let mut p = Pipeline::new();
+        let _ = p
+            .task("test")
+            .run("go test ./...")
+            .task_type(TaskType::Test)
+            .container("golang:1.22");
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        assert_eq!(json["version"], "3");
     }
 
     #[test]

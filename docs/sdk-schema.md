@@ -7,9 +7,10 @@ This document describes the **current** Sykli pipeline JSON contract. It is grou
 - The engine parser (`core/lib/sykli/graph.ex`) and per-field modules (`core/lib/sykli/graph/task/*.ex`).
 - Engine validation (`core/lib/sykli/validate.ex`).
 - The five SDK emitters (`sdk/{go,rust,typescript,elixir,python}/`).
-- The 21 conformance fixtures (`tests/conformance/cases/*.json`).
+- The 23 conformance fixtures (`tests/conformance/cases/*.json`).
 
-It is **not** a future design document. The agent-native semantic fields proposed in `docs/sdk-audit.md` §10 (Phase 3) — `task_type`, structured `inputs`, structured `outputs`, `success_criteria`, `side_effects`, `expected` — are intentionally out of scope.
+The agent-native semantic model is defined in `docs/agent-contract-semantics.md`.
+This document describes only the current wire contract.
 
 The companion machine-readable schema is `schemas/sykli-pipeline.schema.json` (JSON Schema draft 2020-12).
 Conformance case fixtures are validated against it by `scripts/validate-conformance-schema.py`, which runs at the start of `tests/conformance/run.sh`.
@@ -30,7 +31,7 @@ The engine is currently **more permissive** than the schema in three known ways:
 
 ```jsonc
 {
-  "version": "1" | "2",
+  "version": "1" | "2" | "3",
   "tasks":   [ ... task objects ... ],
   "resources": { ... }   // optional
 }
@@ -38,13 +39,14 @@ The engine is currently **more permissive** than the schema in three known ways:
 
 ### `version`
 
-- **Type:** string enum `"1"` | `"2"`.
-- **Required by canonical schema; ignored by current engine.**
+- **Type:** string enum `"1"` | `"2"` | `"3"`.
+- **Required by canonical schema.**
 - **Meaning:** pipeline wire-format/schema version. It is not an execution capability selector and not an SDK, engine, runtime, or JSON Schema draft version.
 - `"1"` is the baseline task graph format.
 - `"2"` is the resource-aware format: resources, mounts, caches, containers, and related execution-environment metadata.
-- SDKs auto-detect: `"2"` if any task has `container` set, or any task has non-empty `mounts`, or the pipeline has any directory or cache resources; `"1"` otherwise.
-- **Current behavior:** advisory / permissive. The engine parser does not branch on this value (no `Map.get(map, "version", _)` anywhere in `graph.ex`).
+- `"3"` is the semantic contract format, beginning with `task_type`.
+- SDKs auto-detect: `"3"` if any executable task has `task_type`; otherwise `"2"` if any task has `container` set, or any task has non-empty `mounts`, or the pipeline has any directory or cache resources; `"1"` otherwise.
+- **Current behavior:** version-aware for `task_type`. The schema and engine validation reject `task_type` unless `version == "3"`. Other version-aware parser behavior is still intentionally narrow.
 - **Intended future behavior:** the engine should accept known supported versions and reject unknown future versions unless an explicit compatibility mode exists. It should never silently reinterpret a newer document as an older version.
 
 ### `tasks`
@@ -71,6 +73,7 @@ The full canonical field list, with stability labels:
 | `name` | stable | yes | unique, non-empty |
 | `kind` | experimental | no | `"task"` (default) or `"review"` |
 | `command` | stable | conditional | required unless `gate` is set or `kind == "review"` |
+| `task_type` | stable, v3-only | no | executable-task semantic class |
 | `container` | stable | no | triggers v2 |
 | `workdir` | stable | no | |
 | `env` | stable | no | object of string values |
@@ -113,6 +116,36 @@ Unique within the pipeline, non-empty. The engine rejects empty/whitespace/non-b
 ### `command`
 
 Shell command to execute. Required for regular tasks. Gates and review tasks have no command. The engine raises `missing_command` (`validate.ex:230-253`) for any non-gate, non-review task without a command. The schema does not encode this conditional rule — it would require nested `if/then/else` constructs that obscure the more common case. Treat the rule as documented engine behavior.
+
+### `task_type`
+
+Agent-native semantic class of an executable task. This field helps agents and
+tooling understand what a task does without parsing `command`.
+
+Rules:
+
+- Requires top-level `version: "3"`.
+- Applies only to executable tasks (`kind` omitted or `kind == "task"`).
+- Rejected on `kind == "review"` nodes.
+- Optional.
+- Does not change execution behavior.
+- Does not replace review-node `primitive`.
+- Must be one of the closed enum values below. There is no `custom` value.
+
+Allowed values:
+
+- `build`
+- `test`
+- `lint`
+- `format`
+- `scan`
+- `package`
+- `publish`
+- `deploy`
+- `migrate`
+- `generate`
+- `verify`
+- `cleanup`
 
 ### `container`, `workdir`, `env`
 
@@ -248,7 +281,7 @@ Review nodes do not have canonical `outputs` behavior yet. SDKs should not emit
 `outputs` for review nodes; review results/structured outputs are intentionally
 left out of the current experimental contract. The schema rejects task execution
 fields on review nodes: `command`, `outputs`, `gate`, `container`, `services`,
-`k8s`, `mounts`, `retry`, and `timeout`.
+`k8s`, `mounts`, `retry`, `timeout`, and `task_type`.
 
 ## Normalization behavior
 
@@ -285,15 +318,14 @@ tooling, and the engine parser.
 
 It is **not** an execution capability version. It does not mean "run with v1
 features" or "run with v2 features" at execution time, and the current engine
-does not use it to choose parser or executor behavior. It is also not the
+uses it only for narrow `task_type` validation. It is also not the
 version of a particular SDK package, engine release, runtime, or JSON Schema
 draft.
 
-Current behavior is advisory and permissive: SDKs emit `version`, the canonical
-schema requires `"1"` or `"2"`, and the engine ignores the value. This means
-`version` is useful today as SDK/schema contract metadata, but it is not yet an
-engine-enforced compatibility boundary. See the [`version` field](#version)
-above for the per-value definitions of `"1"` and `"2"`.
+Current behavior is partially version-aware: SDKs emit `version`, the canonical
+schema requires `"1"`, `"2"`, or `"3"`, and the engine rejects `task_type` unless
+the top-level version is `"3"`. See the [`version` field](#version) above for
+the per-value definitions.
 
 Future engine behavior should become version-aware in a later implementation
 phase:
@@ -357,7 +389,7 @@ introduce a replacement field.
 
 These are **descriptive, not prescriptive**. The schema documents current behavior; resolving these is Phase 2C / future work.
 
-1. **`version` is advisory only today.** SDKs emit `"1"` or `"2"`; engine ignores. This document defines it as the pipeline wire-format/schema version and describes the migration path to version-aware parsing.
+1. **Version-aware behavior is still narrow.** SDKs emit `"1"`, `"2"`, or `"3"`; engine validation now checks `task_type` compatibility with `version: "3"`, but broader unknown-version rejection is still future work.
 2. **Review nodes are experimental.** Engine supports `kind: "review"` and the four review-only fields, and SDKs expose minimal review builders. Review outputs are not canonical.
 3. **`verify` and `oidc` are reserved with no SDK emit.** Engine reads them; SDKs have no API. Either implement SDK support or drop from the schema once a decision lands.
 4. **`history_hint` is engine-internal.** SDKs MUST NOT emit. Schema marks `readOnly` for clarity.
@@ -369,7 +401,6 @@ These are **descriptive, not prescriptive**. The schema documents current behavi
 
 The following Phase 3 fields are **not** included in this schema:
 
-- `task_type` (closed enum classifying compute / validation / reasoning tasks)
 - Structured `inputs` (typed: `files | env | secret | artifact`)
 - Structured `outputs` (typed: `file | report | artifact` with format)
 - `success_criteria` (first-class assertions beyond exit code)

@@ -89,6 +89,28 @@ export type OnFailAction = 'analyze' | 'retry' | 'skip';
 /** Task selection mode for AI */
 export type SelectMode = 'smart' | 'always' | 'manual';
 
+/** Semantic class of an executable task */
+const TASK_TYPES = [
+  'build',
+  'test',
+  'lint',
+  'format',
+  'scan',
+  'package',
+  'publish',
+  'deploy',
+  'migrate',
+  'generate',
+  'verify',
+  'cleanup',
+] as const;
+
+export type TaskType = (typeof TASK_TYPES)[number];
+
+function isTaskType(value: string): value is TaskType {
+  return (TASK_TYPES as readonly string[]).includes(value);
+}
+
 /** Semantic metadata for AI understanding */
 interface Semantic {
   covers: string[];
@@ -369,6 +391,7 @@ export class Template {
 /** A single task in the pipeline */
 export class Task {
   private _command?: string;
+  private _taskType?: TaskType;
   private _container?: string;
   private _workdir?: string;
   private _env: Record<string, string> = {};
@@ -408,6 +431,15 @@ export class Task {
   /** Set the command to run */
   run(command: string): this {
     this._command = command;
+    return this;
+  }
+
+  /** Set the semantic class of this executable task */
+  taskType(taskType: TaskType): this {
+    if (!isTaskType(taskType)) {
+      throw new Error(`task '${this.name}': invalid task_type '${taskType}'`);
+    }
+    this._taskType = taskType;
     return this;
   }
 
@@ -784,6 +816,11 @@ export class Task {
     return undefined;
   }
 
+  /** @internal Whether this task declares task_type */
+  _hasTaskType(): boolean {
+    return this._taskType !== undefined;
+  }
+
   // ─────────────────────────────────────────────────────────────────────────────
   // Internal accessors (for Template and Pipeline use)
   // ─────────────────────────────────────────────────────────────────────────────
@@ -849,6 +886,7 @@ export class Task {
       name: this.name,
     };
     if (this._command) json.command = this._command;
+    if (this._taskType) json.task_type = this._taskType;
 
     if (this._container) json.container = this._container;
     if (this._workdir) json.workdir = this._workdir;
@@ -1079,6 +1117,11 @@ export class Review {
   /** @internal Get primitive */
   _getPrimitive(): string | undefined {
     return this._primitive;
+  }
+
+  /** @internal Whether this review declares task_type */
+  _hasTaskType(): boolean {
+    return false;
   }
 
   /** Convert to JSON representation (internal) */
@@ -1520,9 +1563,10 @@ export class Pipeline {
       this.directories.length > 0 ||
       this.caches.length > 0 ||
       this.tasks.some((t) => t._getContainer() || t._getMounts().length > 0);
+    const hasV3Features = this.tasks.some((t) => t._hasTaskType());
 
     const json: Record<string, unknown> = {
-      version: hasV2Features ? '2' : '1',
+      version: hasV3Features ? '3' : hasV2Features ? '2' : '1',
       tasks: this.tasks.map((t) => t._toJSON()),
     };
 

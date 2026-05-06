@@ -47,6 +47,8 @@ from typing import (
     IO,
     Any,
     Callable,
+    get_args,
+    Literal,
     NoReturn,
     Self,
     Sequence,
@@ -77,6 +79,7 @@ __all__ = [
     "from_vault",
     # Types
     "K8sOptions",
+    "TaskType",
     "ValidationError",
     "ExplainContext",
     # Presets
@@ -107,6 +110,24 @@ class SelectMode(str, enum.Enum):
     SMART = "smart"
     ALWAYS = "always"
     MANUAL = "manual"
+
+
+TaskType = Literal[
+    "build",
+    "test",
+    "lint",
+    "format",
+    "scan",
+    "package",
+    "publish",
+    "deploy",
+    "migrate",
+    "generate",
+    "verify",
+    "cleanup",
+]
+
+TASK_TYPES: tuple[str, ...] = get_args(TaskType)
 
 
 @dataclass(frozen=True)
@@ -387,6 +408,7 @@ class Task:
         self._pipeline = pipeline
         self._name = name
         self._is_gate = is_gate
+        self._task_type: TaskType | None = None
         self._command: str = ""
         self._container: str = ""
         self._workdir: str = ""
@@ -437,6 +459,12 @@ class Task:
         if not cmd:
             raise ValueError(f"task {self._name!r}: command cannot be empty")
         self._command = cmd
+        return self
+
+    def task_type(self, task_type: TaskType) -> Self:
+        """Set the semantic class of this executable task."""
+        _validate_enum(task_type, TASK_TYPES, "task_type", self._name)
+        self._task_type = task_type
         return self
 
     def after(self, *tasks: str) -> Self:
@@ -708,6 +736,8 @@ class Task:
 
         if self._command:
             d["command"] = self._command
+        if self._task_type is not None:
+            d["task_type"] = self._task_type
         if self._container:
             d["container"] = self._container
         if self._workdir:
@@ -1226,12 +1256,16 @@ class Pipeline:
                 return True
         return False
 
+    def _has_v3_features(self) -> bool:
+        return any(isinstance(t, Task) and t._task_type is not None for t in self._tasks)
+
     def _build_output(self) -> dict[str, Any]:
-        version = "2" if self._has_v2_features() else "1"
+        has_v2_features = self._has_v2_features()
+        version = "3" if self._has_v3_features() else "2" if has_v2_features else "1"
         output: dict[str, Any] = {"version": version}
 
         # Resources (v2)
-        if version == "2":
+        if has_v2_features:
             resources: dict[str, Any] = {}
             for d in self._dirs:
                 resources[d.id] = d._to_resource()

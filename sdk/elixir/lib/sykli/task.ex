@@ -3,8 +3,24 @@ defmodule Sykli.Task do
   Represents a single task in a pipeline.
   """
 
+  @task_types [
+    :build,
+    :test,
+    :lint,
+    :format,
+    :scan,
+    :package,
+    :publish,
+    :deploy,
+    :migrate,
+    :generate,
+    :verify,
+    :cleanup
+  ]
+
   defstruct name: nil,
             kind: :task,
+            task_type: nil,
             command: nil,
             primitive: nil,
             agent: nil,
@@ -60,6 +76,19 @@ defmodule Sykli.Task do
   @type criticality :: :high | :medium | :low
   @type on_fail_action :: :analyze | :retry | :skip
   @type select_mode :: :smart | :always | :manual
+  @type task_type ::
+          :build
+          | :test
+          | :lint
+          | :format
+          | :scan
+          | :package
+          | :publish
+          | :deploy
+          | :migrate
+          | :generate
+          | :verify
+          | :cleanup
 
   @type semantic :: %{
           covers: [String.t()],
@@ -75,6 +104,7 @@ defmodule Sykli.Task do
   @type t :: %__MODULE__{
           name: String.t(),
           kind: :task | :review,
+          task_type: task_type() | nil,
           command: String.t() | nil,
           primitive: String.t() | nil,
           agent: String.t() | nil,
@@ -109,4 +139,10 @@ defmodule Sykli.Task do
   def new(name) when is_binary(name) do
     %__MODULE__{name: name}
   end
+
+  @doc "Returns the allowed task_type values."
+  def task_types, do: @task_types
+
+  @doc "Returns true when the value is an allowed task_type."
+  def valid_task_type?(type), do: type in @task_types
 end

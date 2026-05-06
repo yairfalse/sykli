@@ -500,5 +500,11 @@ defmodule Sykli.MCP.Tools do
   defp format_error({:typescript_failed, msg}), do: "TypeScript SDK failed: #{msg}"
   defp format_error({:python_failed, msg}), do: "Python SDK failed: #{msg}"
   defp format_error({:missing_tool, tool, hint}), do: "Missing #{tool}: #{hint}"
+  defp format_error({:task_type_on_review, _} = reason), do: Sykli.Graph.format_error(reason)
+
+  defp format_error({:task_type_requires_version_3, _, _, _} = reason),
+    do: Sykli.Graph.format_error(reason)
+
+  defp format_error({:unknown_task_type, _, _} = reason), do: Sykli.Graph.format_error(reason)
   defp format_error(reason), do: inspect(reason)
 end

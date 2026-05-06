@@ -6,10 +6,28 @@
   "type": "object",
   "required": ["version", "tasks"],
   "additionalProperties": false,
+  "allOf": [
+    {
+      "description": "`task_type` is the first agent-native semantic field and requires pipeline version 3.",
+      "if": {
+        "properties": { "version": { "not": { "const": "3" } } },
+        "required": ["version"]
+      },
+      "then": {
+        "properties": {
+          "tasks": {
+            "items": {
+              "not": { "required": ["task_type"] }
+            }
+          }
+        }
+      }
+    }
+  ],
   "properties": {
     "version": {
-      "description": "Pipeline schema version. Currently advisory — the engine does not branch on this value. SDKs auto-detect: '2' if any container, mount, dir, or cache resource is used; '1' otherwise.",
-      "enum": ["1", "2"]
+      "description": "Pipeline wire-format/schema version. SDKs auto-detect: '3' if any executable task uses task_type; otherwise '2' if any container, mount, dir, or cache resource is used; '1' otherwise.",
+      "enum": ["1", "2", "3"]
     },
     "tasks": {
       "description": "List of task objects. May be empty.",
@@ -91,7 +109,8 @@
                 { "required": ["k8s"] },
                 { "required": ["mounts"] },
                 { "required": ["retry"] },
-                { "required": ["timeout"] }
+                { "required": ["timeout"] },
+                { "required": ["task_type"] }
               ]
             }
           }
@@ -110,6 +129,23 @@
         "command": {
           "description": "Shell command to execute. Required for regular (non-gate, non-review) tasks; the engine raises `missing_command` otherwise (validate.ex:230-253). Gates and review tasks have no command.",
           "type": "string"
+        },
+        "task_type": {
+          "description": "Agent-native semantic class of an executable task. Requires top-level version == \"3\". Rejected on review nodes.",
+          "enum": [
+            "build",
+            "test",
+            "lint",
+            "format",
+            "scan",
+            "package",
+            "publish",
+            "deploy",
+            "migrate",
+            "generate",
+            "verify",
+            "cleanup"
+          ]
         },
         "container": {
           "description": "Container image (e.g., `golang:1.21`). Triggers v2 emission.",
@@ -371,7 +407,7 @@
           "readOnly": true
         },
         "primitive": {
-          "description": "Review-only. Identifier of the review primitive (e.g., `lint`, `security-scan`). Meaningful only when `kind == \"review\"`. Currently emitted only by the Go SDK; experimental.",
+          "description": "Review-only. Identifier of the review primitive (e.g., `lint`, `security-scan`). Meaningful only when `kind == \"review\"`. Experimental.",
           "type": "string"
         },
         "agent": {

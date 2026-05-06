@@ -147,6 +147,47 @@ defmodule SykliTest do
       refute Map.has_key?(review, "command")
       refute Map.has_key?(review, "outputs")
     end
+
+    test "task_type emits version 3" do
+      use Sykli
+
+      result =
+        pipeline do
+          task "build" do
+            run("go build ./...")
+            task_type(:build)
+          end
+
+          task "test" do
+            run("go test ./...")
+            task_type(:test)
+            after_(["build"])
+          end
+        end
+
+      json = Sykli.Emitter.to_json(result)
+      decoded = Jason.decode!(json)
+
+      assert decoded["version"] == "3"
+      assert Enum.at(decoded["tasks"], 0)["task_type"] == "build"
+      assert Enum.at(decoded["tasks"], 1)["task_type"] == "test"
+    end
+
+    test "task_type with v2 features still emits version 3" do
+      use Sykli
+
+      result =
+        pipeline do
+          task "test" do
+            run("go test ./...")
+            task_type(:test)
+            container("golang:1.22")
+          end
+        end
+
+      decoded = result |> Sykli.Emitter.to_json() |> Jason.decode!()
+      assert decoded["version"] == "3"
+    end
   end
 
   describe "validation" do
@@ -188,6 +229,32 @@ defmodule SykliTest do
         end
 
       assert Sykli.Emitter.validate!(pipeline) == pipeline
+    end
+
+    test "rejects invalid task_type" do
+      use Sykli
+
+      assert_raise ArgumentError, ~r/invalid task_type/, fn ->
+        pipeline do
+          task "test" do
+            task_type(:custom)
+            run("go test ./...")
+          end
+        end
+      end
+    end
+
+    test "rejects task_type inside review" do
+      use Sykli
+
+      assert_raise RuntimeError, ~r/task_type cannot be used inside a review block/, fn ->
+        pipeline do
+          review "review-code" do
+            primitive("lint")
+            task_type(:lint)
+          end
+        end
+      end
     end
 
     test "review requires primitive" do

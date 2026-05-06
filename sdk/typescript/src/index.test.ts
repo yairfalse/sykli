@@ -53,6 +53,39 @@ describe('Pipeline', () => {
       expect(json.version).toBe('2');
     });
 
+    it('serializes task_type and emits version 3', () => {
+      const p = new Pipeline();
+      p.task('build').run('go build ./...').taskType('build');
+      p.task('test').run('go test ./...').taskType('test').after('build');
+
+      const json = p.toJSON();
+      const tasks = json.tasks as any[];
+
+      expect(json.version).toBe('3');
+      expect(tasks[0].task_type).toBe('build');
+      expect(tasks[1].task_type).toBe('test');
+    });
+
+    it('keeps version 3 when task_type is combined with v2 features', () => {
+      const p = new Pipeline();
+      p.task('test').run('go test ./...').taskType('test').container('golang:1.22');
+
+      const json = p.toJSON();
+      expect(json.version).toBe('3');
+    });
+
+    it('rejects invalid task_type values at runtime', () => {
+      const p = new Pipeline();
+      expect(() => p.task('thing').run('echo hi').taskType('custom' as any)).toThrow(
+        "invalid task_type 'custom'"
+      );
+    });
+
+    it('does not expose taskType on review nodes', () => {
+      const p = new Pipeline();
+      expect((p.review('review-code') as any).taskType).toBeUndefined();
+    });
+
     it('creates an experimental review node', () => {
       const p = new Pipeline();
       p.task('test').run('go test ./...');

@@ -71,6 +71,15 @@ class TestFailFastValidation:
         with pytest.raises(ValueError):
             p.task("test").select_mode("random")
 
+    def test_invalid_task_type(self):
+        p = Pipeline()
+        with pytest.raises(ValueError, match="invalid task_type"):
+            p.task("test").task_type("custom")
+
+    def test_review_nodes_do_not_expose_task_type(self):
+        p = Pipeline()
+        assert not hasattr(p.review("review-code"), "task_type")
+
     def test_invalid_gate_strategy(self):
         p = Pipeline()
         with pytest.raises(ValueError):
