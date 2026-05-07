@@ -1,10 +1,29 @@
 defmodule Sykli.SuccessCriteria do
   @moduledoc """
-  Shared validation for success_criteria metadata in the semantic pipeline contract.
-
-  This module validates declared criteria only. It does not evaluate them during
-  task execution.
+  Shared validation and result helpers for success_criteria in the semantic
+  pipeline contract.
   """
+
+  defmodule Result do
+    @moduledoc """
+    Result of evaluating one success criterion in a target-owned execution
+    context.
+    """
+
+    @enforce_keys [:index, :type, :status, :message]
+    defstruct [:index, :type, :status, :message, :evidence, :target]
+
+    @type status :: :passed | :failed | :unsupported
+
+    @type t :: %__MODULE__{
+            index: non_neg_integer(),
+            type: String.t(),
+            status: status(),
+            message: String.t(),
+            evidence: map() | nil,
+            target: String.t() | nil
+          }
+  end
 
   @types ~w(exit_code file_exists file_non_empty)
   @exit_code_range 0..255
@@ -48,6 +67,35 @@ defmodule Sykli.SuccessCriteria do
 
   @spec format_error(term()) :: String.t()
   def format_error(reason), do: "Error: #{message(reason)}"
+
+  @spec passed?(Result.t()) :: boolean()
+  def passed?(%Result{status: :passed}), do: true
+  def passed?(%Result{}), do: false
+
+  @spec failures([Result.t()]) :: [Result.t()]
+  def failures(results) do
+    Enum.reject(results, &passed?/1)
+  end
+
+  @spec unsupported_results(
+          [map()],
+          String.t() | nil,
+          String.t()
+        ) :: [Result.t()]
+  def unsupported_results(criteria, target_name, message) do
+    criteria
+    |> Enum.with_index()
+    |> Enum.map(fn {criterion, index} ->
+      %Result{
+        index: index,
+        type: Map.get(criterion, "type", "unknown"),
+        status: :unsupported,
+        message: message,
+        evidence: criterion,
+        target: target_name
+      }
+    end)
+  end
 
   @spec message(term()) :: String.t()
   def message({:success_criteria_on_review, task_name}) do

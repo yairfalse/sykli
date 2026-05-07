@@ -596,12 +596,16 @@ verification checks against declared status or artifacts. They do not sandbox
 syscalls, network use, filesystem writes, external API calls, or database
 writes.
 
-Phase 3C-1 stores, validates, and emits `success_criteria` only. It does not
-wire criteria into executor result, retry, cache, target, or runtime paths. The
-engine must not silently pretend to enforce criteria before target-level
-checking exists.
+Phase 3C-1 stored, validated, and emitted `success_criteria` only. Enforcement
+begins at the target boundary: the executor orchestrates checks after command
+success, and the target evaluates criteria in the execution context it owns.
+Unsupported targets or runtime combinations must fail explicitly rather than
+silently skipping criteria.
 
-The semantic direction remains engine-checkable verification for Phase 3C-2.
+Local shell execution can evaluate `exit_code`, `file_exists`, and
+`file_non_empty` relative to the resolved task workdir. Container, Kubernetes,
+and remote targets need target-specific implementations because they do not
+share the same filesystem reality as the host.
 
 ### Outputs relationship
 
@@ -666,8 +670,10 @@ Rules:
 
 - `path` is required.
 - `path` must be a string.
-- `path` is relative to the task `workdir` unless it is absolute.
-- The criterion checks existence only.
+- `path` is relative to the task `workdir`.
+- Absolute paths and paths that escape the task workdir are not portable and
+  should be rejected or reported unsupported by enforcing targets.
+- The criterion checks regular-file existence only.
 
 #### `file_non_empty`
 

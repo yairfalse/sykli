@@ -78,7 +78,7 @@ The full canonical field list, with stability labels:
 | `kind` | experimental | no | `"task"` (default) or `"review"` |
 | `command` | stable | conditional | required unless `gate` is set or `kind == "review"` |
 | `task_type` | stable, v3-only | no | executable-task semantic class |
-| `success_criteria` | experimental, v3-only | no | declared executable-task success checks; metadata-only in 3C-1 |
+| `success_criteria` | experimental, v3-only | no | declared executable-task success checks; enforced by targets that support them |
 | `container` | stable | no | triggers v2 |
 | `workdir` | stable | no | |
 | `env` | stable | no | object of string values |
@@ -154,7 +154,7 @@ Allowed values:
 
 ### `success_criteria`
 
-Declared verification metadata for executable task success beyond command
+Declared verification rules for executable task success beyond command
 completion.
 
 Rules:
@@ -163,15 +163,20 @@ Rules:
 - Applies only to executable tasks (`kind` omitted or `kind == "task"`).
 - Rejected on `kind == "review"` nodes.
 - Optional.
-- Criteria are conjunctive: all declared criteria must pass when engine checking
-  is implemented.
-- Does not change execution behavior in Phase 3C-1.
+- Criteria are conjunctive: all declared criteria must pass when evaluated.
+- Criteria may change execution result: if the command succeeds but a criterion
+  fails, the task fails with a `success_criteria` failure.
 - Does not replace `task_type`, review-node `primitive`, or `outputs`.
 
-Phase 3C-1 stores, validates, and emits `success_criteria` as declared
-verification metadata. It is intended to become engine-checked in Phase 3C-2,
-but the engine must not silently pretend to enforce it yet. In 3C-1, no
-executor, retry, cache, target, or runtime behavior changes.
+The executor orchestrates `success_criteria` evaluation after the task command
+succeeds. The target evaluates criteria in the execution context it owns. The
+local shell target currently supports `exit_code`, `file_exists`, and
+`file_non_empty`. Unsupported targets or runtime combinations fail explicitly
+instead of silently skipping declared criteria.
+
+Tasks with `success_criteria` are executed instead of being accepted from cache,
+because a cached result cannot currently prove target-owned criteria in the
+active execution context.
 
 Initial criterion types:
 
@@ -181,6 +186,8 @@ Initial criterion types:
 
 Only one `exit_code` criterion may appear on a task. `equals` must be an
 integer from 0 through 255. File criteria require a non-empty string `path`.
+Enforcing targets evaluate file paths relative to the resolved task workdir;
+absolute paths or paths that escape the workdir are not portable and may fail.
 
 Declared `outputs` are artifact expectations and do not imply success checks.
 To require an output path to exist or be non-empty, declare an explicit
