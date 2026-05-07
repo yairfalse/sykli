@@ -83,7 +83,12 @@ defmodule Sykli.Validate do
   defp validate_data(data) do
     tasks = data["tasks"] || []
     version_result = Sykli.ContractSchemaVersion.fetch(data)
-    version = if match?({:ok, _}, version_result), do: elem(version_result, 1), else: nil
+
+    version =
+      case version_result do
+        {:ok, version} -> version
+        {:error, _reason} -> nil
+      end
 
     task_names =
       tasks
@@ -98,8 +103,7 @@ defmodule Sykli.Validate do
       |> check_self_deps(tasks)
       |> check_missing_deps(tasks, task_names)
       |> check_missing_commands(tasks)
-      |> check_task_types(tasks, version)
-      |> check_success_criteria(tasks, version)
+      |> check_version_gated_fields(tasks, version_result, version)
       |> check_cycles(tasks)
 
     warnings =
@@ -121,6 +125,14 @@ defmodule Sykli.Validate do
 
   defp check_contract_schema_version(errors, {:error, reason}) do
     [Sykli.ContractSchemaVersion.to_error_map(reason) | errors]
+  end
+
+  defp check_version_gated_fields(errors, _tasks, {:error, _reason}, _version), do: errors
+
+  defp check_version_gated_fields(errors, tasks, {:ok, _version}, version) do
+    errors
+    |> check_task_types(tasks, version)
+    |> check_success_criteria(tasks, version)
   end
 
   defp check_empty_names(errors, tasks) do

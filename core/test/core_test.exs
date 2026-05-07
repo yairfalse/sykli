@@ -26,6 +26,8 @@ defmodule SykliTest do
        {:invalid_contract_schema_version_type, nil}},
       {~s({"version":"","tasks":[{"name":"test","command":"go test ./..."}]}),
        :empty_contract_schema_version},
+      {~s({"version":"   ","tasks":[{"name":"test","command":"go test ./..."}]}),
+       :empty_contract_schema_version},
       {~s({"version":1,"tasks":[{"name":"test","command":"go test ./..."}]}),
        {:invalid_contract_schema_version_type, 1}},
       {~s({"version":0.1,"tasks":[{"name":"test","command":"go test ./..."}]}),

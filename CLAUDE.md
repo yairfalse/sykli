@@ -277,7 +277,7 @@ Some cases carry `expected_failure: true`, which marks them as known-broken cont
   - `Sykli.ContractSchemaVersion` — supported `version` values + missing/empty/wrong-type/unsupported error policy.
 
   When adding a new closed-enum field or shared-policy concept, follow this pattern. SDKs must carry their own copies (separate Mix projects — engine modules are unreachable from `sdk/<lang>/`).
-- **Engine error formatting** — parse-time errors render via `Sykli.Graph.format_error/1` (also delegated to from `Sykli.MCP.Tools`); validate-time errors render via `Sykli.Validate.format_errors/1`. Validate-path strings prefix `"Error: "`; parse-path strings don't. Keep new error tuples consistent with the path that produces them.
+- **Engine error formatting** — parse-time errors render via `Sykli.Graph.format_error/1` (also delegated to from `Sykli.MCP.Tools`); validate-time errors render via `Sykli.Validate.format_errors/1`. Both paths prefix rendered strings with `"Error: "`. Keep new error tuples consistent with the path that produces them.
 
 ## CLI output rules
 

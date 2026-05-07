@@ -65,6 +65,8 @@ defmodule Sykli.ValidateTest do
          "invalid contract schema version: expected string, got null"},
         {~s({"version":"","tasks":[{"name":"test","command":"echo test"}]}),
          :empty_contract_schema_version, "empty contract schema version"},
+        {~s({"version":"   ","tasks":[{"name":"test","command":"echo test"}]}),
+         :empty_contract_schema_version, "empty contract schema version"},
         {~s({"version":1,"tasks":[{"name":"test","command":"echo test"}]}),
          :invalid_contract_schema_version_type,
          "invalid contract schema version: expected string, got integer"},
@@ -97,6 +99,16 @@ defmodule Sykli.ValidateTest do
         refute result.valid
         assert Enum.any?(result.errors, &(&1.type == type and &1.message == message))
       end
+    end
+
+    test "does not cascade version-gated semantic field errors when version is invalid" do
+      json =
+        ~s({"tasks":[{"name":"test","command":"go test","task_type":"test","success_criteria":[{"type":"exit_code","equals":0}]}]})
+
+      result = Validate.validate_json(json)
+
+      refute result.valid
+      assert Enum.map(result.errors, & &1.type) == [:missing_contract_schema_version]
     end
 
     test "detects cycle in dependencies" do
