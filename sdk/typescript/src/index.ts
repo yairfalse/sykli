@@ -261,39 +261,6 @@ export interface K8sOptions {
   cpu?: string;
   /** Number of NVIDIA GPUs to request. */
   gpu?: number;
-  /** Kubernetes namespace to run in. */
-  namespace?: string;
-  /** Node selector labels for pod scheduling. */
-  nodeSelector?: Record<string, string>;
-  /** Tolerations for pod scheduling. */
-  tolerations?: Array<{
-    key?: string;
-    operator?: string;
-    value?: string;
-    effect?: string;
-    tolerationSeconds?: number;
-  }>;
-  /** Priority class name for the pod. */
-  priorityClassName?: string;
-  /** Resource requests/limits (alternative to memory/cpu shorthand). */
-  resources?: {
-    requests?: Record<string, string>;
-    limits?: Record<string, string>;
-  };
-  /** Service account name for the pod. */
-  serviceAccount?: string;
-  /** Security context for the pod. */
-  securityContext?: Record<string, unknown>;
-  /** Use host network for the pod. */
-  hostNetwork?: boolean;
-  /** DNS policy for the pod. */
-  dnsPolicy?: string;
-  /** Additional volumes to mount. */
-  volumes?: Array<Record<string, unknown>>;
-  /** Labels to apply to the pod. */
-  labels?: Record<string, string>;
-  /** Annotations to apply to the pod. */
-  annotations?: Record<string, string>;
 }
 
 // =============================================================================
@@ -1569,21 +1536,11 @@ export class Pipeline {
       return this.k8sDefaults;
     }
 
-    // Deep merge with task options taking precedence
+    // Merge the canonical structured K8s fields with task options taking precedence.
     return {
-      namespace: taskOpts.namespace ?? this.k8sDefaults.namespace,
-      nodeSelector: { ...this.k8sDefaults.nodeSelector, ...taskOpts.nodeSelector },
-      tolerations: taskOpts.tolerations ?? this.k8sDefaults.tolerations,
-      priorityClassName: taskOpts.priorityClassName ?? this.k8sDefaults.priorityClassName,
-      resources: taskOpts.resources ?? this.k8sDefaults.resources,
+      memory: taskOpts.memory ?? this.k8sDefaults.memory,
+      cpu: taskOpts.cpu ?? this.k8sDefaults.cpu,
       gpu: taskOpts.gpu ?? this.k8sDefaults.gpu,
-      serviceAccount: taskOpts.serviceAccount ?? this.k8sDefaults.serviceAccount,
-      securityContext: taskOpts.securityContext ?? this.k8sDefaults.securityContext,
-      hostNetwork: taskOpts.hostNetwork ?? this.k8sDefaults.hostNetwork,
-      dnsPolicy: taskOpts.dnsPolicy ?? this.k8sDefaults.dnsPolicy,
-      volumes: taskOpts.volumes ?? this.k8sDefaults.volumes,
-      labels: { ...this.k8sDefaults.labels, ...taskOpts.labels },
-      annotations: { ...this.k8sDefaults.annotations, ...taskOpts.annotations },
     };
   }
 

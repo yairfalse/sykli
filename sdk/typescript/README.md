@@ -248,43 +248,20 @@ p.task('db-migrate')
 p.task('ml-train')
   .container('pytorch/pytorch:2.0')
   .k8s({
-    namespace: 'ml-jobs',
-    resources: {
-      requestCpu: '4',
-      requestMemory: '16Gi',
-      limitCpu: '8',
-      limitMemory: '32Gi',
-    },
+    memory: '32Gi',
+    cpu: '4',
     gpu: 1,
-    nodeSelector: { 'gpu-type': 'nvidia-a100' },
-    tolerations: [
-      { key: 'nvidia.com/gpu', operator: 'Exists', effect: 'NoSchedule' },
-    ],
-    serviceAccount: 'ml-runner',
-    securityContext: {
-      runAsNonRoot: true,
-      readOnlyRootFilesystem: true,
-    },
-  });
+  })
+  .k8sRaw('{"nodeSelector":{"gpu-type":"nvidia-a100"},"tolerations":[{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}],"serviceAccount":"ml-runner","securityContext":{"runAsNonRoot":true,"readOnlyRootFilesystem":true}}');
 ```
 
 ### K8s Types
 
 ```typescript
 interface K8sOptions {
-  namespace?: string;
-  nodeSelector?: Record<string, string>;
-  tolerations?: K8sToleration[];
-  priorityClassName?: string;
-  resources?: K8sResources;
+  memory?: string;
+  cpu?: string;
   gpu?: number;
-  serviceAccount?: string;
-  securityContext?: K8sSecurityContext;
-  hostNetwork?: boolean;
-  dnsPolicy?: string;
-  volumes?: K8sVolume[];
-  labels?: Record<string, string>;
-  annotations?: Record<string, string>;
 }
 ```
 
@@ -424,14 +401,13 @@ Set K8s defaults for all tasks:
 ```typescript
 const p = new Pipeline({
   k8sDefaults: {
-    namespace: 'ci-jobs',
-    serviceAccount: 'ci-runner',
-    resources: { requestMemory: '2Gi' },
+    memory: '2Gi',
+    cpu: '1',
   },
 });
 
 // All tasks inherit defaults, can override per-task
-p.task('build').run('npm build').k8s({ resources: { requestMemory: '4Gi' } });
+p.task('build').run('npm build').k8s({ memory: '4Gi' });
 ```
 
 ## API Reference

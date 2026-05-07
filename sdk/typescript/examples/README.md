@@ -53,9 +53,9 @@ task.whenCond(branch('main').or(hasTag()));
 
 // Type-safe K8s options
 task.k8s({
-  resources: { requestMemory: '4Gi' },
-  nodeSelector: { 'gpu-type': 'nvidia' },
-});
+  memory: '4Gi',
+  cpu: '2',
+}).k8sRaw('{"nodeSelector":{"gpu-type":"nvidia"}}');
 
 // Autocomplete for all methods
 p.task('build')
