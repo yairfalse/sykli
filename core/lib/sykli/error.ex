@@ -9,15 +9,15 @@ defmodule Sykli.Error do
   - Actionable hints for every error
   - Visual consistency across the CLI
 
-   ## Error Codes
+  ## Error Codes
 
-   | Code | Category | Description |
-   |------|----------|-------------|
-   | task_failed | execution | Task command failed |
-   | task_timeout | execution | Task timed out |
-   | success_criteria_failed | execution | Declared success criteria failed |
-   | unsupported_success_criteria_for_target | execution | Target cannot evaluate declared success criteria |
-   | missing_secrets | execution | Missing secrets |
+  | Code | Category | Description |
+  |------|----------|-------------|
+  | task_failed | execution | Task command failed |
+  | task_timeout | execution | Task timed out |
+  | success_criteria_failed | execution | Declared success criteria failed |
+  | unsupported_success_criteria_for_target | execution | Target cannot evaluate declared success criteria |
+  | missing_secrets | execution | Missing secrets |
   | dependency_cycle | validation | Circular dependency in task graph |
   | invalid_service | validation | Invalid service config |
   | invalid_mount | validation | Invalid mount config |

@@ -468,7 +468,7 @@ defmodule Sykli.Target.Local do
     criterion_unsupported(
       index,
       type,
-      "unsupported success_criteria type #{inspect(type)}",
+      "unrecognized success_criteria type #{inspect(type)}",
       criterion
     )
   end
@@ -490,9 +490,12 @@ defmodule Sykli.Target.Local do
   end
 
   defp stat_regular_file(resolved_path, path) do
-    case File.stat(resolved_path) do
+    case File.lstat(resolved_path) do
       {:ok, %{type: :regular} = stat} ->
         {:ok, stat}
+
+      {:ok, %{type: :symlink}} ->
+        {:error, "symlinks are not supported for success_criteria paths", %{path: path}}
 
       {:ok, %{type: type}} ->
         {:error, "path is not a regular file", %{path: path, file_type: type}}

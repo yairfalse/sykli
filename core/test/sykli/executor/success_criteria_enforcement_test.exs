@@ -305,6 +305,38 @@ defmodule Sykli.Executor.SuccessCriteriaEnforcementTest do
             ]} = Executor.run([task], graph(task), target: Local, workdir: workdir)
   end
 
+  test "file criteria reject symlinks instead of following them outside workdir", %{
+    workdir: workdir
+  } do
+    outside = Path.join(System.tmp_dir!(), "sykli-outside-#{System.unique_integer([:positive])}")
+    File.write!(outside, "outside")
+
+    on_exit(fn -> File.rm(outside) end)
+
+    File.ln_s!(outside, Path.join(workdir, "inside-link.txt"))
+
+    task =
+      task("symlink-file",
+        command: "echo ok",
+        success_criteria: [%{"type" => "file_exists", "path" => "inside-link.txt"}]
+      )
+
+    assert {:error,
+            [
+              %TaskResult{
+                status: :failed,
+                error: %Error{code: "success_criteria_failed"},
+                success_criteria_results: [
+                  %Result{
+                    type: "file_exists",
+                    status: :failed,
+                    message: "symlinks are not supported for success_criteria paths"
+                  }
+                ]
+              }
+            ]} = Executor.run([task], graph(task), target: Local, workdir: workdir)
+  end
+
   defp task(name, opts) do
     struct!(
       Task,
