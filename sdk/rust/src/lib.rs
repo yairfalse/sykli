@@ -203,6 +203,12 @@ impl K8sOptions {
     }
 }
 
+fn assert_valid_k8s_options(opts: &K8sOptions) {
+    if let Some(err) = opts.validate().into_iter().next() {
+        panic!("{}", err);
+    }
+}
+
 /// Error from K8s options validation.
 #[derive(Debug, Clone)]
 pub struct K8sValidationError {
@@ -1666,23 +1672,21 @@ impl<'a> Task<'a> {
     ///
     /// # Example
     /// ```rust,ignore
-    /// use sykli::{Pipeline, K8sOptions, K8sResources};
+    /// use sykli::{Pipeline, K8sOptions};
     ///
     /// let mut p = Pipeline::new();
     /// p.task("build")
     ///     .run("cargo build")
     ///     .k8s(K8sOptions {
-    ///         resources: K8sResources {
-    ///             memory: Some("4Gi".into()),
-    ///             cpu: Some("2".into()),
-    ///             ..Default::default()
-    ///         },
+    ///         memory: Some("4Gi".into()),
+    ///         cpu: Some("2".into()),
     ///         ..Default::default()
     ///     });
     /// ```
     #[must_use]
     pub fn k8s(self, opts: K8sOptions) -> Self {
         debug!(task = %self.pipeline.tasks[self.index].name, "setting k8s options");
+        assert_valid_k8s_options(&opts);
         self.pipeline.tasks[self.index].k8s_options = Some(opts);
         self
     }
@@ -1866,25 +1870,23 @@ impl Pipeline {
     ///
     /// # Example
     /// ```rust,ignore
-    /// use sykli::{Pipeline, K8sOptions, K8sResources};
+    /// use sykli::{Pipeline, K8sOptions};
     ///
     /// let mut p = Pipeline::with_k8s_defaults(K8sOptions {
-    ///     namespace: Some("ci-jobs".into()),
-    ///     resources: K8sResources {
-    ///         memory: Some("2Gi".into()),
-    ///         ..Default::default()
-    ///     },
+    ///     memory: Some("2Gi".into()),
+    ///     cpu: Some("1".into()),
     ///     ..Default::default()
     /// });
     ///
     /// p.task("test").run("go test");     // inherits defaults
-    /// p.task("heavy").k8s(K8sOptions {   // overrides memory
-    ///     resources: K8sResources { memory: Some("32Gi".into()), ..Default::default() },
+    /// p.task("heavy").k8s(K8sOptions {
+    ///     memory: Some("32Gi".into()),
     ///     ..Default::default()
     /// }).run("heavy-job");
     /// ```
     #[must_use]
     pub fn with_k8s_defaults(k8s_defaults: K8sOptions) -> Self {
+        assert_valid_k8s_options(&k8s_defaults);
         Pipeline {
             tasks: Vec::new(),
             dirs: Vec::new(),
@@ -4302,15 +4304,15 @@ mod tests {
             ("lots", "invalid memory format"),
         ];
         for (mem, expected_hint) in cases {
-            let mut p = Pipeline::new();
-            p.task("test").run("echo test").k8s(K8sOptions {
-                memory: Some(mem.to_string()),
-                ..Default::default()
+            let result = std::panic::catch_unwind(|| {
+                let mut p = Pipeline::new();
+                p.task("test").run("echo test").k8s(K8sOptions {
+                    memory: Some(mem.to_string()),
+                    ..Default::default()
+                });
             });
-            let mut buf = Vec::new();
-            let result = p.emit_to(&mut buf);
-            assert!(result.is_err(), "expected {} to fail", mem);
-            let err_msg = result.unwrap_err().to_string();
+            assert!(result.is_err(), "expected {} to fail at build time", mem);
+            let err_msg = panic_message(result.unwrap_err());
             assert!(
                 err_msg.contains(expected_hint),
                 "expected error for {} to contain '{}', got: {}",
@@ -4338,14 +4340,24 @@ mod tests {
     fn test_k8s_validation_invalid_cpu_formats() {
         let cases = ["100cores", "2 cores", "fast"];
         for cpu in cases {
-            let mut p = Pipeline::new();
-            p.task("test").run("echo test").k8s(K8sOptions {
-                cpu: Some(cpu.to_string()),
-                ..Default::default()
+            let result = std::panic::catch_unwind(|| {
+                let mut p = Pipeline::new();
+                p.task("test").run("echo test").k8s(K8sOptions {
+                    cpu: Some(cpu.to_string()),
+                    ..Default::default()
+                });
             });
-            let mut buf = Vec::new();
-            let result = p.emit_to(&mut buf);
-            assert!(result.is_err(), "expected {} to fail", cpu);
+            assert!(result.is_err(), "expected {} to fail at build time", cpu);
+        }
+    }
+
+    fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {
+        if let Some(message) = payload.downcast_ref::<String>() {
+            message.clone()
+        } else if let Some(message) = payload.downcast_ref::<&str>() {
+            message.to_string()
+        } else {
+            "<non-string panic>".to_string()
         }
     }
 
@@ -4413,20 +4425,14 @@ mod tests {
 
     #[test]
     fn test_k8s_validation_with_defaults() {
-        // Validation should happen after merging with defaults
-        let mut p = Pipeline::with_k8s_defaults(K8sOptions {
-            memory: Some("invalid_memory".to_string()),
-            ..Default::default()
+        let result = std::panic::catch_unwind(|| {
+            Pipeline::with_k8s_defaults(K8sOptions {
+                memory: Some("invalid_memory".to_string()),
+                ..Default::default()
+            });
         });
-        p.task("test").run("echo test");
-
-        let mut buf = Vec::new();
-        let result = p.emit_to(&mut buf);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("invalid memory format"));
+        assert!(panic_message(result.unwrap_err()).contains("invalid memory format"));
     }
 
     // =========================================================================

@@ -570,6 +570,17 @@ describe('K8s Options (Minimal API)', () => {
     const task = (json.tasks as any[])[0];
     expect(task.k8s).toBeUndefined();
   });
+
+  it('merges only canonical k8s defaults into emitted JSON', () => {
+    const p = new Pipeline({ k8sDefaults: { memory: '2Gi', cpu: '1', gpu: 1 } });
+    p.task('build')
+      .run('npm run build')
+      .k8s({ memory: '4Gi' });
+
+    const json = p.toJSON();
+    const task = (json.tasks as any[])[0];
+    expect(task.k8s).toEqual({ memory: '4Gi', cpu: '1', gpu: 1 });
+  });
 });
 
 // =============================================================================

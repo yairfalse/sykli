@@ -93,8 +93,22 @@ const (
 	TaskTypeCleanup  TaskType = "cleanup"
 )
 
+var taskTypes = map[TaskType]struct{}{
+	TaskTypeBuild:    {},
+	TaskTypeTest:     {},
+	TaskTypeLint:     {},
+	TaskTypeFormat:   {},
+	TaskTypeScan:     {},
+	TaskTypePackage:  {},
+	TaskTypePublish:  {},
+	TaskTypeDeploy:   {},
+	TaskTypeMigrate:  {},
+	TaskTypeGenerate: {},
+	TaskTypeVerify:   {},
+	TaskTypeCleanup:  {},
+}
+
 // SuccessCriterion is declared verification metadata for executable task success.
-// Phase 3C-1 emits this metadata, but the engine does not evaluate it yet.
 type SuccessCriterion struct {
 	criterionType string
 	equals        *int
@@ -142,23 +156,8 @@ func validateSuccessCriteria(taskName string, criteria []SuccessCriterion) {
 }
 
 func validTaskType(taskType TaskType) bool {
-	switch taskType {
-	case TaskTypeBuild,
-		TaskTypeTest,
-		TaskTypeLint,
-		TaskTypeFormat,
-		TaskTypeScan,
-		TaskTypePackage,
-		TaskTypePublish,
-		TaskTypeDeploy,
-		TaskTypeMigrate,
-		TaskTypeGenerate,
-		TaskTypeVerify,
-		TaskTypeCleanup:
-		return true
-	default:
-		return false
-	}
+	_, ok := taskTypes[taskType]
+	return ok
 }
 
 // PipelineOption configures a Pipeline.
