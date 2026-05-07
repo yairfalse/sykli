@@ -184,6 +184,31 @@ defmodule Sykli.Target.Behaviour do
   @callback run_task(task_spec(), state(), run_opts()) ::
               :ok | {:ok, String.t()} | {:error, term()}
 
+  @doc """
+  Evaluates declared success criteria in the target-owned execution context.
+
+  This callback is called only after the task command itself succeeds. Targets
+  must evaluate criteria relative to their own filesystem/runtime model. A
+  target that cannot evaluate a criterion must return an unsupported result;
+  the executor treats unsupported criteria as task failure.
+
+  Options include the run_task/3 options plus:
+
+  - `:command_exit_code` - Exit code observed by the target, when available
+  - `:command_output` - Captured command output, when available
+  - `:duration_ms` - Command execution duration, when available
+  """
+  @callback evaluate_success_criteria(
+              task_spec(),
+              [map()],
+              state(),
+              run_opts()
+            ) ::
+              {:ok, [Sykli.SuccessCriteria.Result.t()]}
+              | {:error, Sykli.Error.t(), [Sykli.SuccessCriteria.Result.t()]}
+
+  @optional_callbacks evaluate_success_criteria: 4
+
   # ─────────────────────────────────────────────────────────────────────────────
   # SECRETS
   # ─────────────────────────────────────────────────────────────────────────────

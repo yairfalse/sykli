@@ -128,6 +128,17 @@ defmodule Sykli.Target.K8s do
     :ok
   end
 
+  @impl true
+  def evaluate_success_criteria(task, criteria, _state, _opts) do
+    message = "target does not support success_criteria evaluation"
+    results = Sykli.SuccessCriteria.unsupported_results(criteria, name(), message)
+
+    {:error,
+     Sykli.Error.unsupported_success_criteria_for_target(task.name, name(), results,
+       command: task.command
+     ), results}
+  end
+
   # ─────────────────────────────────────────────────────────────────────────────
   # SECRETS
   # ─────────────────────────────────────────────────────────────────────────────

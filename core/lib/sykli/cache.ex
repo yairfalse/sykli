@@ -172,6 +172,10 @@ defmodule Sykli.Cache do
   def format_miss_reason(:corrupted), do: "cache corrupted"
   def format_miss_reason(:blobs_missing), do: "outputs missing"
   def format_miss_reason(:config_changed), do: "config changed"
+
+  def format_miss_reason(:success_criteria_requires_execution),
+    do: "success criteria require execution"
+
   def format_miss_reason(other), do: "#{other}"
 
   @doc """

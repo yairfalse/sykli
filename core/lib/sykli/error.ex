@@ -9,13 +9,15 @@ defmodule Sykli.Error do
   - Actionable hints for every error
   - Visual consistency across the CLI
 
-  ## Error Codes
+   ## Error Codes
 
-  | Code | Category | Description |
-  |------|----------|-------------|
-  | task_failed | execution | Task command failed |
-  | task_timeout | execution | Task timed out |
-  | missing_secrets | execution | Missing secrets |
+   | Code | Category | Description |
+   |------|----------|-------------|
+   | task_failed | execution | Task command failed |
+   | task_timeout | execution | Task timed out |
+   | success_criteria_failed | execution | Declared success criteria failed |
+   | unsupported_success_criteria_for_target | execution | Target cannot evaluate declared success criteria |
+   | missing_secrets | execution | Missing secrets |
   | dependency_cycle | validation | Circular dependency in task graph |
   | invalid_service | validation | Invalid service config |
   | invalid_mount | validation | Invalid mount config |
@@ -168,6 +170,50 @@ defmodule Sykli.Error do
         "check for infinite loops or blocking operations"
       ],
       notes: []
+    }
+  end
+
+  @doc """
+  success_criteria_failed: Task command succeeded, but declared criteria did not.
+  """
+  def success_criteria_failed(task, results, opts \\ []) do
+    failures = Sykli.SuccessCriteria.failures(results)
+
+    %__MODULE__{
+      code: "success_criteria_failed",
+      type: :execution,
+      message: "task '#{task}' failed success_criteria",
+      task: task,
+      step: :run,
+      command: Keyword.get(opts, :command),
+      output: Keyword.get(opts, :output),
+      duration_ms: Keyword.get(opts, :duration_ms),
+      hints: [
+        "inspect the failed success_criteria and update the task command or contract"
+      ],
+      notes: criterion_notes(failures)
+    }
+  end
+
+  @doc """
+  unsupported_success_criteria_for_target: Target cannot evaluate criteria.
+  """
+  def unsupported_success_criteria_for_target(task, target_name, results, opts \\ []) do
+    %__MODULE__{
+      code: "unsupported_success_criteria_for_target",
+      type: :execution,
+      message:
+        "target '#{target_name}' does not support success_criteria evaluation for task '#{task}'",
+      task: task,
+      step: :run,
+      command: Keyword.get(opts, :command),
+      output: Keyword.get(opts, :output),
+      duration_ms: Keyword.get(opts, :duration_ms),
+      hints: [
+        "run this task on a target that can evaluate the declared success_criteria",
+        "or remove success_criteria that this target cannot evaluate"
+      ],
+      notes: criterion_notes(results)
     }
   end
 
@@ -676,6 +722,30 @@ defmodule Sykli.Error do
   # ─────────────────────────────────────────────────────────────────────────────
   # HINT GENERATION (from ErrorHints)
   # ─────────────────────────────────────────────────────────────────────────────
+
+  defp criterion_notes(results) do
+    Enum.map(results, fn result ->
+      details =
+        result.evidence
+        |> format_criterion_evidence()
+        |> case do
+          "" -> ""
+          evidence -> " (#{evidence})"
+        end
+
+      "success_criteria[#{result.index}] #{result.type}: #{result.status} - #{result.message}#{details}"
+    end)
+  end
+
+  defp format_criterion_evidence(nil), do: ""
+
+  defp format_criterion_evidence(evidence) when is_map(evidence) do
+    evidence
+    |> Enum.map(fn {key, value} -> "#{key}=#{inspect(value)}" end)
+    |> Enum.join(", ")
+  end
+
+  defp format_criterion_evidence(evidence), do: inspect(evidence)
 
   defp generate_hints(exit_code, output) do
     hints = []

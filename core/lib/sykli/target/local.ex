@@ -54,6 +54,8 @@ defmodule Sykli.Target.Local do
 
   @behaviour Sykli.Target.Behaviour
 
+  alias Sykli.SuccessCriteria.Result
+
   defstruct [:workdir, :runtime, :containerless_runtime, :timeout_ms]
 
   # ─────────────────────────────────────────────────────────────────────────────
@@ -347,6 +349,44 @@ defmodule Sykli.Target.Local do
     end
   end
 
+  @impl true
+  def evaluate_success_criteria(task, criteria, state, opts) do
+    base_workdir = Keyword.get(opts, :workdir, state.workdir)
+    target_workdir = resolved_task_workdir(task, base_workdir)
+    command_exit_code = Keyword.get(opts, :command_exit_code, 0)
+
+    results =
+      criteria
+      |> Enum.with_index()
+      |> Enum.map(fn {criterion, index} ->
+        evaluate_success_criterion(criterion, index, task, target_workdir, command_exit_code)
+      end)
+
+    case Sykli.SuccessCriteria.failures(results) do
+      [] ->
+        {:ok, results}
+
+      failures ->
+        error =
+          if Enum.any?(failures, &(&1.status == :unsupported)) do
+            Sykli.Error.unsupported_success_criteria_for_target(
+              task.name,
+              name(),
+              failures,
+              command: task.command
+            )
+          else
+            Sykli.Error.success_criteria_failed(
+              task.name,
+              failures,
+              command: task.command
+            )
+          end
+
+        {:error, error, results}
+    end
+  end
+
   # ─────────────────────────────────────────────────────────────────────────────
   # EXECUTION PARAMS
   # ─────────────────────────────────────────────────────────────────────────────
@@ -362,6 +402,160 @@ defmodule Sykli.Target.Local do
     mounts = build_mounts(task.mounts || [], abs_workdir)
     display = "[#{task.container}] #{task.command}"
     {state.runtime, task.container, mounts, display}
+  end
+
+  defp resolved_task_workdir(%{container: nil, workdir: task_workdir}, base_workdir)
+       when is_binary(task_workdir) and task_workdir != "" do
+    Path.join(base_workdir, task_workdir) |> Path.expand()
+  end
+
+  defp resolved_task_workdir(_task, base_workdir), do: Path.expand(base_workdir)
+
+  defp evaluate_success_criterion(
+         %{"type" => "exit_code", "equals" => expected},
+         index,
+         _task,
+         _workdir,
+         actual
+       ) do
+    if actual == expected do
+      criterion_passed(index, "exit_code", "exit code matched #{expected}", %{
+        expected: expected,
+        actual: actual
+      })
+    else
+      criterion_failed(index, "exit_code", "expected exit code #{expected}, got #{actual}", %{
+        expected: expected,
+        actual: actual
+      })
+    end
+  end
+
+  defp evaluate_success_criterion(
+         %{"type" => type, "path" => path},
+         index,
+         %{container: nil},
+         workdir,
+         _actual
+       )
+       when type in ["file_exists", "file_non_empty"] do
+    with {:ok, resolved_path} <- resolve_criterion_path(path, workdir),
+         {:ok, stat} <- stat_regular_file(resolved_path, path) do
+      evaluate_file_criterion(type, index, path, resolved_path, stat)
+    else
+      {:error, message, evidence} ->
+        criterion_failed(index, type, message, evidence)
+    end
+  end
+
+  defp evaluate_success_criterion(
+         %{"type" => type, "path" => path},
+         index,
+         %{container: container},
+         _workdir,
+         _actual
+       )
+       when type in ["file_exists", "file_non_empty"] and is_binary(container) do
+    criterion_unsupported(
+      index,
+      type,
+      "local target cannot evaluate #{type} inside container runtime #{inspect(container)}",
+      %{path: path, container: container}
+    )
+  end
+
+  defp evaluate_success_criterion(%{"type" => type} = criterion, index, _task, _workdir, _actual) do
+    criterion_unsupported(
+      index,
+      type,
+      "unsupported success_criteria type #{inspect(type)}",
+      criterion
+    )
+  end
+
+  defp resolve_criterion_path(path, workdir) do
+    cond do
+      Path.type(path) == :absolute ->
+        {:error, "path must be relative to task workdir", %{path: path}}
+
+      true ->
+        resolved = Path.expand(Path.join(workdir, path))
+
+        if path_within?(resolved, Path.expand(workdir)) do
+          {:ok, resolved}
+        else
+          {:error, "path escapes task workdir", %{path: path}}
+        end
+    end
+  end
+
+  defp stat_regular_file(resolved_path, path) do
+    case File.stat(resolved_path) do
+      {:ok, %{type: :regular} = stat} ->
+        {:ok, stat}
+
+      {:ok, %{type: type}} ->
+        {:error, "path is not a regular file", %{path: path, file_type: type}}
+
+      {:error, reason} ->
+        {:error, "file not found", %{path: path, reason: reason}}
+    end
+  end
+
+  defp evaluate_file_criterion("file_exists", index, path, resolved_path, _stat) do
+    criterion_passed(index, "file_exists", "file exists", %{
+      path: path,
+      resolved_path: resolved_path
+    })
+  end
+
+  defp evaluate_file_criterion("file_non_empty", index, path, resolved_path, %{size: size}) do
+    if size > 0 do
+      criterion_passed(index, "file_non_empty", "file is non-empty", %{
+        path: path,
+        resolved_path: resolved_path,
+        size: size
+      })
+    else
+      criterion_failed(index, "file_non_empty", "file is empty", %{
+        path: path,
+        resolved_path: resolved_path,
+        size: size
+      })
+    end
+  end
+
+  defp criterion_passed(index, type, message, evidence) do
+    %Result{
+      index: index,
+      type: type,
+      status: :passed,
+      message: message,
+      evidence: evidence,
+      target: name()
+    }
+  end
+
+  defp criterion_failed(index, type, message, evidence) do
+    %Result{
+      index: index,
+      type: type,
+      status: :failed,
+      message: message,
+      evidence: evidence,
+      target: name()
+    }
+  end
+
+  defp criterion_unsupported(index, type, message, evidence) do
+    %Result{
+      index: index,
+      type: type,
+      status: :unsupported,
+      message: message,
+      evidence: evidence,
+      target: name()
+    }
   end
 
   defp build_mounts(mounts, abs_workdir) do

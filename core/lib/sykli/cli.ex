@@ -309,12 +309,14 @@ defmodule Sykli.CLI do
   end
 
   defp task_result_to_map(%Sykli.Executor.TaskResult{} = r) do
-    base = %{
-      name: r.name,
-      status: Atom.to_string(r.status),
-      duration_ms: r.duration_ms,
-      cached: r.status == :cached
-    }
+    base =
+      %{
+        name: r.name,
+        status: Atom.to_string(r.status),
+        duration_ms: r.duration_ms,
+        cached: r.status == :cached
+      }
+      |> maybe_add_success_criteria_results(r.success_criteria_results)
 
     case r.error do
       %Sykli.Error{} = err ->
@@ -326,6 +328,25 @@ defmodule Sykli.CLI do
       other ->
         Map.put(base, :error, %{code: "unknown", message: inspect(other), hints: []})
     end
+  end
+
+  defp maybe_add_success_criteria_results(base, []), do: base
+
+  defp maybe_add_success_criteria_results(base, results) do
+    Map.put(base, :success_criteria_results, Enum.map(results, &success_criteria_result_to_map/1))
+  end
+
+  defp success_criteria_result_to_map(result) do
+    %{
+      index: result.index,
+      type: result.type,
+      status: Atom.to_string(result.status),
+      message: result.message,
+      target: result.target,
+      evidence: result.evidence
+    }
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
   end
 
   @doc false
