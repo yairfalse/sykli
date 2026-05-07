@@ -82,7 +82,8 @@ defmodule Sykli.Validate do
 
   defp validate_data(data) do
     tasks = data["tasks"] || []
-    version = Map.get(data, "version", "1")
+    version_result = Sykli.ContractSchemaVersion.fetch(data)
+    version = if match?({:ok, _}, version_result), do: elem(version_result, 1), else: nil
 
     task_names =
       tasks
@@ -91,6 +92,7 @@ defmodule Sykli.Validate do
 
     errors =
       []
+      |> check_contract_schema_version(version_result)
       |> check_empty_names(tasks)
       |> check_duplicates(task_names)
       |> check_self_deps(tasks)
@@ -113,6 +115,12 @@ defmodule Sykli.Validate do
       errors: errors,
       warnings: warnings
     }
+  end
+
+  defp check_contract_schema_version(errors, {:ok, _version}), do: errors
+
+  defp check_contract_schema_version(errors, {:error, reason}) do
+    [Sykli.ContractSchemaVersion.to_error_map(reason) | errors]
   end
 
   defp check_empty_names(errors, tasks) do
@@ -350,6 +358,15 @@ defmodule Sykli.Validate do
   defp format_error(%{type: :self_dependency, message: msg}), do: "Error: #{msg}"
   defp format_error(%{type: :empty_task_name, message: msg}), do: "Error: #{msg}"
   defp format_error(%{type: :invalid_json, message: msg}), do: "Error: #{msg}"
+  defp format_error(%{type: :missing_contract_schema_version, message: msg}), do: "Error: #{msg}"
+  defp format_error(%{type: :empty_contract_schema_version, message: msg}), do: "Error: #{msg}"
+
+  defp format_error(%{type: :invalid_contract_schema_version_type, message: msg}),
+    do: "Error: #{msg}"
+
+  defp format_error(%{type: :unsupported_contract_schema_version, message: msg}),
+    do: "Error: #{msg}"
+
   defp format_error(%{message: msg}), do: "Error: #{msg}"
   defp format_error(error), do: "Error: #{inspect(error)}"
 end

@@ -10,6 +10,7 @@ defmodule Sykli.ValidateTest do
       # Test using JSON directly (can't run Go in test env)
       json = """
       {
+        "version": "1",
         "tasks": [
           {"name": "test", "command": "echo test"},
           {"name": "build", "command": "echo build", "depends_on": ["test"]}
@@ -41,11 +42,69 @@ defmodule Sykli.ValidateTest do
       assert result.tasks == ["test"]
     end
 
+    test "rejects missing contract schema version" do
+      json = ~s({"tasks":[{"name":"test","command":"echo test"}]})
+
+      result = Validate.validate_json(json)
+
+      refute result.valid
+
+      assert [
+               %{
+                 type: :missing_contract_schema_version,
+                 message: "missing contract schema version"
+               }
+             ] =
+               result.errors
+    end
+
+    test "rejects malformed and unsupported contract schema versions" do
+      cases = [
+        {~s({"version":null,"tasks":[{"name":"test","command":"echo test"}]}),
+         :invalid_contract_schema_version_type,
+         "invalid contract schema version: expected string, got null"},
+        {~s({"version":"","tasks":[{"name":"test","command":"echo test"}]}),
+         :empty_contract_schema_version, "empty contract schema version"},
+        {~s({"version":1,"tasks":[{"name":"test","command":"echo test"}]}),
+         :invalid_contract_schema_version_type,
+         "invalid contract schema version: expected string, got integer"},
+        {~s({"version":0.1,"tasks":[{"name":"test","command":"echo test"}]}),
+         :invalid_contract_schema_version_type,
+         "invalid contract schema version: expected string, got number"},
+        {~s({"version":true,"tasks":[{"name":"test","command":"echo test"}]}),
+         :invalid_contract_schema_version_type,
+         "invalid contract schema version: expected string, got boolean"},
+        {~s({"version":[],"tasks":[{"name":"test","command":"echo test"}]}),
+         :invalid_contract_schema_version_type,
+         "invalid contract schema version: expected string, got array"},
+        {~s({"version":{},"tasks":[{"name":"test","command":"echo test"}]}),
+         :invalid_contract_schema_version_type,
+         "invalid contract schema version: expected string, got object"},
+        {~s({"version":"0.2","tasks":[{"name":"test","command":"echo test"}]}),
+         :unsupported_contract_schema_version,
+         "unsupported contract schema version: 0.2; supported versions: 1, 2, 3"},
+        {~s({"version":"1.0","tasks":[{"name":"test","command":"echo test"}]}),
+         :unsupported_contract_schema_version,
+         "unsupported contract schema version: 1.0; supported versions: 1, 2, 3"},
+        {~s({"version":"banana","tasks":[{"name":"test","command":"echo test"}]}),
+         :unsupported_contract_schema_version,
+         "unsupported contract schema version: banana; supported versions: 1, 2, 3"}
+      ]
+
+      for {json, type, message} <- cases do
+        result = Validate.validate_json(json)
+
+        refute result.valid
+        assert Enum.any?(result.errors, &(&1.type == type and &1.message == message))
+      end
+    end
+
     test "detects cycle in dependencies" do
       # This test uses the JSON directly since creating a real cycle
       # in Go code would fail at emit time
       json = """
       {
+        "version": "1",
         "tasks": [
           {"name": "a", "command": "echo a", "depends_on": ["b"]},
           {"name": "b", "command": "echo b", "depends_on": ["a"]}
@@ -62,6 +121,7 @@ defmodule Sykli.ValidateTest do
     test "detects missing dependency" do
       json = """
       {
+        "version": "1",
         "tasks": [
           {"name": "build", "command": "echo build", "depends_on": ["nonexistent"]}
         ]
@@ -81,6 +141,7 @@ defmodule Sykli.ValidateTest do
     test "detects empty task name" do
       json = """
       {
+        "version": "1",
         "tasks": [
           {"name": "", "command": "echo test"}
         ]
@@ -96,6 +157,7 @@ defmodule Sykli.ValidateTest do
     test "detects whitespace-only task name" do
       json = """
       {
+        "version": "1",
         "tasks": [
           {"name": "   ", "command": "echo test"}
         ]
@@ -111,6 +173,7 @@ defmodule Sykli.ValidateTest do
     test "detects duplicate task names" do
       json = """
       {
+        "version": "1",
         "tasks": [
           {"name": "test", "command": "echo test1"},
           {"name": "test", "command": "echo test2"}
@@ -127,6 +190,7 @@ defmodule Sykli.ValidateTest do
     test "detects task depending on itself" do
       json = """
       {
+        "version": "1",
         "tasks": [
           {"name": "test", "command": "echo test", "depends_on": ["test"]}
         ]
@@ -144,6 +208,7 @@ defmodule Sykli.ValidateTest do
     test "returns structured result" do
       json = """
       {
+        "version": "1",
         "tasks": [
           {"name": "test", "command": "go test ./..."}
         ]
@@ -167,7 +232,7 @@ defmodule Sykli.ValidateTest do
 
     test "handles empty tasks list" do
       json = """
-      {"tasks": []}
+      {"version": "1", "tasks": []}
       """
 
       result = Validate.validate_json(json)
@@ -180,7 +245,7 @@ defmodule Sykli.ValidateTest do
 
   describe "validate_json/1 -- missing command" do
     test "detects task with no command" do
-      json = ~s({"tasks": [{"name": "test"}]})
+      json = ~s({"version":"1","tasks": [{"name": "test"}]})
 
       result = Validate.validate_json(json)
 
@@ -192,7 +257,7 @@ defmodule Sykli.ValidateTest do
     end
 
     test "detects task with empty command" do
-      json = ~s({"tasks": [{"name": "test", "command": ""}]})
+      json = ~s({"version":"1","tasks": [{"name": "test", "command": ""}]})
 
       result = Validate.validate_json(json)
 
@@ -202,7 +267,7 @@ defmodule Sykli.ValidateTest do
 
     test "exempts gate tasks from command requirement" do
       json =
-        ~s({"tasks": [{"name": "approval", "gate": {"strategy": "prompt", "message": "ok?"}}]})
+        ~s({"version":"1","tasks": [{"name": "approval", "gate": {"strategy": "prompt", "message": "ok?"}}]})
 
       result = Validate.validate_json(json)
 
@@ -211,7 +276,7 @@ defmodule Sykli.ValidateTest do
 
     test "exempts review nodes from command requirement" do
       json =
-        ~s({"tasks": [{"name": "review:api-breakage", "kind": "review", "primitive": "api-breakage", "agent": "local"}]})
+        ~s({"version":"1","tasks": [{"name": "review:api-breakage", "kind": "review", "primitive": "api-breakage", "agent": "local"}]})
 
       result = Validate.validate_json(json)
 
@@ -220,7 +285,7 @@ defmodule Sykli.ValidateTest do
     end
 
     test "passes when command is present" do
-      json = ~s({"tasks": [{"name": "test", "command": "echo hello"}]})
+      json = ~s({"version":"1","tasks": [{"name": "test", "command": "echo hello"}]})
 
       result = Validate.validate_json(json)
 

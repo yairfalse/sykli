@@ -358,15 +358,10 @@ defmodule Sykli.Graph do
   def parse(json) do
     case Jason.decode(json) do
       {:ok, %{"tasks" => tasks} = data} ->
-        version = Map.get(data, "version", "1")
-
-        case map_ok(tasks, &parse_task(&1, version)) do
-          {:ok, parsed_tasks} ->
-            parsed = Map.new(parsed_tasks, fn task -> {task.name, task} end)
-            {:ok, parsed}
-
-          {:error, _} = error ->
-            error
+        with {:ok, version} <- Sykli.ContractSchemaVersion.fetch(data),
+             {:ok, parsed_tasks} <- map_ok(tasks, &parse_task(&1, version)) do
+          parsed = Map.new(parsed_tasks, fn task -> {task.name, task} end)
+          {:ok, parsed}
         end
 
       {:ok, _} ->
@@ -375,6 +370,22 @@ defmodule Sykli.Graph do
       {:error, reason} ->
         {:error, {:json_parse_error, reason}}
     end
+  end
+
+  def format_error(:missing_contract_schema_version = reason) do
+    Sykli.ContractSchemaVersion.format_error(reason)
+  end
+
+  def format_error(:empty_contract_schema_version = reason) do
+    Sykli.ContractSchemaVersion.format_error(reason)
+  end
+
+  def format_error({:invalid_contract_schema_version_type, _version} = reason) do
+    Sykli.ContractSchemaVersion.format_error(reason)
+  end
+
+  def format_error({:unsupported_contract_schema_version, _version} = reason) do
+    Sykli.ContractSchemaVersion.format_error(reason)
   end
 
   def format_error({:task_type_on_review, task_name}) do

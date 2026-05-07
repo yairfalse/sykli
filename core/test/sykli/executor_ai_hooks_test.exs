@@ -71,7 +71,7 @@ defmodule Sykli.ExecutorAiHooksTest do
   describe "secret_refs parsing" do
     test "parses secret_refs from JSON" do
       json =
-        ~s({"tasks": [{"name": "deploy", "command": "deploy.sh", "secret_refs": [{"name": "AWS_KEY", "source": "env", "key": "AWS_ACCESS_KEY_ID"}, {"name": "DB_PASS", "source": "file", "key": "/run/secrets/db"}]}]})
+        ~s({"version":"1","tasks": [{"name": "deploy", "command": "deploy.sh", "secret_refs": [{"name": "AWS_KEY", "source": "env", "key": "AWS_ACCESS_KEY_ID"}, {"name": "DB_PASS", "source": "file", "key": "/run/secrets/db"}]}]})
 
       result = Sykli.Validate.validate_json(json)
       assert result.valid == true
@@ -79,7 +79,7 @@ defmodule Sykli.ExecutorAiHooksTest do
 
     test "graph parses secret_refs into task struct" do
       json =
-        ~s({"tasks": [{"name": "deploy", "command": "deploy.sh", "secret_refs": [{"name": "TOKEN", "source": "env", "key": "DEPLOY_TOKEN"}]}]})
+        ~s({"version":"1","tasks": [{"name": "deploy", "command": "deploy.sh", "secret_refs": [{"name": "TOKEN", "source": "env", "key": "DEPLOY_TOKEN"}]}]})
 
       {:ok, graph} = Sykli.Graph.parse(json)
       task = Map.get(graph, "deploy")
@@ -92,7 +92,7 @@ defmodule Sykli.ExecutorAiHooksTest do
     end
 
     test "empty secret_refs defaults to empty list" do
-      json = ~s({"tasks": [{"name": "test", "command": "echo hi"}]})
+      json = ~s({"version":"1","tasks": [{"name": "test", "command": "echo hi"}]})
 
       {:ok, graph} = Sykli.Graph.parse(json)
       task = Map.get(graph, "test")
