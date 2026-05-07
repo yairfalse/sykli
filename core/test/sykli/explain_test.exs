@@ -358,7 +358,7 @@ defmodule Sykli.ExplainTest do
   # Helpers
 
   defp parse_graph(tasks) do
-    json = Jason.encode!(%{"tasks" => tasks})
+    json = Jason.encode!(%{"version" => "1", "tasks" => tasks})
     Graph.parse(json)
   end
 end

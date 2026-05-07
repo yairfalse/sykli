@@ -27,6 +27,10 @@ The engine is currently **more permissive** than the schema in three known ways:
 
 **The JSON Schema validates canonical SDK output. It does not validate every shape the engine can parse.** A payload that validates against the schema is guaranteed to parse and validate cleanly through the engine. A payload the engine accepts may not validate against the schema if it relies on the permissive paths above. SDK-emitted output should always be schema-conformant.
 
+The engine is **not** permissive about the top-level `version`: it rejects
+missing, empty, malformed, and unsupported pipeline schema versions before task
+parsing.
+
 ## Top-level object
 
 ```jsonc
@@ -46,8 +50,8 @@ The engine is currently **more permissive** than the schema in three known ways:
 - `"2"` is the resource-aware format: resources, mounts, caches, containers, and related execution-environment metadata.
 - `"3"` is the semantic contract format, beginning with `task_type` and `success_criteria`.
 - SDKs auto-detect: `"3"` if any executable task has semantic fields such as `task_type` or `success_criteria`; otherwise `"2"` if any task has `container` set, or any task has non-empty `mounts`, or the pipeline has any directory or cache resources; `"1"` otherwise.
-- **Current behavior:** version-aware for `task_type` and `success_criteria`. The schema and engine validation reject these fields unless `version == "3"`. Other version-aware parser behavior is still intentionally narrow.
-- **Intended future behavior:** the engine should accept known supported versions and reject unknown future versions unless an explicit compatibility mode exists. It should never silently reinterpret a newer document as an older version.
+- **Current behavior:** explicit and strict. The schema and engine accept only the supported versions above. Missing, empty, malformed, or unknown future versions are rejected. `task_type` and `success_criteria` remain valid only when `version == "3"`.
+- **Future behavior:** new pipeline wire-format versions require explicit schema and engine support. The engine must never silently reinterpret a newer document as an older version.
 
 ### `tasks`
 
@@ -352,24 +356,18 @@ It names the version of the pipeline document shape shared between SDKs, schema
 tooling, and the engine parser.
 
 It is **not** an execution capability version. It does not mean "run with v1
-features" or "run with v2 features" at execution time, and the current engine
-uses it only for narrow semantic-field validation. It is also not the
+features" or "run with v2 features" at execution time. It is also not the
 version of a particular SDK package, engine release, runtime, or JSON Schema
 draft.
 
-Current behavior is partially version-aware: SDKs emit `version`, the canonical
-schema requires `"1"`, `"2"`, or `"3"`, and the engine rejects `task_type` and
-`success_criteria` unless the top-level version is `"3"`. See the
+Current behavior is version-aware: SDKs emit `version`, the canonical schema and
+engine accept only `"1"`, `"2"`, or `"3"`, and the engine rejects `task_type`
+and `success_criteria` unless the top-level version is `"3"`. See the
 [`version` field](#version) above for the per-value definitions.
 
-Future engine behavior should become version-aware in a later implementation
-phase:
-
-- accept known supported pipeline wire-format versions
-- reject unknown future versions by default
-- allow unknown future versions only through an explicit compatibility mode, if
-  such a mode is intentionally designed
-- never silently reinterpret a newer document as an older version
+Unknown future versions are rejected by default. If a compatibility mode is ever
+designed, it must be explicit; the engine must never silently reinterpret a
+newer document as an older version.
 
 SDK auto-detection of `"1"` vs `"2"` should continue for now. This is
 transitional and reflects current SDK output. Long term, SDKs should either
@@ -386,18 +384,10 @@ but must not depend on older engines silently ignoring those additions. Do not
 design or reserve the contents of `version: "3"` until a concrete wire-format
 change requires it.
 
-The migration from today's advisory field to real version-aware parsing should
-happen in small steps:
-
-1. Keep current SDK output and schema values unchanged.
-2. Document the intended meaning of `"1"` and `"2"` in the human-readable
-   contract.
-3. Add engine parsing that reads the top-level `version` and recognizes the
-   currently supported versions.
-4. Initially preserve behavior for `"1"` and `"2"` while making unknown future
-   versions fail clearly.
-5. Only after parser support exists, introduce version-gated behavior for any
-   future wire-format changes.
+The migration from the old advisory field to real version-aware parsing is now
+in place for known versions. Future migrations should keep schema acceptance
+explicit, keep SDK auto-detection aligned with emitted features, and add tests
+before introducing any new wire-format version.
 
 ## Removed fields
 
@@ -424,7 +414,7 @@ introduce a replacement field.
 
 These are **descriptive, not prescriptive**. The schema documents current behavior; resolving these is Phase 2C / future work.
 
-1. **Version-aware behavior is still narrow.** SDKs emit `"1"`, `"2"`, or `"3"`; engine validation now checks `task_type` and `success_criteria` compatibility with `version: "3"`, but broader unknown-version rejection is still future work.
+1. **Version-aware behavior is enforced for supported versions.** SDKs emit `"1"`, `"2"`, or `"3"`; the engine rejects missing, malformed, and unsupported versions, and checks `task_type` and `success_criteria` compatibility with `version: "3"`.
 2. **Review nodes are experimental.** Engine supports `kind: "review"` and the four review-only fields, and SDKs expose minimal review builders. Review outputs are not canonical.
 3. **`verify` and `oidc` are reserved with no SDK emit.** Engine reads them; SDKs have no API. Either implement SDK support or drop from the schema once a decision lands.
 4. **`history_hint` is engine-internal.** SDKs MUST NOT emit. Schema marks `readOnly` for clarity.

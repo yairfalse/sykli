@@ -2,9 +2,67 @@ defmodule SykliTest do
   use ExUnit.Case
 
   test "parses task graph" do
-    json = ~s({"tasks":[{"name":"test","command":"go test ./..."}]})
+    json = ~s({"version":"1","tasks":[{"name":"test","command":"go test ./..."}]})
     assert {:ok, graph} = Sykli.Graph.parse(json)
     assert Map.has_key?(graph, "test")
+  end
+
+  test "accepts each supported contract schema version" do
+    for version <- Sykli.ContractSchemaVersion.supported_versions() do
+      json = ~s({"version":"#{version}","tasks":[{"name":"test","command":"go test ./..."}]})
+      assert {:ok, graph} = Sykli.Graph.parse(json)
+      assert Map.has_key?(graph, "test")
+    end
+  end
+
+  test "rejects missing contract schema version" do
+    json = ~s({"tasks":[{"name":"test","command":"go test ./..."}]})
+    assert {:error, :missing_contract_schema_version} = Sykli.Graph.parse(json)
+  end
+
+  test "rejects malformed and unsupported contract schema versions" do
+    cases = [
+      {~s({"version":null,"tasks":[{"name":"test","command":"go test ./..."}]}),
+       {:invalid_contract_schema_version_type, nil}},
+      {~s({"version":"","tasks":[{"name":"test","command":"go test ./..."}]}),
+       :empty_contract_schema_version},
+      {~s({"version":"   ","tasks":[{"name":"test","command":"go test ./..."}]}),
+       :empty_contract_schema_version},
+      {~s({"version":1,"tasks":[{"name":"test","command":"go test ./..."}]}),
+       {:invalid_contract_schema_version_type, 1}},
+      {~s({"version":0.1,"tasks":[{"name":"test","command":"go test ./..."}]}),
+       {:invalid_contract_schema_version_type, 0.1}},
+      {~s({"version":true,"tasks":[{"name":"test","command":"go test ./..."}]}),
+       {:invalid_contract_schema_version_type, true}},
+      {~s({"version":[],"tasks":[{"name":"test","command":"go test ./..."}]}),
+       {:invalid_contract_schema_version_type, []}},
+      {~s({"version":{},"tasks":[{"name":"test","command":"go test ./..."}]}),
+       {:invalid_contract_schema_version_type, %{}}},
+      {~s({"version":"0.2","tasks":[{"name":"test","command":"go test ./..."}]}),
+       {:unsupported_contract_schema_version, "0.2"}},
+      {~s({"version":"1.0","tasks":[{"name":"test","command":"go test ./..."}]}),
+       {:unsupported_contract_schema_version, "1.0"}},
+      {~s({"version":"banana","tasks":[{"name":"test","command":"go test ./..."}]}),
+       {:unsupported_contract_schema_version, "banana"}}
+    ]
+
+    for {json, expected_error} <- cases do
+      assert {:error, ^expected_error} = Sykli.Graph.parse(json)
+    end
+  end
+
+  test "formats contract schema version parse errors" do
+    assert Sykli.Graph.format_error(:missing_contract_schema_version) ==
+             "Error: missing contract schema version"
+
+    assert Sykli.Graph.format_error({:invalid_contract_schema_version_type, 1}) ==
+             "Error: invalid contract schema version: expected string, got integer"
+
+    assert Sykli.Graph.format_error(:empty_contract_schema_version) ==
+             "Error: empty contract schema version"
+
+    assert Sykli.Graph.format_error({:unsupported_contract_schema_version, "0.2"}) ==
+             "Error: unsupported contract schema version: 0.2; supported versions: 1, 2, 3"
   end
 
   test "parses task_type on version 3 executable tasks" do
@@ -49,7 +107,7 @@ defmodule SykliTest do
 
   test "parses review nodes with metadata" do
     json =
-      ~s({"tasks":[{"name":"test","command":"go test ./..."},{"name":"review:api-breakage","kind":"review","primitive":"api-breakage","agent":"local","inputs":["main...HEAD"],"context":["README.md","docs/architecture.md"],"outputs":["reviews/api-breakage.local.json"],"depends_on":["test"],"deterministic":false}]})
+      ~s({"version":"1","tasks":[{"name":"test","command":"go test ./..."},{"name":"review:api-breakage","kind":"review","primitive":"api-breakage","agent":"local","inputs":["main...HEAD"],"context":["README.md","docs/architecture.md"],"outputs":["reviews/api-breakage.local.json"],"depends_on":["test"],"deterministic":false}]})
 
     assert {:ok, graph} = Sykli.Graph.parse(json)
     review = Map.fetch!(graph, "review:api-breakage")
@@ -67,7 +125,7 @@ defmodule SykliTest do
   end
 
   test "topo sort with no deps" do
-    json = ~s({"tasks":[{"name":"a","command":"a"},{"name":"b","command":"b"}]})
+    json = ~s({"version":"1","tasks":[{"name":"a","command":"a"},{"name":"b","command":"b"}]})
     {:ok, graph} = Sykli.Graph.parse(json)
     {:ok, order} = Sykli.Graph.topo_sort(graph)
     assert length(order) == 2
@@ -76,7 +134,7 @@ defmodule SykliTest do
   # ----- MATRIX EXPANSION TESTS -----
 
   test "expand_matrix with no matrix returns unchanged" do
-    json = ~s({"tasks":[{"name":"test","command":"go test"}]})
+    json = ~s({"version":"1","tasks":[{"name":"test","command":"go test"}]})
     {:ok, graph} = Sykli.Graph.parse(json)
     expanded = Sykli.Graph.expand_matrix(graph)
     assert Map.has_key?(expanded, "test")
@@ -84,7 +142,9 @@ defmodule SykliTest do
   end
 
   test "expand_matrix single dimension" do
-    json = ~s({"tasks":[{"name":"test","command":"go test","matrix":{"version":["1.0","2.0"]}}]})
+    json =
+      ~s({"version":"1","tasks":[{"name":"test","command":"go test","matrix":{"version":["1.0","2.0"]}}]})
+
     {:ok, graph} = Sykli.Graph.parse(json)
     expanded = Sykli.Graph.expand_matrix(graph)
 
@@ -99,7 +159,7 @@ defmodule SykliTest do
 
   test "expand_matrix multi-dimensional" do
     json =
-      ~s({"tasks":[{"name":"test","command":"go test","matrix":{"os":["linux","macos"],"version":["1.0","2.0"]}}]})
+      ~s({"version":"1","tasks":[{"name":"test","command":"go test","matrix":{"os":["linux","macos"],"version":["1.0","2.0"]}}]})
 
     {:ok, graph} = Sykli.Graph.parse(json)
     expanded = Sykli.Graph.expand_matrix(graph)
@@ -109,7 +169,9 @@ defmodule SykliTest do
   end
 
   test "expand_matrix injects values into env" do
-    json = ~s({"tasks":[{"name":"test","command":"go test","matrix":{"version":["1.0"]}}]})
+    json =
+      ~s({"version":"1","tasks":[{"name":"test","command":"go test","matrix":{"version":["1.0"]}}]})
+
     {:ok, graph} = Sykli.Graph.parse(json)
     expanded = Sykli.Graph.expand_matrix(graph)
 
@@ -118,7 +180,7 @@ defmodule SykliTest do
   end
 
   test "expand_matrix updates dependencies" do
-    json = ~s({"tasks":[
+    json = ~s({"version":"1","tasks":[
       {"name":"test","command":"go test","matrix":{"v":["1","2"]}},
       {"name":"build","command":"go build","depends_on":["test"]}
     ]})
@@ -132,7 +194,7 @@ defmodule SykliTest do
   end
 
   test "expand_matrix with empty matrix returns task unchanged" do
-    json = ~s({"tasks":[{"name":"test","command":"go test","matrix":{}}]})
+    json = ~s({"version":"1","tasks":[{"name":"test","command":"go test","matrix":{}}]})
     {:ok, graph} = Sykli.Graph.parse(json)
     expanded = Sykli.Graph.expand_matrix(graph)
     assert Map.has_key?(expanded, "test")
@@ -142,14 +204,16 @@ defmodule SykliTest do
   # ----- CONDITION PARSING TESTS -----
 
   test "parses when condition from JSON" do
-    json = ~s({"tasks":[{"name":"deploy","command":"./deploy.sh","when":"branch == 'main'"}]})
+    json =
+      ~s({"version":"1","tasks":[{"name":"deploy","command":"./deploy.sh","when":"branch == 'main'"}]})
+
     {:ok, graph} = Sykli.Graph.parse(json)
     task = Map.get(graph, "deploy")
     assert task.condition == "branch == 'main'"
   end
 
   test "when condition is nil when not set" do
-    json = ~s({"tasks":[{"name":"test","command":"go test"}]})
+    json = ~s({"version":"1","tasks":[{"name":"test","command":"go test"}]})
     {:ok, graph} = Sykli.Graph.parse(json)
     task = Map.get(graph, "test")
     assert task.condition == nil
@@ -159,7 +223,7 @@ defmodule SykliTest do
 
   test "parses secrets from JSON" do
     json =
-      ~s({"tasks":[{"name":"deploy","command":"./deploy.sh","secrets":["GITHUB_TOKEN","NPM_TOKEN"]}]})
+      ~s({"version":"1","tasks":[{"name":"deploy","command":"./deploy.sh","secrets":["GITHUB_TOKEN","NPM_TOKEN"]}]})
 
     {:ok, graph} = Sykli.Graph.parse(json)
     task = Map.get(graph, "deploy")
@@ -167,7 +231,7 @@ defmodule SykliTest do
   end
 
   test "secrets is empty list when not set" do
-    json = ~s({"tasks":[{"name":"test","command":"go test"}]})
+    json = ~s({"version":"1","tasks":[{"name":"test","command":"go test"}]})
     {:ok, graph} = Sykli.Graph.parse(json)
     task = Map.get(graph, "test")
     assert task.secrets == []
@@ -177,7 +241,7 @@ defmodule SykliTest do
 
   test "parses services from JSON" do
     json =
-      ~s({"tasks":[{"name":"test","command":"go test","services":[{"image":"postgres:15","name":"db"}]}]})
+      ~s({"version":"1","tasks":[{"name":"test","command":"go test","services":[{"image":"postgres:15","name":"db"}]}]})
 
     {:ok, graph} = Sykli.Graph.parse(json)
     task = Map.get(graph, "test")
@@ -187,7 +251,7 @@ defmodule SykliTest do
   end
 
   test "services is empty list when not set" do
-    json = ~s({"tasks":[{"name":"test","command":"go test"}]})
+    json = ~s({"version":"1","tasks":[{"name":"test","command":"go test"}]})
     {:ok, graph} = Sykli.Graph.parse(json)
     task = Map.get(graph, "test")
     assert task.services == []
@@ -195,7 +259,7 @@ defmodule SykliTest do
 
   test "parses multiple services" do
     json =
-      ~s({"tasks":[{"name":"test","command":"go test","services":[{"image":"postgres:15","name":"db"},{"image":"redis:7","name":"cache"}]}]})
+      ~s({"version":"1","tasks":[{"name":"test","command":"go test","services":[{"image":"postgres:15","name":"db"},{"image":"redis:7","name":"cache"}]}]})
 
     {:ok, graph} = Sykli.Graph.parse(json)
     task = Map.get(graph, "test")
@@ -206,7 +270,7 @@ defmodule SykliTest do
 
   test "expand_matrix preserves matrix_values for expanded tasks" do
     json =
-      ~s({"tasks":[{"name":"test","command":"go test","matrix":{"os":["linux"],"ver":["1.0"]}}]})
+      ~s({"version":"1","tasks":[{"name":"test","command":"go test","matrix":{"os":["linux"],"ver":["1.0"]}}]})
 
     {:ok, graph} = Sykli.Graph.parse(json)
     expanded = Sykli.Graph.expand_matrix(graph)
@@ -219,7 +283,7 @@ defmodule SykliTest do
   end
 
   test "expand_matrix with nil matrix returns task unchanged" do
-    json = ~s({"tasks":[{"name":"test","command":"go test"}]})
+    json = ~s({"version":"1","tasks":[{"name":"test","command":"go test"}]})
     {:ok, graph} = Sykli.Graph.parse(json)
     expanded = Sykli.Graph.expand_matrix(graph)
     assert Map.has_key?(expanded, "test")
@@ -231,7 +295,7 @@ defmodule SykliTest do
 
   test "parses legacy 'condition' field" do
     json =
-      ~s({"tasks":[{"name":"deploy","command":"./deploy.sh","condition":"branch == 'main'"}]})
+      ~s({"version":"1","tasks":[{"name":"deploy","command":"./deploy.sh","condition":"branch == 'main'"}]})
 
     {:ok, graph} = Sykli.Graph.parse(json)
     task = Map.get(graph, "deploy")
@@ -240,7 +304,7 @@ defmodule SykliTest do
 
   test "when field takes precedence over condition field" do
     json =
-      ~s({"tasks":[{"name":"deploy","command":"./deploy.sh","when":"tag != ''","condition":"branch == 'main'"}]})
+      ~s({"version":"1","tasks":[{"name":"deploy","command":"./deploy.sh","when":"tag != ''","condition":"branch == 'main'"}]})
 
     {:ok, graph} = Sykli.Graph.parse(json)
     task = Map.get(graph, "deploy")
@@ -251,7 +315,7 @@ defmodule SykliTest do
 
   test "services parses image and name correctly" do
     json =
-      ~s({"tasks":[{"name":"test","command":"test","services":[{"image":"postgres:15","name":"db"}]}]})
+      ~s({"version":"1","tasks":[{"name":"test","command":"test","services":[{"image":"postgres:15","name":"db"}]}]})
 
     {:ok, graph} = Sykli.Graph.parse(json)
     task = Map.get(graph, "test")
@@ -263,14 +327,14 @@ defmodule SykliTest do
   # ----- RETRY TESTS -----
 
   test "parses retry from JSON" do
-    json = ~s({"tasks":[{"name":"test","command":"go test","retry":3}]})
+    json = ~s({"version":"1","tasks":[{"name":"test","command":"go test","retry":3}]})
     {:ok, graph} = Sykli.Graph.parse(json)
     task = Map.get(graph, "test")
     assert task.retry == 3
   end
 
   test "retry is nil when not set" do
-    json = ~s({"tasks":[{"name":"test","command":"go test"}]})
+    json = ~s({"version":"1","tasks":[{"name":"test","command":"go test"}]})
     {:ok, graph} = Sykli.Graph.parse(json)
     task = Map.get(graph, "test")
     assert task.retry == nil
@@ -279,14 +343,14 @@ defmodule SykliTest do
   # ----- TIMEOUT TESTS -----
 
   test "parses timeout from JSON" do
-    json = ~s({"tasks":[{"name":"build","command":"make","timeout":600}]})
+    json = ~s({"version":"1","tasks":[{"name":"build","command":"make","timeout":600}]})
     {:ok, graph} = Sykli.Graph.parse(json)
     task = Map.get(graph, "build")
     assert task.timeout == 600
   end
 
   test "timeout is nil when not set" do
-    json = ~s({"tasks":[{"name":"test","command":"go test"}]})
+    json = ~s({"version":"1","tasks":[{"name":"test","command":"go test"}]})
     {:ok, graph} = Sykli.Graph.parse(json)
     task = Map.get(graph, "test")
     assert task.timeout == nil
@@ -295,7 +359,7 @@ defmodule SykliTest do
   # ----- CYCLE DETECTION TESTS -----
 
   test "detects self-referencing cycle" do
-    json = ~s({"tasks":[{"name":"a","command":"echo","depends_on":["a"]}]})
+    json = ~s({"version":"1","tasks":[{"name":"a","command":"echo","depends_on":["a"]}]})
     {:ok, graph} = Sykli.Graph.parse(json)
     {:error, {:cycle_detected, path}} = Sykli.Graph.topo_sort(graph)
     assert is_list(path)
@@ -303,7 +367,7 @@ defmodule SykliTest do
   end
 
   test "detects direct cycle between two tasks" do
-    json = ~s({"tasks":[
+    json = ~s({"version":"1","tasks":[
       {"name":"a","command":"echo","depends_on":["b"]},
       {"name":"b","command":"echo","depends_on":["a"]}
     ]})
@@ -315,7 +379,7 @@ defmodule SykliTest do
   end
 
   test "detects indirect cycle: a -> b -> c -> a" do
-    json = ~s({"tasks":[
+    json = ~s({"version":"1","tasks":[
       {"name":"a","command":"echo","depends_on":["b"]},
       {"name":"b","command":"echo","depends_on":["c"]},
       {"name":"c","command":"echo","depends_on":["a"]}
@@ -327,7 +391,7 @@ defmodule SykliTest do
   end
 
   test "no cycle in valid DAG" do
-    json = ~s({"tasks":[
+    json = ~s({"version":"1","tasks":[
       {"name":"test","command":"echo"},
       {"name":"build","command":"echo","depends_on":["test"]},
       {"name":"deploy","command":"echo","depends_on":["build"]}
@@ -340,7 +404,7 @@ defmodule SykliTest do
   # ----- TASK_INPUTS TESTS (v2 artifact passing) -----
 
   test "parses task_inputs from JSON" do
-    json = ~s({"tasks":[
+    json = ~s({"version":"1","tasks":[
       {"name":"build","command":"go build -o ./app","outputs":{"binary":"./app"}},
       {"name":"deploy","command":"./deploy.sh","task_inputs":[{"from_task":"build","output":"binary","dest":"./input/app"}],"depends_on":["build"]}
     ]})
@@ -361,7 +425,7 @@ defmodule SykliTest do
   end
 
   test "task_inputs is empty list when not set" do
-    json = ~s({"tasks":[{"name":"test","command":"go test"}]})
+    json = ~s({"version":"1","tasks":[{"name":"test","command":"go test"}]})
     {:ok, graph} = Sykli.Graph.parse(json)
     task = Map.get(graph, "test")
     assert task.task_inputs == []
@@ -369,7 +433,7 @@ defmodule SykliTest do
 
   test "outputs map format is preserved" do
     json =
-      ~s({"tasks":[{"name":"build","command":"make","outputs":{"binary":"./app","docs":"./docs"}}]})
+      ~s({"version":"1","tasks":[{"name":"build","command":"make","outputs":{"binary":"./app","docs":"./docs"}}]})
 
     {:ok, graph} = Sykli.Graph.parse(json)
     task = Map.get(graph, "build")
@@ -379,7 +443,9 @@ defmodule SykliTest do
   end
 
   test "outputs list format is converted to map" do
-    json = ~s({"tasks":[{"name":"build","command":"make","outputs":["./app","./lib"]}]})
+    json =
+      ~s({"version":"1","tasks":[{"name":"build","command":"make","outputs":["./app","./lib"]}]})
+
     {:ok, graph} = Sykli.Graph.parse(json)
     task = Map.get(graph, "build")
     assert is_map(task.outputs)
@@ -391,7 +457,7 @@ defmodule SykliTest do
 
   test "parses requires from JSON" do
     json =
-      ~s({"tasks":[{"name":"train","command":"python train.py","requires":["gpu","docker"]}]})
+      ~s({"version":"1","tasks":[{"name":"train","command":"python train.py","requires":["gpu","docker"]}]})
 
     {:ok, graph} = Sykli.Graph.parse(json)
     task = Map.get(graph, "train")
@@ -399,14 +465,14 @@ defmodule SykliTest do
   end
 
   test "requires is empty list when not set" do
-    json = ~s({"tasks":[{"name":"test","command":"go test"}]})
+    json = ~s({"version":"1","tasks":[{"name":"test","command":"go test"}]})
     {:ok, graph} = Sykli.Graph.parse(json)
     task = Map.get(graph, "test")
     assert task.requires == []
   end
 
   test "requires handles single label" do
-    json = ~s({"tasks":[{"name":"build","command":"make","requires":["docker"]}]})
+    json = ~s({"version":"1","tasks":[{"name":"build","command":"make","requires":["docker"]}]})
     {:ok, graph} = Sykli.Graph.parse(json)
     task = Map.get(graph, "build")
     assert task.requires == ["docker"]

@@ -22,6 +22,7 @@ except ImportError:
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_PATH = ROOT / "schemas" / "sykli-pipeline.schema.json"
 CASES_DIR = ROOT / "tests" / "conformance" / "cases"
+INVALID_CASES_DIR = ROOT / "tests" / "conformance" / "schema-invalid"
 
 
 def load_json(path: Path) -> object:
@@ -76,6 +77,25 @@ def main() -> int:
         else:
             print(f"PASS {rel_path}")
             passed += 1
+
+    for path in sorted(INVALID_CASES_DIR.glob("*.json")):
+        rel_path = path.relative_to(ROOT)
+        try:
+            data = load_json(path)
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"FAIL {rel_path}")
+            print(f"  could not load JSON: {exc}")
+            failed += 1
+            continue
+
+        errors = sorted(validator.iter_errors(data), key=lambda err: list(err.absolute_path))
+        if errors:
+            print(f"PASS {rel_path} (expected schema rejection)")
+            passed += 1
+        else:
+            print(f"FAIL {rel_path}")
+            print("  invalid fixture unexpectedly passed schema validation")
+            failed += 1
 
     print(f"Summary: {passed} passed, {failed} failed")
     return 0 if failed == 0 else 1

@@ -96,7 +96,7 @@ flowchart LR
 
 The engine runs on the BEAM VM. Same code on your laptop, in Docker, on Kubernetes, or across a mesh of nodes.
 
-**Wire-format versions are explicit**, not advisory: `"1"` baseline graphs, `"2"` adds resources/containers/mounts, `"3"` adds agent-native semantic fields starting with `task_type`. SDKs auto-detect from features used. See [`docs/sdk-schema.md`](docs/sdk-schema.md) for the field-by-field contract.
+**Wire-format versions are explicit**, not advisory: `"1"` baseline graphs, `"2"` adds resources/containers/mounts, `"3"` adds agent-native semantic fields starting with `task_type`. SDKs auto-detect from features used, and the engine rejects missing, malformed, or unsupported versions. See [`docs/sdk-schema.md`](docs/sdk-schema.md) for the field-by-field contract.
 
 ## Distributed-by-default. Deterministic by design.
 

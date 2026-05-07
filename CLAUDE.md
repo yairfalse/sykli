@@ -4,10 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Recent changes
 
-- **Pipeline contract is canonical.** `schemas/sykli-pipeline.schema.json` (JSON Schema 2020-12) is the source of truth for SDK-emitted JSON. `scripts/validate-conformance-schema.py` runs at the top of `tests/conformance/run.sh` and validates every fixture against it. Engine remains permissive; SDKs must emit only the canonical shape.
+- **Engine now enforces `version` strictly.** `Sykli.ContractSchemaVersion` (`core/lib/sykli/contract_schema_version.ex`) is the central policy module — it pins supported versions (`"1"`, `"2"`, `"3"`), the current version (`"3"`), and rejects missing/empty/wrong-type/unsupported versions. `Sykli.Graph.parse/1` and `Sykli.Validate.validate_data/1` both call `ContractSchemaVersion.fetch/1`. The previous silent default-to-`"1"` behavior is gone — payloads without a valid version are rejected. Negative coverage lives in `tests/conformance/schema-invalid/` (11 fixtures: missing, empty string, arbitrary string, integer, float, array, boolean, null, object, unsupported-future, unsupported-major).
+- **Phase 3C-1 `success_criteria`.** Three criterion types (`exit_code`, `file_exists`, `file_non_empty`), conjunctive AND, at-most-one `exit_code` per task. Engine vocabulary lives in `Sykli.SuccessCriteria`. **Metadata-only** — the executor does not evaluate criteria yet (deferred to 3C-2). All five SDKs ship explicit APIs. Conformance case `24-success-criteria.json`.
+- **Pipeline contract is canonical.** `schemas/sykli-pipeline.schema.json` (JSON Schema 2020-12) is the source of truth for SDK-emitted JSON. `scripts/validate-conformance-schema.py` validates positive fixtures in `tests/conformance/cases/` AND verifies negative fixtures in `tests/conformance/schema-invalid/` are rejected. SDKs must emit only the canonical shape.
 - **Phase 3B `task_type` (version `"3"`).** Closed 12-value enum (`build`, `test`, `lint`, `format`, `scan`, `package`, `publish`, `deploy`, `migrate`, `generate`, `verify`, `cleanup`) classifying executable tasks. Engine vocabulary lives in `Sykli.TaskType`. Triple-layered enforcement: schema `if/then`, `Sykli.Graph.parse_task_type/4`, `Sykli.Validate.check_task_types/3`. Rejected on review nodes. Design rationale: `docs/agent-contract-semantics.md`.
 - **`target` field removed from canonical SDK output.** All five SDK builder methods are deprecated no-ops (Python raises `DeprecationWarning`). The engine never read `target`; this was contract cleanup.
-- **Review nodes (`kind: "review"`) experimental** across all five SDKs. Schema rejects task-execution fields on reviews (`command`, `outputs`, `services`, `mounts`, `k8s`, `retry`, `timeout`, `task_type`).
+- **Review nodes (`kind: "review"`) experimental** across all five SDKs. Schema rejects task-execution fields on reviews (`command`, `outputs`, `services`, `mounts`, `k8s`, `retry`, `timeout`, `task_type`, `success_criteria`).
 - **GitHub-native foundation** shipped — GitHub App auth, webhook receiver (Plug + Bandit), Checks API client, `Sykli.Mesh.Roles`. See `docs/github-native.md`.
 - **CLI visual reset** shipped — Nordic-minimal renderer (`Sykli.CLI.Renderer/Theme/Live/FixRenderer`). The output rules are testable; banned vocabulary in §"CLI output rules" below.
 
@@ -65,7 +67,9 @@ eval/harness/run.sh --case 001 --dry-run    # preview without running
 
 - `core/test/` — Elixir unit/integration tests run by `mix test`.
 - `test/blackbox/` — shell-driven black-box suite against the built `sykli` binary (dataset in `dataset.json`).
-- `tests/conformance/` (repo root, note the `s`) — cross-SDK JSON-output conformance cases.
+- `tests/conformance/cases/` — positive cross-SDK conformance cases. SDKs must emit byte-identical JSON for these.
+- `tests/conformance/schema-invalid/` — negative schema-rejection fixtures. The schema validator asserts each one **fails** validation; missing-rejection is itself a failure.
+- `tests/conformance/fixtures/<sdk>/` — per-SDK pipeline files for each case in `cases/`.
 - `eval/oracle/` + `eval/harness/` — ground-truth cases and the AI-agent eval loop.
 
 ### Other docs (don't duplicate; defer to)
@@ -267,8 +271,13 @@ Some cases carry `expected_failure: true`, which marks them as known-broken cont
 - **No wall-clock or global RNG in simulator-facing code** — the custom `CredoSykli.Check.NoWallClock` check (`core/lib/credo_sykli/check/no_wall_clock.ex`) fails on `System.monotonic_time/os_time/system_time`, `DateTime.utc_now`, `NaiveDateTime.utc_now`, `:os.system_time`, `:erlang.now`, and bare `:rand.uniform`. Route time through transport APIs (e.g. `now_ms/0`) and randomness through explicit seeded state
 - **Runtime isolation** — no module outside `core/lib/sykli/runtime/` may name a specific runtime implementation (`Sykli.Runtime.Docker`, `Podman`, `Shell`, `Fake`, `Containerd`). Selection flows through `Sykli.Runtime.Resolver`. Enforced by `core/test/sykli/runtime_isolation_test.exs` — the test greps the source tree and fails on any offender
 - **Schema is the canonical contract for SDK emission.** `schemas/sykli-pipeline.schema.json` is strict (`additionalProperties: false`) and gates new fields by `version`. The engine in `graph.ex` is more permissive (legacy compatibility paths: unknown keys ignored, `condition` aliasing `when`, list-form `outputs`). SDK output must validate against the schema; engine acceptance is *not* the SDK's bar. Document permissive paths in `docs/sdk-schema.md` under "Contract boundary".
-- **Engine vocabulary modules** — values shared across `graph.ex` and `validate.ex` (e.g., `task_type`'s 12-value enum) live in dedicated modules like `Sykli.TaskType` (`Sykli.TaskType.all/0`, `Sykli.TaskType.valid?/1`). When adding a new closed-enum field, follow this pattern instead of duplicating the literal across modules. SDKs must carry their own copies (separate Mix projects).
-- **Engine error formatting** — parse-time errors render via `Sykli.Graph.format_error/1` (also delegated to from `Sykli.MCP.Tools`); validate-time errors render via `Sykli.Validate.format_errors/1`. Validate-path strings prefix `"Error: "`; parse-path strings don't. Keep new error tuples consistent with the path that produces them.
+- **Engine vocabulary modules** — values shared across `graph.ex` and `validate.ex` (closed enums, version policies, criterion type sets) live in dedicated modules. The pattern: each such module exposes a `valid?/1` (or `fetch/1`) plus a `format_error/1` and/or `to_error_map/1` so both the parse path and the validate path render errors identically. Existing instances:
+  - `Sykli.TaskType` — the 12-value `task_type` enum (Phase 3B).
+  - `Sykli.SuccessCriteria` — `success_criteria` shape and constraints (Phase 3C-1).
+  - `Sykli.ContractSchemaVersion` — supported `version` values + missing/empty/wrong-type/unsupported error policy.
+
+  When adding a new closed-enum field or shared-policy concept, follow this pattern. SDKs must carry their own copies (separate Mix projects — engine modules are unreachable from `sdk/<lang>/`).
+- **Engine error formatting** — parse-time errors render via `Sykli.Graph.format_error/1` (also delegated to from `Sykli.MCP.Tools`); validate-time errors render via `Sykli.Validate.format_errors/1`. Both paths prefix rendered strings with `"Error: "`. Keep new error tuples consistent with the path that produces them.
 
 ## CLI output rules
 

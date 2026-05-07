@@ -50,7 +50,7 @@
   ],
   "properties": {
     "version": {
-      "description": "Pipeline wire-format/schema version. SDKs auto-detect: '3' if any executable task uses semantic fields such as task_type or success_criteria; otherwise '2' if any container, mount, dir, or cache resource is used; '1' otherwise.",
+      "description": "Pipeline wire-format/schema version. Required; missing, malformed, or unsupported values are rejected. SDKs auto-detect: '3' if any executable task uses semantic fields such as task_type or success_criteria; otherwise '2' if any container, mount, dir, or cache resource is used; '1' otherwise.",
       "enum": [
         "1",
         "2",

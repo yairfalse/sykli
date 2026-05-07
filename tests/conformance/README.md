@@ -10,6 +10,7 @@ tests/conformance/
 │   ├── 01-basic.json   # Expected output for basic pipeline
 │   ├── 02-deps.json    # Expected output for dependencies
 │   └── ...
+├── schema-invalid/     # JSON fixtures expected to fail schema validation
 ├── fixtures/           # Pipeline source per SDK
 │   ├── go/
 │   ├── rust/
@@ -38,3 +39,12 @@ tests/conformance/
 1. Add expected JSON to `cases/<name>.json`
 2. Add pipeline source in each `fixtures/<sdk>/<name>.*` file
 3. Run `./tests/conformance/run.sh <name>` to verify
+
+## Schema validation
+
+`scripts/validate-conformance-schema.py` validates every JSON file in
+`cases/` and verifies every JSON file in `schema-invalid/` is rejected by the
+canonical schema.
+
+`run.sh` also checks that expected and emitted conformance JSON declares a
+supported top-level contract schema version.

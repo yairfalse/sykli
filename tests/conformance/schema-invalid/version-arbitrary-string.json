@@ -1,0 +1,9 @@
+{
+  "version": "banana",
+  "tasks": [
+    {
+      "name": "test",
+      "command": "echo test"
+    }
+  ]
+}

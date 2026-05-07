@@ -7,6 +7,7 @@ defmodule Sykli.Graph.AiNativeTest do
   describe "parsing AI-native fields" do
     test "parses task with semantic metadata" do
       json = ~s|{
+        "version": "1",
         "tasks": [{
           "name": "test",
           "command": "mix test",
@@ -32,6 +33,7 @@ defmodule Sykli.Graph.AiNativeTest do
 
     test "parses task with AI hooks" do
       json = ~s|{
+        "version": "1",
         "tasks": [{
           "name": "lint",
           "command": "mix credo",
@@ -94,6 +96,7 @@ defmodule Sykli.Graph.AiNativeTest do
 
     test "parses task with history hints" do
       json = ~s|{
+        "version": "1",
         "tasks": [{
           "name": "flaky-test",
           "command": "mix test --flaky",
@@ -122,6 +125,7 @@ defmodule Sykli.Graph.AiNativeTest do
 
     test "parses task with all AI-native fields" do
       json = ~s|{
+        "version": "1",
         "tasks": [{
           "name": "full-ai-task",
           "command": "npm test",
@@ -161,6 +165,7 @@ defmodule Sykli.Graph.AiNativeTest do
 
     test "provides default values when AI fields are missing" do
       json = ~s|{
+        "version": "1",
         "tasks": [{
           "name": "simple",
           "command": "echo hello"

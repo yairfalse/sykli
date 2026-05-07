@@ -124,7 +124,9 @@ The version meanings are:
 The first `version: "3"` implementation must not add other Phase 3 fields just
 because the version becomes `"3"`.
 
-Do not make `version` decorative again.
+The engine accepts only explicitly supported pipeline wire-format versions.
+Missing, empty, malformed, or unsupported future versions are rejected. Do not
+make `version` decorative again.
 
 ## Semantic layers
 

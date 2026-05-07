@@ -16,6 +16,7 @@ CONF="$ROOT/tests/conformance"
 CASES_DIR="$CONF/cases"
 FIXTURES_DIR="$CONF/fixtures"
 TMP_DIR=$(mktemp -d)
+SUPPORTED_SCHEMA_VERSIONS=("1" "2" "3")
 
 trap 'rm -rf "$TMP_DIR"' EXIT
 
@@ -132,7 +133,27 @@ def normalize(obj):
     return obj
 
 print(json.dumps(normalize(data), sort_keys=True, separators=(',', ':')))
+  "
+}
+
+json_version() {
+  python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+version = data.get('version')
+if not isinstance(version, str):
+    sys.exit(2)
+print(version)
 "
+}
+
+supported_schema_version() {
+  local version="$1"
+  local supported
+  for supported in "${SUPPORTED_SCHEMA_VERSIONS[@]}"; do
+    [[ "$version" == "$supported" ]] && return 0
+  done
+  return 1
 }
 
 # SDK runners — each captures JSON to stdout
@@ -196,6 +217,19 @@ run_case() {
   local expected
   expected=$(normalize_json < "$expected_file")
 
+  local expected_version
+  if ! expected_version=$(json_version < "$expected_file"); then
+    echo -e "  ${RED}✗${NC} $case_name — expected output has missing or malformed version"
+    FAIL=$((FAIL + 1))
+    return
+  fi
+
+  if ! supported_schema_version "$expected_version"; then
+    echo -e "  ${RED}✗${NC} $case_name — expected output uses unsupported version $expected_version"
+    FAIL=$((FAIL + 1))
+    return
+  fi
+
   local sdks=("go" "python" "typescript" "rust" "elixir")
 
   for sdk in "${sdks[@]}"; do
@@ -236,6 +270,19 @@ run_case() {
     local err_file="$TMP_DIR/err_${sdk}_${case_name}"
 
     if actual_raw=$("run_${sdk}" "$fixture" 2>"$err_file"); then
+      local actual_version
+      if ! actual_version=$(echo "$actual_raw" | json_version); then
+        echo -e "  ${RED}✗${NC} $case_name/$sdk — emitted missing or malformed version"
+        FAIL=$((FAIL + 1))
+        continue
+      fi
+
+      if ! supported_schema_version "$actual_version"; then
+        echo -e "  ${RED}✗${NC} $case_name/$sdk — emitted unsupported version $actual_version"
+        FAIL=$((FAIL + 1))
+        continue
+      fi
+
       actual=$(echo "$actual_raw" | normalize_json)
 
       if [[ "$expected" == "$actual" ]]; then
