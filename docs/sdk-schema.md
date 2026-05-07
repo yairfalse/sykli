@@ -7,7 +7,7 @@ This document describes the **current** Sykli pipeline JSON contract. It is grou
 - The engine parser (`core/lib/sykli/graph.ex`) and per-field modules (`core/lib/sykli/graph/task/*.ex`).
 - Engine validation (`core/lib/sykli/validate.ex`).
 - The five SDK emitters (`sdk/{go,rust,typescript,elixir,python}/`).
-- The 23 conformance fixtures (`tests/conformance/cases/*.json`).
+- The 24 conformance fixtures (`tests/conformance/cases/*.json`).
 
 The agent-native semantic model is defined in `docs/agent-contract-semantics.md`.
 This document describes only the current wire contract.

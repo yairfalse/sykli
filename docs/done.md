@@ -46,3 +46,20 @@ Test by running the feature, then running `sykli explain` and `sykli fix --json`
 - Bad: `sykli --json validate` showing colored human UI, or an MCP tool returning rendered terminal text when structured data is available, is not done.
 
 Test both flag orders, parse the response as JSON, and compare the envelope shape.
+
+## 6. Contract Surface
+
+**Assertion:** any contract feature exposed to SDK authors is represented on the
+canonical JSON surface, schema, parser/validator path, human docs, and
+agent-readable outputs when execution can produce results.
+
+- Good: `task_type` is version-gated in the schema and engine, appears only on
+  executable tasks, has closed SDK vocabulary, and is covered by conformance.
+- Good: `success_criteria` is version-gated, rejected on review nodes, exposed
+  in task results / CLI JSON when evaluated, and has public failure types.
+- Bad: a field that SDKs can emit but the engine ignores, silently drops, or
+  cannot report in JSON is not done.
+
+For v3 fields, verify both the declaration path (`validate`, schema fixtures,
+SDK conformance) and the result path when applicable (`run --json`, MCP/tool
+responses, occurrences or documented exceptions).

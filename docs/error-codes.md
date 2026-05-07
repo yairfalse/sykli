@@ -117,3 +117,16 @@ No cache-prefixed `Sykli.Error` codes are emitted today. Cache failures currentl
 | `invalid_mount` | A graph mount declaration is missing required fields or uses an unsupported type. | public-stable | `core/lib/sykli/error.ex:255` |
 | `invalid_service` | A graph service declaration is missing required fields such as name or image. | public-stable | `core/lib/sykli/error.ex:231` |
 | `missing_artifact` | A task references an artifact output or producing task that the graph cannot satisfy. | public-stable | `core/lib/sykli/error.ex:293` |
+
+### contract schema version validation
+
+These are public parse/validation error types, not `%Sykli.Error{}` codes. They
+can appear in `sykli validate --json`, parser/validator results, and MCP/tool
+responses that surface graph parse failures.
+
+| Type | Description | Tier | Emitted from |
+|------|-------------|------|--------------|
+| `empty_contract_schema_version` | The top-level `version` field is an empty or whitespace-only string. | public-unstable | `core/lib/sykli/contract_schema_version.ex:37` |
+| `invalid_contract_schema_version_type` | The top-level `version` field is present but is not a string. | public-unstable | `core/lib/sykli/contract_schema_version.ex:48` |
+| `missing_contract_schema_version` | The contract has no top-level `version` field. | public-unstable | `core/lib/sykli/contract_schema_version.ex:30` |
+| `unsupported_contract_schema_version` | The top-level `version` string is not one of the supported contract schema versions. | public-unstable | `core/lib/sykli/contract_schema_version.ex:44` |

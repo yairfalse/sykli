@@ -3,6 +3,21 @@
 These are requirement-level gaps found by the new adversarial black-box and
 oracle cases. Fixes are intentionally out of scope for this PR.
 
+## Status note after PR #173-#177
+
+This file is historical audit input. The table below is not deleted because it
+records what the oracle observed at the time, but several findings are stale
+after the contract cleanup PRs.
+
+| Case(s) | Status | Evidence / next action |
+| --- | --- | --- |
+| SDK-001 through SDK-006 | Stale / fixed by recent PRs | Cross-SDK conformance now covers all five SDKs and includes gates, capabilities, task inputs, duplicate dependencies, and empty capability values. Keep conformance green instead of editing the original finding rows. |
+| CACHE-006 | Still open / needs focused fix | `core/lib/sykli/cli.ex` still has a dedicated `cache stats` branch and no confirmed JSON envelope coverage in this audit pass. |
+| ABN-015 | Still open / needs focused fix | Timeout status semantics are not changed by PR #173-#177. |
+| DET-003 | Still open / needs re-verification | Occurrence determinism was not re-audited in this docs pass. |
+| DET-006 | Still open / needs PR E | NoWallClock scope and target-local determinism are assigned to the security/determinism hardening PR. |
+| GH-004 | Still open / critical | Path traversal / host filesystem containment requires a scoped security fix, not a docs change. |
+
 | Case | Requirement Source | Observed Behavior | Expected Behavior | Severity |
 | --- | --- | --- | --- | --- |
 | CACHE-006 | CLAUDE.md §JSON output | `sykli cache stats --json` prints cache command help; the runner finds no JSON object. | JSON-supporting commands emit `{ok, version, data, error}` with no ANSI. | Medium |
