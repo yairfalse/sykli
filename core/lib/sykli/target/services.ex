@@ -97,8 +97,8 @@ defmodule Sykli.Services.Docker do
 
   def start_services(_task_name, [], _state), do: {:ok, nil}
 
-  def start_services(task_name, services, _state) do
-    network_name = "sykli-#{sanitize_name(task_name)}-#{:rand.uniform(100_000)}"
+  def start_services(task_name, services, state) do
+    network_name = deterministic_network_name(task_name, services, state)
 
     case create_network(network_name) do
       {:ok, _} ->
@@ -187,4 +187,29 @@ defmodule Sykli.Services.Docker do
   defp sanitize_name(name) do
     String.replace(name, ~r/[^a-zA-Z0-9_-]/, "_")
   end
+
+  defp deterministic_network_name(task_name, services, state) do
+    suffix =
+      :crypto.hash(
+        :sha256,
+        :erlang.term_to_binary({task_name, service_seed(services), state_seed(state)})
+      )
+      |> Base.encode16(case: :lower)
+      |> binary_part(0, 12)
+
+    "sykli-#{sanitize_name(task_name)}-#{suffix}"
+  end
+
+  defp service_seed(services) do
+    Enum.map(services, fn
+      %Sykli.Graph.Service{name: name, image: image} ->
+        {name, image}
+
+      service when is_map(service) ->
+        {service[:name] || service["name"], service[:image] || service["image"]}
+    end)
+  end
+
+  defp state_seed(%{workdir: workdir}), do: workdir
+  defp state_seed(_state), do: nil
 end

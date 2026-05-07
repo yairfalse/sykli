@@ -196,14 +196,14 @@ defmodule Sykli.Target.Local do
       not path_within?(abs_dest, abs_workdir) ->
         {:error, {:path_traversal, dest_path}}
 
-      File.regular?(abs_source) ->
-        copy_file(abs_source, abs_dest)
-
-      File.dir?(abs_source) ->
-        copy_directory(abs_source, abs_dest)
-
       true ->
-        {:error, {:source_not_found, source_path}}
+        case File.lstat(abs_source) do
+          {:ok, %{type: :regular}} -> copy_file(abs_source, abs_dest)
+          {:ok, %{type: :directory}} -> copy_directory(abs_source, abs_dest)
+          {:ok, %{type: :symlink}} -> {:error, {:symlink_not_allowed, source_path}}
+          {:ok, _} -> {:error, {:source_not_regular, source_path}}
+          {:error, _} -> {:error, {:source_not_found, source_path}}
+        end
     end
   end
 
@@ -221,7 +221,7 @@ defmodule Sykli.Target.Local do
     unless function_exported?(runtime, :create_network, 1) do
       {:error, {:runtime_no_services, runtime.name()}}
     else
-      network_name = "sykli-#{sanitize_name(task_name)}-#{:rand.uniform(100_000)}"
+      network_name = deterministic_network_name(task_name, services, state.workdir)
 
       case runtime.create_network(network_name) do
         {:ok, _} ->
@@ -630,8 +630,8 @@ defmodule Sykli.Target.Local do
 
     with :ok <- File.mkdir_p(dest_dir),
          {:ok, _bytes} <- File.copy(abs_source, abs_dest) do
-      # Preserve executable permissions
-      case File.stat(abs_source) do
+      # Preserve executable permissions without following a replaced symlink.
+      case File.lstat(abs_source) do
         {:ok, %{mode: mode}} -> File.chmod(abs_dest, mode)
         _ -> :ok
       end
@@ -658,6 +658,25 @@ defmodule Sykli.Target.Local do
 
   defp sanitize_name(name) do
     String.replace(name, ~r/[^a-zA-Z0-9_-]/, "_")
+  end
+
+  defp deterministic_network_name(task_name, services, workdir) do
+    suffix =
+      :crypto.hash(:sha256, :erlang.term_to_binary({task_name, service_seed(services), workdir}))
+      |> Base.encode16(case: :lower)
+      |> binary_part(0, 12)
+
+    "sykli-#{sanitize_name(task_name)}-#{suffix}"
+  end
+
+  defp service_seed(services) do
+    Enum.map(services, fn
+      %Sykli.Graph.Service{name: name, image: image} ->
+        {name, image}
+
+      service when is_map(service) ->
+        {service[:name] || service["name"], service[:image] || service["image"]}
+    end)
   end
 
   # Securely check if path is within base directory (prevents path traversal)

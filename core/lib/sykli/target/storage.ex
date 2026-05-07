@@ -145,14 +145,14 @@ defmodule Sykli.Storage.Local do
       not path_within?(abs_dest, abs_workdir) ->
         {:error, {:path_traversal, dest_path}}
 
-      File.regular?(abs_source) ->
-        copy_file(abs_source, abs_dest)
-
-      File.dir?(abs_source) ->
-        copy_directory(abs_source, abs_dest)
-
       true ->
-        {:error, {:source_not_found, source_path}}
+        case File.lstat(abs_source) do
+          {:ok, %{type: :regular}} -> copy_file(abs_source, abs_dest)
+          {:ok, %{type: :directory}} -> copy_directory(abs_source, abs_dest)
+          {:ok, %{type: :symlink}} -> {:error, {:symlink_not_allowed, source_path}}
+          {:ok, _} -> {:error, {:source_not_regular, source_path}}
+          {:error, _} -> {:error, {:source_not_found, source_path}}
+        end
     end
   end
 
@@ -161,7 +161,7 @@ defmodule Sykli.Storage.Local do
 
     with :ok <- File.mkdir_p(dest_dir),
          {:ok, _bytes} <- File.copy(abs_source, abs_dest) do
-      case File.stat(abs_source) do
+      case File.lstat(abs_source) do
         {:ok, %{mode: mode}} -> File.chmod(abs_dest, mode)
         _ -> :ok
       end

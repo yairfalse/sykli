@@ -107,6 +107,20 @@ defmodule Sykli.Target.LocalTest do
       # Returns {network, containers, runtime} tuple
       assert {:ok, {nil, [], nil}} = Local.start_services("test", [], state)
     end
+
+    test "uses deterministic service network names for the same task and workdir" do
+      service = %Sykli.Graph.Service{name: "db", image: "postgres:15"}
+      state = %Local{workdir: "/tmp/sykli-project", runtime: Sykli.Runtime.Fake}
+
+      assert {:ok, {network_a, _containers_a, Sykli.Runtime.Fake}} =
+               Local.start_services("integration/test", [service], state)
+
+      assert {:ok, {network_b, _containers_b, Sykli.Runtime.Fake}} =
+               Local.start_services("integration/test", [service], state)
+
+      assert network_a == network_b
+      assert String.starts_with?(network_a, "sykli-integration_test-")
+    end
   end
 
   describe "stop_services/2" do
@@ -187,6 +201,24 @@ defmodule Sykli.Target.LocalTest do
       # Shell commands fail when workdir doesn't exist (can't cd)
       result = Local.run_task_stateless(task, workdir: "/nonexistent/path/xyz")
       assert {:error, %Sykli.Error{code: "task_failed"}} = result
+    end
+  end
+
+  describe "copy_artifact/4" do
+    @tag :tmp_dir
+    test "rejects symlink sources instead of following them", %{tmp_dir: tmp_dir} do
+      source = Path.join(tmp_dir, "real.txt")
+      link = Path.join(tmp_dir, "link.txt")
+
+      File.write!(source, "artifact")
+      File.ln_s!("real.txt", link)
+
+      {:ok, state} = Local.setup(workdir: tmp_dir)
+
+      assert {:error, {:symlink_not_allowed, "link.txt"}} =
+               Local.copy_artifact("link.txt", "dest.txt", tmp_dir, state)
+
+      refute File.exists?(Path.join(tmp_dir, "dest.txt"))
     end
   end
 end
