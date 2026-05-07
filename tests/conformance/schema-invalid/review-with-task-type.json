@@ -1,0 +1,11 @@
+{
+  "version": "3",
+  "tasks": [
+    {
+      "name": "review-code",
+      "kind": "review",
+      "primitive": "lint",
+      "task_type": "lint"
+    }
+  ]
+}

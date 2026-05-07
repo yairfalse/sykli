@@ -1,0 +1,10 @@
+{
+  "version": "2",
+  "tasks": [
+    {
+      "name": "test",
+      "command": "go test ./...",
+      "task_type": "test"
+    }
+  ]
+}

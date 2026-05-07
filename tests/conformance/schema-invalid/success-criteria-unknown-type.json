@@ -1,0 +1,15 @@
+{
+  "version": "3",
+  "tasks": [
+    {
+      "name": "test",
+      "command": "go test ./...",
+      "success_criteria": [
+        {
+          "type": "custom",
+          "path": "coverage.out"
+        }
+      ]
+    }
+  ]
+}

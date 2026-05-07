@@ -1,0 +1,15 @@
+{
+  "version": "2",
+  "tasks": [
+    {
+      "name": "test",
+      "command": "go test ./...",
+      "success_criteria": [
+        {
+          "type": "exit_code",
+          "equals": 0
+        }
+      ]
+    }
+  ]
+}

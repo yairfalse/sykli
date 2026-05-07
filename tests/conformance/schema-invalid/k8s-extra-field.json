@@ -1,0 +1,13 @@
+{
+  "version": "1",
+  "tasks": [
+    {
+      "name": "train",
+      "command": "python train.py",
+      "k8s": {
+        "memory": "4Gi",
+        "namespace": "ml-jobs"
+      }
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "version": "1",
+  "tasks": [
+    {
+      "name": "approve",
+      "gate": {
+        "strategy": "slack"
+      }
+    }
+  ]
+}

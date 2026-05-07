@@ -1,0 +1,14 @@
+{
+  "version": "1",
+  "tasks": [
+    {
+      "name": "test",
+      "command": "go test ./...",
+      "services": [
+        {
+          "name": "db"
+        }
+      ]
+    }
+  ]
+}

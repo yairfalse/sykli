@@ -1,0 +1,11 @@
+{
+  "version": "1",
+  "tasks": [
+    {
+      "name": "deploy",
+      "command": "make deploy",
+      "when": "branch == 'main'",
+      "condition": "tag != ''"
+    }
+  ]
+}

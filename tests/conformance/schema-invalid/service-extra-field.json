@@ -1,0 +1,18 @@
+{
+  "version": "1",
+  "tasks": [
+    {
+      "name": "test",
+      "command": "go test ./...",
+      "services": [
+        {
+          "image": "postgres:15",
+          "name": "db",
+          "ports": [
+            "5432:5432"
+          ]
+        }
+      ]
+    }
+  ]
+}

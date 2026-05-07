@@ -1,0 +1,10 @@
+{
+  "version": "1",
+  "tasks": [
+    {
+      "name": "build",
+      "command": "go build ./...",
+      "depends_on": "test"
+    }
+  ]
+}
