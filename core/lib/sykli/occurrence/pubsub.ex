@@ -69,7 +69,14 @@ defmodule Sykli.Occurrence.PubSub do
     occ
   end
 
-  @doc "Broadcast a ci.task.output occurrence. Returns the Occurrence."
+  @doc """
+  Broadcast a `ci.task.output` occurrence.
+
+  Output broadcasts intentionally carry the raw in-memory stream payload so local
+  subscribers can render task logs faithfully. Any consumer that persists,
+  exports, or republishes these occurrences must apply the normal occurrence
+  enrichment/masking path first.
+  """
   def task_output(run_id, task_name, output) do
     occ = Occurrence.task_output(run_id, task_name, output)
     broadcast(occ)
