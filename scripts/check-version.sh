@@ -68,7 +68,7 @@ for check in "${CHECKS[@]}"; do
 done
 
 require_file "sdk/go/go.mod"
-if grep -q '^module github.com/yairfalse/sykli/sdk/go$' "$ROOT/sdk/go/go.mod"; then
+if grep -q '^module github.com/false-systems/sykli/sdk/go$' "$ROOT/sdk/go/go.mod"; then
   log "ok sdk/go/go.mod uses submodule tag strategy: sdk/go/v$VERSION"
 else
   printf '[check-version] mismatch sdk/go/go.mod: unexpected module path\n' >&2

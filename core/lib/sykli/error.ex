@@ -896,7 +896,7 @@ defmodule Sykli.Error do
       type: :internal,
       message: message,
       hints: [
-        "report this issue at https://github.com/yairfalse/sykli/issues"
+        "report this issue at https://github.com/false-systems/sykli/issues"
       ],
       notes: notes,
       cause: cause

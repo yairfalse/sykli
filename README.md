@@ -26,7 +26,7 @@ finishes.
 ```go
 package main
 
-import sykli "github.com/yairfalse/sykli/sdk/go"
+import sykli "github.com/false-systems/sykli/sdk/go"
 
 func main() {
     s := sykli.New()
@@ -240,17 +240,17 @@ regression, test coverage gaps, and architecture boundary checks.
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/yairfalse/sykli/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/false-systems/sykli/main/install.sh | bash
 ```
 
-Or [download a binary](https://github.com/yairfalse/sykli/releases/latest) for
+Or [download a binary](https://github.com/false-systems/sykli/releases/latest) for
 macOS or Linux.
 
 <details>
 <summary>Build from source</summary>
 
 ```bash
-git clone https://github.com/yairfalse/sykli.git
+git clone https://github.com/false-systems/sykli.git
 cd sykli/core
 mix deps.get
 mix escript.build
@@ -264,7 +264,7 @@ Requires Elixir 1.14+.
 
 | Language | Install | Default file |
 |----------|---------|--------------|
-| Go | `go get github.com/yairfalse/sykli/sdk/go@latest` | `sykli.go` |
+| Go | `go get github.com/false-systems/sykli/sdk/go@latest` | `sykli.go` |
 | Rust | `sykli = "0.6.1"` in `Cargo.toml` | `sykli.rs` |
 | TypeScript | `npm install sykli@0.6.1` | `sykli.ts` |
 | Elixir | `{:sykli_sdk, "~> 0.6.1"}` in `mix.exs` | `sykli.exs` |
@@ -431,6 +431,6 @@ rationale.
 
 **sykli** (Finnish: *cycle*) — built in Berlin, powered by BEAM.
 
-**[Install](#install)** · **[Schema](schemas/sykli-pipeline.schema.json)** · **[Contract](docs/sdk-schema.md)** · **[Issues](https://github.com/yairfalse/sykli/issues)**
+**[Install](#install)** · **[Schema](schemas/sykli-pipeline.schema.json)** · **[Contract](docs/sdk-schema.md)** · **[Issues](https://github.com/false-systems/sykli/issues)**
 
 </div>
