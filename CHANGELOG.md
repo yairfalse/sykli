@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **CONTRIBUTING.md.** Practical contributor guide: build/test tiers, the
+  tested-and-enforced project rules (schema-as-contract, vocabulary drift
+  guard, runtime isolation, NoWallClock, CLI output rules, dual-surface
+  done), and good first contributions.
+
+### Fixed
+
+- **Repository paths point at the current GitHub org.** The Go SDK module
+  path is now `github.com/false-systems/sykli/sdk/go`, and `install.sh`,
+  the GitHub Action, docs, examples, `sykli init` scaffolding, and error
+  hints all reference `false-systems/sykli` instead of the pre-transfer
+  `yairfalse/sykli`. Go SDK versions up to `sdk/go/v0.4.0` remain
+  permanently fetchable under the old module path via the Go module proxy;
+  versions from this release onward publish only under
+  `github.com/false-systems/sykli/sdk/go` — update your import when you
+  upgrade.
+
 - **Per-team coordinator authorization (Monster Phase C, C2).** The
   self-hosted coordinator now supports stateless signed team tokens via
   `sykli coordinator mint-token --org <slug> --team <slug> --role

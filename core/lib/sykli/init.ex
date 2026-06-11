@@ -138,7 +138,7 @@ defmodule Sykli.Init do
     """
     package main
 
-    import sykli "github.com/yairfalse/sykli/sdk/go"
+    import sykli "github.com/false-systems/sykli/sdk/go"
 
     func main() {
     \ts := sykli.New()

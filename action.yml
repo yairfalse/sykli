@@ -1,6 +1,6 @@
 name: 'Sykli'
 description: 'CI in your language. No YAML. No DSL. Just code.'
-author: 'yairfalse'
+author: 'false-systems'
 
 branding:
   icon: 'zap'
@@ -37,7 +37,7 @@ runs:
       run: |
         set -e
         # Clone and build sykli (TODO: use release binary)
-        git clone --depth 1 https://github.com/yairfalse/sykli.git /tmp/sykli
+        git clone --depth 1 https://github.com/false-systems/sykli.git /tmp/sykli
         cd /tmp/sykli/core
         mix local.hex --force
         mix local.rebar --force

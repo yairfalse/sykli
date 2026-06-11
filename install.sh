@@ -2,10 +2,10 @@
 # Install sykli - CI pipelines in your language
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/yairfalse/sykli/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/false-systems/sykli/main/install.sh | bash
 #
 # Or with a specific version:
-#   curl -fsSL https://raw.githubusercontent.com/yairfalse/sykli/main/install.sh | bash -s v1.0.0
+#   curl -fsSL https://raw.githubusercontent.com/false-systems/sykli/main/install.sh | bash -s v1.0.0
 
 set -e
 
@@ -33,9 +33,9 @@ TARGET="${OS}-${ARCH}"
 
 # Get download URL
 if [ "$VERSION" = "latest" ]; then
-  DOWNLOAD_URL="https://github.com/yairfalse/sykli/releases/latest/download/sykli-${TARGET}"
+  DOWNLOAD_URL="https://github.com/false-systems/sykli/releases/latest/download/sykli-${TARGET}"
 else
-  DOWNLOAD_URL="https://github.com/yairfalse/sykli/releases/download/${VERSION}/sykli-${TARGET}"
+  DOWNLOAD_URL="https://github.com/false-systems/sykli/releases/download/${VERSION}/sykli-${TARGET}"
 fi
 
 echo "Installing sykli for ${TARGET}..."

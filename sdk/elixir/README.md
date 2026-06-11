@@ -396,7 +396,7 @@ See [REFERENCE.md](./REFERENCE.md) for the complete API documentation.
 
 ## Links
 
-- [GitHub](https://github.com/yairfalse/sykli)
+- [GitHub](https://github.com/false-systems/sykli)
 - [Documentation](https://hexdocs.pm/sykli)
 
 ## License
