@@ -6,6 +6,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Most recent first. Older shipped features (Phase 3B `task_type`, Phase 3C `success_criteria`, schema-as-canonical-contract, `target` removed, review nodes) are now load-bearing architecture — see §"SDKs", §"Patterns & Conventions" ("Engine vocabulary modules"), and the `ReviewPrimitive` row in §"Key Modules".
 
+- **Monster Phases B/C/E hardening** (audit remediation, `docs/audit-2026-05-22.md`):
+  determinism — `ContractHash` now recursively sorts object keys before hashing,
+  and the NoWallClock Credo guard covers all pure contract/output-shaping
+  transforms. Security — `Sykli.HTTP.check_token_transport/1` refuses bearer
+  tokens over plaintext HTTP to non-loopback coordinators
+  (`SYKLI_COORDINATOR_INSECURE=1` is a loud explicit opt-out);
+  `Sykli.HTTP.check_ssrf/1` guards gate and notification webhook URLs (blocks
+  loopback/link-local/RFC1918 + IPv6 equivalents, checks *all* resolved DNS
+  records); coordinator auth adds stateless signed per-team tokens with
+  org/team/role claims (minted via `sykli coordinator mint-token`, enforced
+  across `TeamCoordinator.Router` reads and writes — the bootstrap token stays
+  admin-only); resolved task secret *values* are collected per run and masked
+  at occurrence, notification, attestation, and team run-summary boundaries,
+  with key-pattern matching centralized in `Sykli.Services.SecretPatterns`.
+  OTP — fire-and-forget paths use `Task.Supervisor.start_child` (not
+  `async_nolink`), and webhook-replay / installation-token ETS tables are
+  created at application start instead of by transient request processes.
 - **Monster Phase A CI foundation** wires the full evaluation pyramid into CI:
   Credo, black-box CLI tests, cross-SDK conformance, and merge-to-main oracle
   evals. `mix verify` / `make verify` run the same local path. Black-box
@@ -103,6 +120,7 @@ eval/harness/run.sh --case 001 --dry-run    # preview without running
 - `docs/failure-semantics.md` / `docs/result-contract-slices.md` / `docs/agent-readable-failure-output.md` — typed failure classification, the result contract slice, and how both surface to agents.
 - `docs/runtimes.md` — runtime selection priority chain.
 - `docs/runtime-trust-model.md` — the Shell runtime is not a security sandbox (trusted repo code only; use a container runtime for untrusted pipelines); Sykli's own file ops are path-contained. Normative for `GH-004`.
+- `docs/vartio-integration.md` — Sykli ↔ Vartio split: Sykli is the execution-contract layer, Vartio the fleet-supervisor/behavioral-envelope layer; integration is evidence-based, not a merger.
 - `examples/` and `test_projects/` — runnable sample pipelines for manual testing.
 
 Before every commit: `mix format && mix test && mix escript.build`
@@ -185,9 +203,10 @@ Local-first is binding: anything new must work in mode 1 with no network. The co
 | `WorkItem` / `Work.Store` | `work_item.ex`, `work/store.ex` | Local work-item model + JSON store at `.sykli/work/items/<id>.json`. Statuses: `open/claimed/running/blocked/done/failed/cancelled`. Run association via `attach_run/3`. |
 | `GateDecision` / `Gate.Store` | `gate_decision.ex`, `gate/store.ex` | Local gate-decision model + JSON store at `.sykli/gates/<id>.json`. Statuses: `waiting/approved/rejected/blocked/expired`. `decided_by` is a compact actor ref string (e.g. `"member:yair"`). |
 | `Coordinator.Client` | `coordinator/client.ex` | `:httpc`-backed JSON transport used by daemons to talk to a self-hosted coordinator (TLS via `Sykli.HTTP.ssl_opts/1`). Per-resource API surfaces (e.g. `WorkClient`) layer on top of this. (The former in-process BEAM-mesh `Sykli.Coordinator`/`Sykli.Reporter` occurrence-aggregation path was retired — Team Mode uses this HTTP coordinator.) |
-| `TeamCoordinator.WorkClient` | `team_coordinator/work_client.ex` | Thin work-item adapter over `Coordinator.Client`. Powers `sykli work create/list/show/claim/note --team <team>`. Does not cache locally; does not execute or assign work. Future Phase 7/8 sync work will likely add `RunClient`/`GateClient` siblings under `team_coordinator/`. |
+| `TeamCoordinator.{Application,Router,Auth,Store}` | `team_coordinator/{application,router,auth,store}.ex` | The self-hosted coordinator *server* side: Plug router + in-memory store. `Auth` accepts the bootstrap bearer token as admin and stateless signed per-team tokens (org/team/role claims, minted via `sykli coordinator mint-token`); the router enforces those scopes on every read and write. Never executes work. |
+| `TeamCoordinator.WorkClient` / `GateClient` | `team_coordinator/{work_client,gate_client}.ex` | Thin per-resource adapters over `Coordinator.Client`. Power `sykli work ... --team <team>` and team-scoped gate approve/reject. Do not cache locally; do not execute or assign work. |
 | `TeamCoordinator.RunSummary` / `RunClient` | `team_coordinator/run_summary.ex`, `team_coordinator/run_client.ex` | Metadata-only run sync projection and coordinator adapter. Publishes run status, nodes, criteria/review summaries, gates, and evidence refs; never logs, source, artifacts, contract bytes, or tokens. |
-| `Outbox` | `outbox.ex` | Atomic `.sykli/outbox/<kind>/<id>.json` queue for deferred Team Mode sync. Phase 7 uses `outbox/runs/`. |
+| `Outbox` | `outbox.ex` | Atomic `.sykli/outbox/<kind>/<id>.json` queue for deferred Team Mode sync. Run summaries use `outbox/runs/`, gate publishes `outbox/gates/`. |
 | `Daemon.Join` / `Daemon.SessionStore` | `daemon/join.ex`, `daemon/session_store.ex` | Outbound daemon join + heartbeat protocol (see `docs/daemon-join-protocol.md`). Session token persisted under `.sykli/`. |
 | `ReviewPrimitive` | `review_primitive.ex` | Deterministic dispatch for `kind: "review"` nodes. Canonical names only (e.g. `api_breakage`); hyphenated aliases are rejected. Returns `Result{review_type, status, severity, message, tool, findings, evidence}`. Unsupported primitives fail explicitly — never silently skipped. |
 | `ContractHash` | `contract_hash.ex` | `sha256:` hashes for emitted SDK JSON. Canonicalizes by re-encoding parsed JSON so formatting and SDK-side comments don't perturb the hash. Used as Team Mode contract identity. |
@@ -227,7 +246,7 @@ Run lifecycle: `ci.run.started`, `ci.run.passed`, `ci.run.failed`
 Task lifecycle: `ci.task.started`, `ci.task.completed`, `ci.task.cached`, `ci.task.skipped`, `ci.task.retrying`, `ci.task.output`
 Cache / gates: `ci.cache.miss`, `ci.gate.waiting`, `ci.gate.resolved`
 GitHub-native: `ci.github.webhook.received`, `ci.github.check_suite.opened`
-Team Mode: `ci.team.run.synced`, `ci.team.run.sync_deferred`, `ci.team.outbox.drained` (public-unstable)
+Team Mode: `ci.team.run.synced`, `ci.team.run.sync_deferred`, `ci.team.gate.requested`, `ci.team.gate.decision_received`, `ci.team.gate.apply_failed`, `ci.team.gate.sync_deferred`, `ci.team.outbox.drained` (public-unstable)
 
 Terminal events get enriched with `error`, `reasoning`, `history` blocks by `Occurrence.Enrichment`.
 
@@ -247,7 +266,7 @@ Occurrence context carries `trace_id`, `span_id`, and `chain_id` (for correlatin
 ├── runs/                    # run history manifests
 ├── work/items/              # local work items (Team Mode, one JSON per item)
 ├── gates/                   # local gate decisions (Team Mode, one JSON per decision)
-└── outbox/runs/             # deferred Team Mode run-summary sync payloads
+└── outbox/                  # deferred Team Mode sync payloads (runs/, gates/)
 ```
 
 See `docs/false-protocol-schema.md` for the on-disk schema, sample documents, stability tiers, and producer modules for these artifacts.
@@ -281,6 +300,7 @@ Key env vars (see `cli.ex` and module docs for full details):
 - `SYKLI_DRAIN_TIMEOUT_MS` — graceful shutdown drain timeout (default: 30000)
 - `SYKLI_K8S_NAMESPACE` — K8s target namespace (default: `"sykli"`)
 - `SYKLI_TEAM_TOKEN` — bearer token for Team Mode coordinator sync (work commands, daemon join, run-summary publish). Read from env or CLI `--token`; masked as a secret in occurrence persistence/webhooks — never log or persist it
+- `SYKLI_COORDINATOR_INSECURE` — set to `1` to explicitly allow sending the team token over plaintext HTTP to a non-loopback coordinator (logs a loud warning). Without it, `Coordinator.Client` refuses with `{:error, {:insecure_transport, url}}`; HTTPS and loopback never need it
 - `SYKLI_GITHUB_APP_ID` — GitHub App ID for the webhook receiver
 - `SYKLI_GITHUB_APP_PRIVATE_KEY` — Path to PEM file (or PEM literal) for App JWT signing
 - `SYKLI_GITHUB_WEBHOOK_SECRET` — HMAC secret for webhook signature verification
@@ -317,11 +337,12 @@ Some cases carry `expected_failure: true`, which marks them as known-broken cont
 - **Executor.Config** — executor options flow through `%Executor.Config{}` struct (target, timeout, run_id, max_parallel, continue_on_failure)
 - **HTTP with TLS** — all `:httpc` callers use `Sykli.HTTP.ssl_opts/1` for `verify_peer` + hostname checking
 - **Cache backend selection** — `Sykli.Cache.repo/0` dynamically selects FileRepository or TieredRepository (L1 local + L2 S3) based on env vars
-- **Secret masking** — `SecretMasker.mask_deep/2` applied to occurrence data before persistence and webhook delivery. Env var patterns: `_TOKEN`, `_SECRET`, `_KEY`, `_PASSWORD`, `_URL`, `_DSN`, `_URI`, `_CONN`, etc.
+- **Secret masking** — two complementary mechanisms, both centralized on `Sykli.Services.SecretPatterns` for key matching: (1) `SecretMasker.mask_deep/2` redacts secret-*shaped* keys (`_TOKEN`, `_SECRET`, `_KEY`, `_PASSWORD`, `_URL`, `_DSN`, `_URI`, `_CONN`, etc.); (2) the executor collects each run's *resolved* secret values and masks those exact strings at every egress boundary — occurrence persistence, notifications/webhooks, attestations, and team run summaries. New egress paths must apply both.
 - **S3 circuit breaker** — `TieredRepository` tracks consecutive S3 failures in `persistent_term`; after 5 failures, L2 writes skip for 60s cooldown
 - **Async SCM** — `maybe_github_status/2` fires via `Task.Supervisor.async_nolink` (never blocks executor)
 - **Path containment** — file reads and Docker mounts must use `String.starts_with?(path, base <> "/")` to prevent path traversal (trailing slash prevents prefix tricks)
 - **TLS everywhere** — all `:httpc` calls must include `Sykli.HTTP.ssl_opts/1` (OIDC, S3, SCM, webhooks)
+- **Outbound URL guards** — user/pipeline-supplied webhook URLs (gates, notifications) must pass `Sykli.HTTP.check_ssrf/1` before any request (blocks loopback, link-local, RFC1918, IPv6 equivalents, IPv4-mapped; checks every resolved DNS record). Token-bearing coordinator calls must pass `Sykli.HTTP.check_token_transport/1`. New outbound HTTP paths should reuse these helpers, not re-derive the checks
 - **Elixir heredoc gotcha** — `"""` embeds literal newlines that break JSON. Use `~s()` for single-line JSON in test fixtures
 - **~s() with parens gotcha** — `~s()` uses `()` as delimiters, so `~s(matches(x, "y"))` breaks. Use `~s[]` or `~S||` instead
 - **No wall-clock or global RNG in simulator-facing code** — the custom `CredoSykli.Check.NoWallClock` check (`core/lib/credo_sykli/check/no_wall_clock.ex`) applies to mesh transport, the pure contract & output-shaping transforms (graph parsing/validation, the vocabulary modules, contract hashing, occurrence serialization), the custom Credo check, and its fixtures/tests as configured in `core/.credo.exs`. Engine modules that legitimately stamp wall-clock time (occurrence factory, run history, cache, OIDC, coordinator) are intentionally out of scope — output determinism for those is guarded by the determinism tests, not this lint. It fails on `System.monotonic_time/os_time/system_time`, `DateTime.utc_now`, `NaiveDateTime.utc_now`, `:os.system_time`, `:erlang.now`, and bare `:rand.uniform`. Route simulator time through transport APIs (e.g. `now_ms/0`) and randomness through explicit seeded state. Duration measurement in executor/target code is allowed when it is reported as elapsed runtime rather than simulator state; see timeout/duration coverage in `core/test/sykli/target/local_test.exs` and executor success-criteria tests for non-simulator elapsed-time usage.
