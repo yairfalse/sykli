@@ -26,4 +26,13 @@ if [[ -z "${NPM_TOKEN:-}" ]]; then
 fi
 
 cd "$(dirname "${BASH_SOURCE[0]}")/../sdk/typescript"
-npm publish
+
+# Feed the token to npm via a throwaway userconfig. The ${NPM_TOKEN}
+# placeholder is expanded by npm at run time, so the token itself is
+# never written to disk.
+npmrc="$(mktemp)"
+trap 'rm -f "$npmrc"' EXIT
+# shellcheck disable=SC2016
+echo '//registry.npmjs.org/:_authToken=${NPM_TOKEN}' > "$npmrc"
+
+NPM_CONFIG_USERCONFIG="$npmrc" npm publish
