@@ -108,5 +108,5 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: release/*
-          body_path: docs/releases/v0.6.0.md
+          body_path: docs/releases/${{ github.ref_name }}.md
           make_latest: true
