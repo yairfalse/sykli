@@ -18,8 +18,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   assignments without `accepts_remote_work`, gate-decision application with
   acknowledgement on the following tick, outbox drain on reconnect, and
   liveness fields (`last_heartbeat_at`, `consecutive_failures`) persisted to
-  the session file. Not yet wired to a host process — `daemon join --stay`
-  and the daemon-supervisor child land in the next slice.
+  the session file.
+- **Heartbeat hosts (Monster Phase D, PR 2).** `sykli daemon join --stay`
+  runs the heartbeat loop in the foreground with no BEAM distribution — the
+  minimal Team Mode daemon. The mesh daemon (`sykli daemon start`) now also
+  hosts the loop as a supervised child for every role; it self-ignores when
+  no coordinator session is joined. `sykli daemon status` shows heartbeat
+  liveness (`last heartbeat`, consecutive failures, token-revoked) in human
+  output; `--json` carries the same fields inside `coordinator_session`.
+  New error code: `daemon.stay_failed`.
 
 ### Changed
 

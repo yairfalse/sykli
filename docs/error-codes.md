@@ -73,6 +73,7 @@ daemon status/session JSON surfaces.
 | `daemon.join_missing_org` | `sykli daemon join` was called without `--org`. | public-unstable | `core/lib/sykli/daemon/join.ex` |
 | `daemon.join_missing_team` | `sykli daemon join` was called without `--team`. | public-unstable | `core/lib/sykli/daemon/join.ex` |
 | `daemon.join_missing_token` | `sykli daemon join` was called without `--token` or `SYKLI_TEAM_TOKEN`. | public-unstable | `core/lib/sykli/daemon/join.ex` |
+| `daemon.stay_failed` | `sykli daemon join --stay` could not start the foreground heartbeat loop. | public-unstable | `core/lib/sykli/daemon/join.ex` |
 
 ### team.run
 

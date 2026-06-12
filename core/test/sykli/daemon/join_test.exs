@@ -188,6 +188,92 @@ defmodule Sykli.Daemon.JoinTest do
     end
   end
 
+  test "join --stay runs the heartbeat host and returns when it stops" do
+    tmp = Path.join(System.tmp_dir!(), "sykli-stay-test-#{System.unique_integer([:positive])}")
+    on_exit(fn -> File.rm_rf(tmp) end)
+
+    output =
+      capture_io(fn ->
+        assert Join.join(
+                 [
+                   coordinator: "https://sykli.internal",
+                   org: "false-systems",
+                   team: "platform",
+                   token: "super-secret",
+                   name: "yair-mbp",
+                   stay: true,
+                   path: tmp
+                 ],
+                 client: __MODULE__.FakeClient,
+                 heartbeat: __MODULE__.InstantHeartbeat,
+                 now: @now,
+                 version: "0.6.1"
+               ) == 0
+      end)
+
+    assert output =~ "Heartbeat loop running"
+    assert_received {:stay_started, opts}
+    assert opts[:session]["session_id"] == "sess_001"
+    assert opts[:token] == "super-secret"
+    assert opts[:path] == tmp
+  end
+
+  test "join --stay surfaces a refused heartbeat start" do
+    tmp =
+      Path.join(System.tmp_dir!(), "sykli-stay-ignore-#{System.unique_integer([:positive])}")
+
+    on_exit(fn -> File.rm_rf(tmp) end)
+
+    output =
+      capture_io(:stderr, fn ->
+        assert Join.join(
+                 [
+                   coordinator: "https://sykli.internal",
+                   org: "false-systems",
+                   team: "platform",
+                   token: "super-secret",
+                   name: "yair-mbp",
+                   stay: true,
+                   path: tmp
+                 ],
+                 client: __MODULE__.FakeClient,
+                 heartbeat: __MODULE__.IgnoringHeartbeat,
+                 now: @now,
+                 version: "0.6.1"
+               ) == 1
+      end)
+
+    assert output =~ "daemon.stay_failed"
+  end
+
+  test "accepts the --stay flag in command parsing" do
+    output =
+      capture_io(:stderr, fn ->
+        assert Join.run(["join", "--stay"]) == 1
+      end)
+
+    assert output =~ "daemon.join_missing_coordinator"
+    refute output =~ "invalid_join_command"
+  end
+
+  defmodule InstantHeartbeat do
+    def start_link(opts) do
+      send(self_test_pid(), {:stay_started, opts})
+      {:ok, spawn(fn -> :ok end)}
+    end
+
+    defp self_test_pid, do: :persistent_term.get({__MODULE__, :pid})
+  end
+
+  defmodule IgnoringHeartbeat do
+    def start_link(_opts), do: :ignore
+  end
+
+  setup do
+    :persistent_term.put({__MODULE__.InstantHeartbeat, :pid}, self())
+    :ok
+  end
+
   defmodule FakeClient do
     def post_json(_url, "/v1/daemon-sessions", "super-secret", payload) do
       if Map.has_key?(payload, "token") do
