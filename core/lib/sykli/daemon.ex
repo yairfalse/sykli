@@ -538,10 +538,13 @@ defmodule Sykli.Daemon do
   end
 
   defp daemon_children(role, workdir) do
-    # Occurrence store is always needed (context for AI)
+    # Occurrence store is always needed (context for AI). The Team Mode
+    # heartbeat loop self-ignores when no coordinator session is joined, so
+    # it is safe to list for every role.
     base = [
       {Sykli.Occurrence.Store, workdir: workdir},
-      Sykli.Cluster
+      Sykli.Cluster,
+      {Sykli.Daemon.Heartbeat, path: Path.join(workdir, ".sykli")}
     ]
 
     case role do

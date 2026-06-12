@@ -2851,6 +2851,7 @@ defmodule Sykli.CLI do
         end
 
         IO.puts("  Outbox:   #{daemon_outbox_runs_count()} run(s) pending")
+        print_session_heartbeat_line()
 
       {:stopped, info} ->
         IO.puts("")
@@ -2869,6 +2870,37 @@ defmodule Sykli.CLI do
         end
 
         IO.puts("  Outbox:   #{daemon_outbox_runs_count()} run(s) pending")
+        print_session_heartbeat_line()
+    end
+  end
+
+  defp print_session_heartbeat_line do
+    case Sykli.Daemon.SessionStore.read() do
+      {:ok, session} ->
+        failures = session["consecutive_failures"] || 0
+
+        cond do
+          session["revoked"] == true ->
+            IO.puts("  Team:     token revoked — rotate the token and rejoin")
+
+          is_binary(session["last_heartbeat_at"]) and failures > 0 ->
+            IO.puts(
+              "  Team:     last heartbeat #{session["last_heartbeat_at"]} " <>
+                "(#{failures} consecutive failure(s))"
+            )
+
+          is_binary(session["last_heartbeat_at"]) ->
+            IO.puts("  Team:     last heartbeat #{session["last_heartbeat_at"]}")
+
+          true ->
+            IO.puts(
+              "  Team:     joined #{session["coordinator"]} " <>
+                "#{IO.ANSI.faint()}(no heartbeat yet — run sykli daemon join --stay or sykli daemon start)#{IO.ANSI.reset()}"
+            )
+        end
+
+      {:error, _reason} ->
+        :ok
     end
   end
 

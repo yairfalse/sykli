@@ -41,8 +41,48 @@ defmodule Sykli.Daemon.Join do
            ]),
          {:ok, persisted} <- persist_session(opts, payload, data, runtime_opts) do
       output_success(persisted, json?)
+
+      if Keyword.get(opts, :stay, false) do
+        stay(persisted, opts, runtime_opts)
+      else
+        0
+      end
     else
       {:error, reason} -> output_error(reason, json?)
+    end
+  end
+
+  # Foreground heartbeat host: runs the loop in the current process's
+  # supervision-free world and blocks until it stops (token revoked, session
+  # refused, or operator interrupt). The minimal Team Mode daemon — no BEAM
+  # distribution, no mesh.
+  defp stay(session, opts, runtime_opts) do
+    heartbeat = Keyword.get(runtime_opts, :heartbeat, Sykli.Daemon.Heartbeat)
+
+    start_opts =
+      [
+        name: nil,
+        session: session,
+        token: Keyword.get(opts, :token) || System.get_env("SYKLI_TEAM_TOKEN")
+      ] ++ Keyword.take(opts, [:path])
+
+    case heartbeat.start_link(start_opts) do
+      {:ok, pid} ->
+        unless Keyword.get(opts, :json, false) do
+          IO.puts("Heartbeat loop running. Ctrl-C to stop.")
+        end
+
+        ref = Process.monitor(pid)
+
+        receive do
+          {:DOWN, ^ref, :process, ^pid, _reason} -> 0
+        end
+
+      :ignore ->
+        output_error(:daemon_stay_failed, Keyword.get(opts, :json, false))
+
+      {:error, reason} ->
+        output_error({:daemon_stay_failed, reason}, Keyword.get(opts, :json, false))
     end
   end
 
@@ -201,6 +241,9 @@ defmodule Sykli.Daemon.Join do
   defp parse_flags(["--accept-remote-work" | rest], opts, pos),
     do: parse_flags(rest, [{:accepts_remote_work, true} | opts], pos)
 
+  defp parse_flags(["--stay" | rest], opts, pos),
+    do: parse_flags(rest, [{:stay, true} | opts], pos)
+
   defp parse_flags(["--coordinator", value | rest], opts, pos),
     do: parse_flags(rest, [{:coordinator, value} | opts], pos)
 
@@ -341,6 +384,16 @@ defmodule Sykli.Daemon.Join do
   defp join_error({:invalid_daemon_join_command, command}),
     do: validation("daemon.invalid_join_command", "invalid daemon join command: #{command}")
 
+  defp join_error(:daemon_stay_failed),
+    do:
+      runtime(
+        "daemon.stay_failed",
+        "heartbeat loop refused to start: missing session or team token"
+      )
+
+  defp join_error({:daemon_stay_failed, reason}),
+    do: runtime("daemon.stay_failed", "heartbeat loop failed to start: #{inspect(reason)}")
+
   defp join_error({:coordinator_unavailable, reason}),
     do: runtime("daemon.coordinator_unavailable", "coordinator unavailable: #{inspect(reason)}")
 
@@ -387,8 +440,11 @@ defmodule Sykli.Daemon.Join do
       --capabilities LIST       Comma-separated capabilities, default: local
       --name NAME               Stable daemon id, default: hostname
       --accept-remote-work      Explicitly advertise remote-work acceptance
+      --stay                    Keep running: heartbeat loop in the foreground
 
-    Remote work is disabled by default.
+    Remote work is disabled by default. Without --stay, join registers the
+    session and exits; gate decisions are then picked up only while a daemon
+    or a --stay loop is running.
     """)
   end
 end
