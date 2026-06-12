@@ -2683,6 +2683,12 @@ defmodule Sykli.CLI do
     |> halt()
   end
 
+  defp handle_daemon(["leave" | args]) do
+    args
+    |> Sykli.Daemon.Leave.run()
+    |> halt()
+  end
+
   defp handle_daemon(["stop"]) do
     IO.puts("#{IO.ANSI.cyan()}Stopping SYKLI daemon...#{IO.ANSI.reset()}")
 
@@ -2804,6 +2810,8 @@ defmodule Sykli.CLI do
       stop               Stop the daemon
       status             Show daemon status
       join               Join a self-hosted coordinator
+      join --stay        Join and keep the heartbeat loop in the foreground
+      leave              Leave the coordinator (final offline heartbeat + session removal)
 
     Examples:
       sykli daemon start                  Start full daemon (default)

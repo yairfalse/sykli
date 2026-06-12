@@ -74,6 +74,8 @@ daemon status/session JSON surfaces.
 | `daemon.join_missing_team` | `sykli daemon join` was called without `--team`. | public-unstable | `core/lib/sykli/daemon/join.ex` |
 | `daemon.join_missing_token` | `sykli daemon join` was called without `--token` or `SYKLI_TEAM_TOKEN`. | public-unstable | `core/lib/sykli/daemon/join.ex` |
 | `daemon.stay_failed` | `sykli daemon join --stay` could not start the foreground heartbeat loop. | public-unstable | `core/lib/sykli/daemon/join.ex` |
+| `daemon.invalid_leave_command` | `sykli daemon leave` received an unsupported flag or command form. | public-unstable | `core/lib/sykli/daemon/leave.ex` |
+| `daemon.leave_failed` | `sykli daemon leave` could not remove the local session file. | public-unstable | `core/lib/sykli/daemon/leave.ex` |
 
 ### team.run
 

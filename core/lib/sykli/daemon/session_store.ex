@@ -44,6 +44,18 @@ defmodule Sykli.Daemon.SessionStore do
 
   defp validate(_data), do: {:error, :daemon_session_invalid}
 
+  @doc """
+  Remove the persisted session. Removing an absent session is `:ok` —
+  leave is idempotent.
+  """
+  def delete(opts \\ []) do
+    case File.rm(path(opts)) do
+      :ok -> :ok
+      {:error, :enoent} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   defp restrict_permissions(path) do
     case :file.change_mode(String.to_charlist(path), 0o600) do
       :ok -> :ok
