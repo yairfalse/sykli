@@ -224,6 +224,48 @@ Kubernetes target are beta.
 This is not a claim that all distributed or agent work becomes deterministic.
 The contract boundary is what Sykli makes inspectable.
 
+## Team Mode
+
+> The daemon executes and records; the mesh dispatches inside trusted
+> networks; the coordinator synchronizes team state across locations;
+> `.sykli/` remains the local source of detailed evidence.
+
+Sykli has four coordination shapes
+([`docs/coordination-modes.md`](docs/coordination-modes.md)):
+
+1. **Local-only.** No network. One machine. The default — and binding:
+   everything below is opt-in and nothing requires it.
+2. **Trusted LAN mesh.** BEAM distribution inside one trust domain.
+3. **Self-hosted coordinator.** A team-state plane you run yourself
+   (`sykli coordinator start`). Daemons connect outbound over HTTPS; the
+   coordinator never executes work and never owns detailed evidence.
+4. **Hybrid.** Mesh inside trust domains, coordinator across them.
+
+What works today:
+
+```bash
+export SYKLI_COORDINATOR_TOKEN=...           # admin bootstrap token
+sykli coordinator start --port 8400          # the team-state plane
+sykli coordinator mint-token --org o --team t --role approver
+sykli daemon join --coordinator URL --org o --team t --stay
+sykli work create "fix flaky test" --team t  # shared work items
+sykli gate approve <id> --reason "Reviewed" --team t   # delivered by heartbeat
+sykli daemon leave                           # clean session teardown
+```
+
+A daemon joined with `--stay` heartbeats the coordinator, publishes
+metadata-only run summaries and waiting gates, and receives gate decisions
+back — a reviewer's approval on one machine unblocks a waiting gate on
+another within one heartbeat interval. The black-box suite proves this
+round-trip against the built binary on every change (`COORD-006`).
+
+The security posture is deliberate: signed per-team tokens scope every
+coordinator read and write; bearer tokens are refused over plaintext to
+non-loopback hosts; daemons never accept remote work without an explicit
+`--accept-remote-work`; and no logs, source, artifacts, or secrets cross
+the boundary — references and summaries only. See
+[`docs/team-mode-security.md`](docs/team-mode-security.md).
+
 ## Agentic Review As Code
 
 Review nodes are experimental.
@@ -264,6 +306,7 @@ regression, test coverage gaps, and architecture boundary checks.
 | PR reviews | Experimental review nodes with constrained context and explicit primitive semantics |
 | Release checks | SLSA v1.0 provenance attestations and structured run evidence |
 | Security validation | Secret-scoped tasks, OIDC token exchange, and webhook hardening in the core engine |
+| Human-in-the-loop approvals | Team Mode gates: an agent's run blocks on a gate, a reviewer approves from another machine, the heartbeat delivers the decision |
 | Infrastructure validation | The same graph can target local execution, containers, Kubernetes, or a BEAM mesh |
 | CI pipelines | The CI graph as code, with cache keys, dependency-level parallelism, and structured results |
 
@@ -388,7 +431,11 @@ sykli work runs <id>      # runs associated with a work item
 sykli gates list          # local gate decisions
 sykli gate approve <id> --reason "Reviewed"
 sykli cache stats         # cache statistics
-sykli daemon start        # start a mesh daemon
+
+sykli coordinator start   # self-hosted Team Mode coordinator
+sykli daemon join --stay  # join a coordinator, heartbeat in the foreground
+sykli daemon leave        # clean session teardown
+sykli daemon start        # start a mesh daemon (also hosts the heartbeat loop)
 sykli mcp                 # MCP server for AI assistants
 ```
 
@@ -427,7 +474,9 @@ Selection priority and runtime extension notes are in
 ├── context.json          # pipeline and health context from `sykli context`
 ├── runs/                 # run history manifests
 ├── work/items/           # local work item state
-└── gates/                # local gate decision state
+├── gates/                # local gate decision state
+├── daemon/               # coordinator session + heartbeat liveness
+└── outbox/               # deferred Team Mode sync payloads (runs/, gates/)
 ```
 
 This is the local evidence plane. Agents and downstream tools read structured
@@ -442,6 +491,7 @@ The detailed on-disk schema is documented in
 |-----------|--------|
 | Core engine, all 5 SDKs, local execution, Docker/Podman/Shell/Fake runtimes, FALSE Protocol output, canonical schema, opt-in GitHub-native receiver | **Stable** |
 | Mesh distribution, Kubernetes target, gates, SLSA attestations, remote cache via S3, review-node graph support, `task_type` / `success_criteria` v3 fields, `evidence_required` v4 fields | **Beta** |
+| Team Mode: self-hosted coordinator, daemon join/heartbeat/leave, work-item sync, metadata-only run summaries, remote gate approvals (round-trip CI-proven) | **Beta** |
 | Review primitive adapters, broader review primitive implementations, multi-agent execution, LLM/provider review runners | **In development** |
 
 The status table is part of the contract: beta and in-development features are
@@ -453,7 +503,8 @@ usable surfaces, not production-readiness claims.
   architecture checks.
 - Structured review outputs with primitive-specific schemas.
 - Multi-agent execution for nodes that can be fulfilled by several executors.
-- Continued GitHub-native and self-hosted coordinator work.
+- Continued GitHub-native work; Team Mode coordinator deployment story
+  (Kubernetes) per `docs/team-mode-roadmap.md`.
 - Expanded public FALSE Protocol compatibility for downstream evidence
   consumers.
 

@@ -45,6 +45,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`sykli --help` tagline aligned with the project positioning.** The
+  binary now introduces itself as "execution contracts for agent work"
+  (previously "CI pipelines in your language"), matching the README.
 - **Team Mode outbox drain extracted to `Sykli.TeamCoordinator.OutboxDrain`.**
   The CLI post-run sync and the heartbeat loop now replay
   `.sykli/outbox/{runs,gates}/` through one shared code path.
