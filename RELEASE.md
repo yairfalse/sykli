@@ -48,9 +48,55 @@ Checked files:
 The Go SDK has no embedded package version. It publishes via the module-aware
 tag `sdk/go/v<version>`.
 
-## Publish Credentials
+## Automated registry publishing (tag-triggered)
 
-Actual publishing requires all credentials to be present before the first
+Pushing a `v<version>` tag triggers `.github/workflows/release.yml`, which —
+after building binaries and creating the GitHub release — publishes:
+
+- **Go** — pushes the module-aware `sdk/go/v<version>` tag (skips if it
+  already exists). No credentials; uses the workflow's `GITHUB_TOKEN`.
+- **PyPI** — builds `sdk/python` and publishes via **trusted publishing**
+  (OIDC). No token anywhere.
+- **crates.io** — publishes `sdk/rust` via **trusted publishing** (OIDC).
+  No token anywhere.
+- **npm** — not yet automated; see below.
+- **Hex** — not automated (hex.pm has no OIDC trusted publishing); publish
+  with `scripts/publish-elixir.sh <version>` and `HEX_API_KEY`.
+
+### One-time registry setup (required before the first automated publish)
+
+**PyPI** (works even though `sykli` has never been published — "pending
+publisher"): pypi.org → Your account → Publishing → *Add a new pending
+publisher* with exactly:
+
+| Field | Value |
+|---|---|
+| PyPI project name | `sykli` |
+| Owner | `false-systems` |
+| Repository name | `sykli` |
+| Workflow name | `release.yml` |
+| Environment name | `pypi` |
+
+**crates.io** (the `sykli` crate exists, so configure on the crate):
+crates.io → `sykli` → Settings → Trusted Publishing → *Add* with repository
+owner `false-systems`, repository `sykli`, workflow filename `release.yml`,
+environment left empty.
+
+**npm**: trusted publishing can only be configured on an existing package.
+After the first manual `npm publish` from `sdk/typescript`, configure the
+trusted publisher on npmjs.com (package Settings → Trusted publisher:
+GitHub Actions, repository `false-systems/sykli`, workflow `release.yml`)
+and uncomment the `publish-npm` job in `release.yml`.
+
+The publish jobs run after the GitHub release is created, so a registry
+failure never blocks the binary release — fix the registry side and re-run
+the failed job from the Actions UI.
+
+## Publish Credentials (manual script path)
+
+`make publish` / `scripts/publish-all.sh` remain available as the manual
+path (and the only path for Hex, plus npm until its first publish). Actual
+publishing requires all credentials to be present before the first
 registry call:
 
 - `CARGO_REGISTRY_TOKEN` for crates.io
