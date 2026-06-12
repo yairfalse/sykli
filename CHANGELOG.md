@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Daemon heartbeat loop (Monster Phase D, PR 1).** New
+  `Sykli.Daemon.Heartbeat` GenServer implements the runtime side of
+  `docs/daemon-join-protocol.md`: coordinator-owned cadence
+  (`next_heartbeat_seconds`), exponential backoff with jitter capped at
+  `heartbeat_interval_seconds * 4`, hard stop on 401/403
+  (`team.token.revoked` — the token is never retried), refusal of
+  assignments without `accepts_remote_work`, gate-decision application with
+  acknowledgement on the following tick, outbox drain on reconnect, and
+  liveness fields (`last_heartbeat_at`, `consecutive_failures`) persisted to
+  the session file. Not yet wired to a host process — `daemon join --stay`
+  and the daemon-supervisor child land in the next slice.
+
+### Changed
+
+- **Team Mode outbox drain extracted to `Sykli.TeamCoordinator.OutboxDrain`.**
+  The CLI post-run sync and the heartbeat loop now replay
+  `.sykli/outbox/{runs,gates}/` through one shared code path.
+
 ## [0.7.0] - 2026-06-11
 
 ### Added
