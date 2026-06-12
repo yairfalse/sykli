@@ -27,6 +27,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   liveness (`last heartbeat`, consecutive failures, token-revoked) in human
   output; `--json` carries the same fields inside `coordinator_session`.
   New error code: `daemon.stay_failed`.
+- **Heartbeat resilience (Monster Phase D, PR 3).** The loop now rejoins
+  automatically when the coordinator forgets its session
+  (`coordinator.daemon_session_not_found` — same daemon identity, fresh
+  `session_id`, immediate next tick) and sends a best-effort final
+  `offline` heartbeat on graceful shutdown. New black-box case
+  `COORD-006` proves the remote gate-approval round-trip end to end
+  against the built binary: coordinator decision → heartbeat delivery →
+  local gate store approved. This closes the 2026-05-22 audit's "live
+  layer is a stub" finding.
 
 ### Changed
 

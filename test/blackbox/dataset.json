@@ -1335,7 +1335,13 @@
       "command": "cd SYKLI_ROOT && tests/conformance/run.sh 01-basic >/dev/null",
       "shell": true,
       "expect_exit": 0,
-      "requires": ["go", "cargo", "node", "python3", "mix"],
+      "requires": [
+        "go",
+        "cargo",
+        "node",
+        "python3",
+        "mix"
+      ],
       "source": "CLAUDE.md §SDKs; sdk/*/README.md public surface parity",
       "validated_by": "Injected bug: change one SDK basic JSON key; conformance runner fails."
     },
@@ -1346,7 +1352,13 @@
       "command": "cd SYKLI_ROOT && tests/conformance/run.sh 02-capabilities >/dev/null",
       "shell": true,
       "expect_exit": 0,
-      "requires": ["go", "cargo", "node", "python3", "mix"],
+      "requires": [
+        "go",
+        "cargo",
+        "node",
+        "python3",
+        "mix"
+      ],
       "source": "CHANGELOG 0.5.0 Capability-based dependencies; SDK READMEs",
       "validated_by": "Injected bug: drop provides value in one SDK; conformance runner fails."
     },
@@ -1357,7 +1369,13 @@
       "command": "cd SYKLI_ROOT && tests/conformance/run.sh 04-gate >/dev/null",
       "shell": true,
       "expect_exit": 0,
-      "requires": ["go", "cargo", "node", "python3", "mix"],
+      "requires": [
+        "go",
+        "cargo",
+        "node",
+        "python3",
+        "mix"
+      ],
       "source": "CHANGELOG 0.5.0 Gate tasks; SDK READMEs",
       "validated_by": "Injected bug: omit gate timeout serialization; conformance runner fails."
     },
@@ -1368,7 +1386,13 @@
       "command": "cd SYKLI_ROOT && tests/conformance/run.sh 10-task-inputs >/dev/null",
       "shell": true,
       "expect_exit": 0,
-      "requires": ["go", "cargo", "node", "python3", "mix"],
+      "requires": [
+        "go",
+        "cargo",
+        "node",
+        "python3",
+        "mix"
+      ],
       "source": "README.md §Content-addressed caching; SDK READMEs",
       "validated_by": "Injected bug: serialize inputs under covers; conformance runner fails."
     },
@@ -1379,7 +1403,13 @@
       "command": "cd SYKLI_ROOT && tests/conformance/run.sh 20-edge-duplicate-after >/dev/null",
       "shell": true,
       "expect_exit": 0,
-      "requires": ["go", "cargo", "node", "python3", "mix"],
+      "requires": [
+        "go",
+        "cargo",
+        "node",
+        "python3",
+        "mix"
+      ],
       "source": "SDK READMEs; CLAUDE.md §SDKs",
       "validated_by": "Injected bug: one SDK keeps duplicate deps; conformance runner fails."
     },
@@ -1390,7 +1420,13 @@
       "command": "cd SYKLI_ROOT && tests/conformance/run.sh 18-edge-provides-empty >/dev/null",
       "shell": true,
       "expect_exit": 0,
-      "requires": ["go", "cargo", "node", "python3", "mix"],
+      "requires": [
+        "go",
+        "cargo",
+        "node",
+        "python3",
+        "mix"
+      ],
       "source": "CHANGELOG 0.5.0 TypeScript/Python provides empty string fix",
       "validated_by": "Injected bug: treat empty provides as undefined; conformance runner fails."
     },
@@ -1756,6 +1792,24 @@
       ],
       "source": "docs/team-mode-security.md coordinator authorization model",
       "validated_by": "Injected bug: router trusts client-supplied team_id filters and lets a team token query another team's run summaries."
+    },
+    {
+      "id": "COORD-006",
+      "name": "remote gate approval round-trips through the heartbeat loop",
+      "fixture": "empty_dir",
+      "command": "port=$((24000 + RANDOM % 10000)); SYKLI_COORDINATOR_TOKEN=secret sykli coordinator start --port \"$port\" >coord.log 2>&1 & cpid=$!; trap 'kill $cpid $spid 2>/dev/null || true' EXIT; for i in {1..80}; do curl -fsS \"http://127.0.0.1:$port/health\" >/dev/null 2>&1 && break; sleep 0.1; done; curl -fsS -H 'Authorization: Bearer secret' -H 'Content-Type: application/json' -d '{\"slug\":\"false-systems\",\"name\":\"False Systems\"}' \"http://127.0.0.1:$port/v1/orgs\" >org.json; org=$(jq -r '.data.org.id' org.json); curl -fsS -H 'Authorization: Bearer secret' -H 'Content-Type: application/json' -d \"{\\\"org_id\\\":\\\"$org\\\",\\\"slug\\\":\\\"platform\\\",\\\"name\\\":\\\"Platform\\\"}\" \"http://127.0.0.1:$port/v1/teams\" >team.json; mkdir -p .sykli/gates; printf '%s' '{\"id\":\"gate_rt\",\"version\":\"1\",\"work_item_id\":null,\"run_id\":\"run_rt\",\"node_id\":null,\"status\":\"waiting\",\"reason\":null,\"requested_by_type\":null,\"requested_by_id\":null,\"decided_by\":null,\"decided_at\":null,\"created_at\":\"2026-06-12T00:00:00Z\",\"updated_at\":\"2026-06-12T00:00:00Z\",\"evidence_refs\":[]}' > .sykli/gates/gate_rt.json; SYKLI_TEAM_TOKEN=secret sykli daemon join --coordinator \"http://127.0.0.1:$port\" --org false-systems --team platform --name rt-daemon --stay >stay.log 2>&1 & spid=$!; session=''; for i in {1..120}; do session=$(jq -r '.session_id // empty' .sykli/daemon/session.json 2>/dev/null); [ -n \"$session\" ] && break; sleep 0.25; done; [ -n \"$session\" ]; curl -fsS -H 'Authorization: Bearer secret' -H 'Content-Type: application/json' -d \"{\\\"org_slug\\\":\\\"false-systems\\\",\\\"team_slug\\\":\\\"platform\\\",\\\"daemon_session_id\\\":\\\"$session\\\",\\\"id\\\":\\\"gate_rt\\\",\\\"run_id\\\":\\\"run_rt\\\",\\\"node_id\\\":null,\\\"work_item_id\\\":null,\\\"status\\\":\\\"waiting\\\",\\\"decided_by\\\":null,\\\"decided_at\\\":null,\\\"reason\\\":null}\" \"http://127.0.0.1:$port/v1/gates\" >gate.json; curl -fsS -H 'Authorization: Bearer secret' -H 'Content-Type: application/json' -d '{\"org_slug\":\"false-systems\",\"team_slug\":\"platform\",\"status\":\"approved\",\"decided_by\":\"member:reviewer\",\"decided_at\":\"2026-06-12T00:01:00Z\",\"reason\":\"Reviewed\"}' \"http://127.0.0.1:$port/v1/gates/gate_rt/decisions\" >decision.json; for i in {1..240}; do gstatus=$(jq -r '.status // empty' .sykli/gates/gate_rt.json 2>/dev/null); [ \"$gstatus\" = \"approved\" ] && break; sleep 0.25; done; kill $spid 2>/dev/null || true; sykli gate show gate_rt --json",
+      "shell": true,
+      "requires": "curl",
+      "expect_exit": 0,
+      "expect_json_jq": [
+        ".ok == true",
+        ".data.gate.id == \"gate_rt\"",
+        ".data.gate.status == \"approved\"",
+        ".data.gate.decided_by == \"member:reviewer\"",
+        ".data.gate.reason == \"Reviewed\""
+      ],
+      "source": "docs/daemon-join-protocol.md heartbeat decisions; Monster Phase D — the gate round-trip must be functional at runtime, not just at the endpoint level",
+      "validated_by": "Injected bug: heartbeat loop never runs, decisions are not applied to the local gate store, or acks never clear the coordinator queue."
     },
     {
       "id": "POS-team-run-sync-passing",
