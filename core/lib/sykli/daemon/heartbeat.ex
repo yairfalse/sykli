@@ -82,6 +82,11 @@ defmodule Sykli.Daemon.Heartbeat do
 
     with {:ok, session} <- session_result,
          t when is_binary(t) and t != "" <- token do
+      # Trap exits so terminate/2 can send a best-effort final offline
+      # heartbeat on supervisor shutdown (graceful disconnect, protocol §
+      # "Disconnect and reconnect").
+      Process.flag(:trap_exit, true)
+
       interval = interval_seconds(session)
 
       state = %__MODULE__{
@@ -138,12 +143,25 @@ defmodule Sykli.Daemon.Heartbeat do
         persist_liveness(state, %{"revoked" => true})
         {:stop, :normal, state}
 
+      {:error, {:coordinator_error, 404, %{"code" => "coordinator.daemon_session_not_found"}}} ->
+        rejoin(state)
+
       {:error, reason} ->
         handle_failure(state, reason)
     end
   end
 
   def handle_info(_message, state), do: {:noreply, state}
+
+  @impl true
+  def terminate(_reason, state) do
+    if state.synced_once do
+      payload = Join.heartbeat_payload(state.session, %{"status" => "offline"})
+      post_heartbeat(state, payload)
+    end
+
+    :ok
+  end
 
   # ── Tick outcomes ───────────────────────────────────────────────────────
 
@@ -184,6 +202,56 @@ defmodule Sykli.Daemon.Heartbeat do
     state = %{state | failures: failures}
     schedule(state, delay_ms)
     {:noreply, state}
+  end
+
+  # The coordinator no longer knows our session (restart, cutoff exceeded).
+  # The protocol blesses an automatic fresh join: same daemon identity, new
+  # session_id, rejoin recorded by the coordinator's audit log.
+  defp rejoin(state) do
+    payload = %{
+      "daemon_id" => state.session["daemon_id"],
+      "org" => state.session["org"],
+      "team" => state.session["team"],
+      "labels" => state.session["labels"] || [],
+      "capabilities" => state.session["capabilities"] || [],
+      "version" => Application.spec(:sykli, :vsn) |> to_string(),
+      "accepts_remote_work" => state.session["accepts_remote_work"] == true
+    }
+
+    case post_join(state, payload) do
+      {:ok, data} ->
+        session =
+          state.session
+          |> Map.merge(
+            Map.take(data, ["session_id", "team_id", "heartbeat_interval_seconds", "policy"])
+          )
+          |> Map.delete("revoked")
+
+        Logger.info("heartbeat session expired; rejoined coordinator as #{session["session_id"]}")
+
+        state = %{state | session: session, interval: interval_seconds(session), failures: 0}
+        persist_liveness(state, %{"consecutive_failures" => 0})
+        schedule(state, 0)
+        {:noreply, state}
+
+      {:error, reason} ->
+        handle_failure(state, {:rejoin_failed, reason})
+    end
+  end
+
+  defp post_join(state, payload) do
+    case Keyword.get(state.opts, :join_fun) do
+      fun when is_function(fun, 2) ->
+        fun.(state.session, payload)
+
+      nil ->
+        Client.post_json(
+          state.session["coordinator"],
+          "/v1/daemon-sessions",
+          state.token,
+          payload
+        )
+    end
   end
 
   # Exponential backoff with jitter, capped at interval * 4 (protocol

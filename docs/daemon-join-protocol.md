@@ -2,15 +2,19 @@
 
 ## Status
 
-Implemented incrementally. PR #192 adds the first daemon join and
-heartbeat slice: coordinator daemon-session endpoints, the
-`sykli daemon join` client command, local session persistence, and
-`sykli daemon status --json` session visibility.
+Implemented. PR #192 added the join/heartbeat slice (coordinator
+daemon-session endpoints, `sykli daemon join`, local session persistence,
+`sykli daemon status --json`); later phases added work sync, run summary
+sync, and gate decision sync. The production heartbeat **loop**
+(`Sykli.Daemon.Heartbeat`) ships in the Monster Phase D series: hosted by
+`sykli daemon join --stay` (foreground, no BEAM distribution) and by the
+mesh daemon supervisor, it implements the cadence, backoff, revocation
+stop, decision application + acknowledgement, outbox drain on reconnect,
+automatic rejoin on session death, and the final offline heartbeat on
+graceful shutdown described below. The black-box case `COORD-006` proves
+the gate-decision round-trip end to end.
 
-Later phases still add work sync, run summary sync, gate decision sync,
-and event-stream delivery. Wire shapes below are the current contract for
-the implemented join/heartbeat slice unless a later section explicitly
-marks behavior as future work.
+Event-stream delivery (SSE) remains future work.
 
 ## Architecture sentence
 

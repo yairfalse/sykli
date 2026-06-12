@@ -259,6 +259,83 @@ defmodule Sykli.Daemon.HeartbeatTest do
     assert_receive {:liveness, %{"consecutive_failures" => 1}}
   end
 
+  test "rejoins automatically when the coordinator forgot the session" do
+    test_pid = self()
+
+    {:ok, agent} =
+      Agent.start_link(fn ->
+        [
+          {:error,
+           {:coordinator_error, 404, %{"code" => "coordinator.daemon_session_not_found"}}},
+          :plain_ok
+        ]
+      end)
+
+    pid =
+      start_loop(
+        post_fun: fn session, payload ->
+          send(test_pid, {:posted, session["session_id"], payload})
+
+          case Agent.get_and_update(agent, fn [h | t] -> {h, t} end) do
+            :plain_ok -> ok_response()
+            other -> other
+          end
+        end,
+        join_fun: fn _session, payload ->
+          send(test_pid, {:rejoined, payload})
+          {:ok, %{"session_id" => "sess_new", "heartbeat_interval_seconds" => 20}}
+        end
+      )
+
+    assert_receive {:scheduled, 0}
+    send(pid, :heartbeat)
+    assert_receive {:posted, "sess_test", _payload}
+
+    assert_receive {:rejoined, join_payload}
+    assert join_payload["daemon_id"] == "test-daemon"
+    assert join_payload["accepts_remote_work"] == false
+
+    # rejoin schedules an immediate tick under the fresh session
+    assert_receive {:scheduled, 0}
+    send(pid, :heartbeat)
+    assert_receive {:posted, "sess_new", _payload}
+  end
+
+  test "sends a final offline heartbeat on shutdown after a successful sync" do
+    test_pid = self()
+
+    pid =
+      start_loop(
+        post_fun: fn _session, payload ->
+          send(test_pid, {:posted, payload})
+          ok_response()
+        end
+      )
+
+    assert_receive {:scheduled, 0}
+    send(pid, :heartbeat)
+    assert_receive {:posted, %{"status" => "available"}}
+
+    GenServer.stop(pid)
+    assert_receive {:posted, %{"status" => "offline"}}
+  end
+
+  test "does not send an offline heartbeat if it never synced" do
+    test_pid = self()
+
+    pid =
+      start_loop(
+        post_fun: fn _session, payload ->
+          send(test_pid, {:posted, payload})
+          ok_response()
+        end
+      )
+
+    assert_receive {:scheduled, 0}
+    GenServer.stop(pid)
+    refute_receive {:posted, _}, 50
+  end
+
   test "reports draining status once drain/1 is cast" do
     test_pid = self()
 
