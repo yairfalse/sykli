@@ -2911,69 +2911,8 @@ defmodule Sykli.CLI do
     )
   end
 
-  defp drain_team_run_outbox do
-    with {:ok, session} <- Sykli.Daemon.SessionStore.read(),
-         token when is_binary(token) and token != "" <- System.get_env("SYKLI_TEAM_TOKEN") do
-      result =
-        Sykli.Outbox.drain("runs", fn payload ->
-          Sykli.TeamCoordinator.RunClient.publish_raw(session, token, payload)
-        end)
-
-      count_synced =
-        case result do
-          {:ok, count} -> count
-          {:error, count, _reason} -> count
-        end
-
-      if count_synced > 0 do
-        remaining = daemon_outbox_runs_count()
-
-        Sykli.Occurrence.PubSub.team_outbox_drained("team-outbox", %{
-          "count_synced" => count_synced,
-          "count_remaining" => remaining
-        })
-      end
-
-      :ok
-    else
-      _ -> :ok
-    end
-  end
-
   defp drain_team_outboxes do
-    drain_team_run_outbox()
-    drain_team_gate_outbox()
-  end
-
-  defp drain_team_gate_outbox do
-    with {:ok, session} <- Sykli.Daemon.SessionStore.read(),
-         token when is_binary(token) and token != "" <- System.get_env("SYKLI_TEAM_TOKEN") do
-      result =
-        Sykli.Outbox.drain("gates", fn payload ->
-          if payload["daemon_session_id"] == session["session_id"] do
-            Sykli.TeamCoordinator.GateClient.publish_raw(session, token, payload)
-          else
-            {:error, :team_gate_invalid_payload}
-          end
-        end)
-
-      count_synced =
-        case result do
-          {:ok, count} -> count
-          {:error, count, _reason} -> count
-        end
-
-      if count_synced > 0 do
-        Sykli.Occurrence.PubSub.team_outbox_drained("team-outbox", %{
-          "kind" => "gates",
-          "count_synced" => count_synced
-        })
-      end
-
-      :ok
-    else
-      _ -> :ok
-    end
+    Sykli.TeamCoordinator.OutboxDrain.drain_all()
   end
 
   defp daemon_outbox_runs_count do
