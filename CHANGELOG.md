@@ -27,6 +27,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   liveness (`last heartbeat`, consecutive failures, token-revoked) in human
   output; `--json` carries the same fields inside `coordinator_session`.
   New error code: `daemon.stay_failed`.
+- **`sykli daemon leave`.** The inverse of `daemon join`: sends a
+  best-effort final `offline` heartbeat (when a team token is available)
+  and removes the local session file. Idempotent — leaving without a
+  session reports `left: false` and exits 0; a down coordinator never
+  blocks the local teardown. New error codes:
+  `daemon.invalid_leave_command`, `daemon.leave_failed`.
 - **Heartbeat resilience (Monster Phase D, PR 3).** The loop now rejoins
   automatically when the coordinator forgets its session
   (`coordinator.daemon_session_not_found` — same daemon identity, fresh
