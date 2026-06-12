@@ -59,7 +59,7 @@ func main() {
 ```
 
 ```text
-sykli · pipeline.go                                local · 0.6.1
+sykli · pipeline.go                                local · 0.7.0
 
   ●  test     go test ./...                        108ms
   ●  build    go build -o app                      612ms
@@ -72,6 +72,52 @@ Task nodes execute deterministic work such as build and test commands. Review
 nodes model evaluation work as graph nodes: primitive, agent identifier,
 context files, dependencies, and `deterministic: false` by default. Review
 nodes are not shell tasks.
+
+## When It Fails, Agents Read Facts — Not Logs
+
+Every terminal result carries a typed classification. An agent consuming
+`sykli run --json` (or `sykli report --json`, or the MCP server) sees this for
+a task whose command succeeded but whose declared `success_criteria` did not:
+
+```json
+{
+  "name": "test",
+  "status": "failed",
+  "failure_semantics": {
+    "class": "criteria_failure",
+    "retryable": false,
+    "source": "criteria",
+    "reason": "success_criteria_failed",
+    "message": "task 'test' failed success_criteria",
+    "details": {
+      "code": "success_criteria_failed",
+      "task": "test",
+      "step": "run"
+    }
+  },
+  "agent_hints": {
+    "retry_may_help": false,
+    "inspect_target": false,
+    "inspect_contract": true,
+    "inspect_dependencies": false,
+    "requires_human_decision": false,
+    "unknown_failure_class": false
+  }
+}
+```
+
+The agent branches on `class` — `runtime_failure`, `criteria_failure`,
+`timeout`, `dependency_failure`, `policy_block`, `missing_evidence`, and
+friends — instead of regexing log text. `agent_hints` says which follow-up
+paths are semantically valid; it is deliberately not a diagnosis engine.
+Results also carry a `contract_slice`: the declared task semantics that
+governed the outcome, so a tool can see *which contract* failed without
+re-parsing the pipeline.
+
+`sykli fix` renders the same facts with source context for AI-assisted repair,
+and `sykli mcp` serves them to agents directly. See
+[`docs/failure-semantics.md`](docs/failure-semantics.md) and
+[`docs/agent-readable-failure-output.md`](docs/agent-readable-failure-output.md).
 
 ## What Sykli Gives You
 
@@ -265,10 +311,14 @@ Requires Elixir 1.14+.
 | Language | Install | Default file |
 |----------|---------|--------------|
 | Go | `go get github.com/false-systems/sykli/sdk/go@latest` | `sykli.go` |
-| Rust | `sykli = "0.6.1"` in `Cargo.toml` | `sykli.rs` |
-| TypeScript | `npm install sykli@0.6.1` | `sykli.ts` |
-| Elixir | `{:sykli_sdk, "~> 0.6.1"}` in `mix.exs` | `sykli.exs` |
-| Python | `pip install sykli==0.6.1` | `sykli.py` |
+| Rust | `sykli = "0.7.0"` in `Cargo.toml` | `sykli.rs` |
+| TypeScript | `npm install sykli@0.7.0` | `sykli.ts` |
+| Elixir | `{:sykli_sdk, "~> 0.7.0"}` in `mix.exs` | `sykli.exs` |
+| Python | `pip install sykli==0.7.0` | `sykli.py` |
+
+The Go module is live today. Registry packages for the other SDKs are
+catching up to 0.7.0 — until your registry shows it, every SDK is usable
+directly from `sdk/<lang>/` in this repository at the `v0.7.0` tag.
 
 All SDKs emit the same canonical contract shape.
 
@@ -409,7 +459,8 @@ usable surfaces, not production-readiness claims.
 
 ## Contributing
 
-MIT licensed.
+MIT licensed. Start with [CONTRIBUTING.md](CONTRIBUTING.md) — it covers the
+build, the test tiers, and the project rules that are enforced by tests.
 
 ```bash
 cd core
