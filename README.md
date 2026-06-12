@@ -316,6 +316,10 @@ Requires Elixir 1.14+.
 | Elixir | `{:sykli_sdk, "~> 0.7.0"}` in `mix.exs` | `sykli.exs` |
 | Python | `pip install sykli==0.7.0` | `sykli.py` |
 
+The Go module is live today. Registry packages for the other SDKs are
+catching up to 0.7.0 — until your registry shows it, every SDK is usable
+directly from `sdk/<lang>/` in this repository at the `v0.7.0` tag.
+
 All SDKs emit the same canonical contract shape.
 
 ## Capabilities
