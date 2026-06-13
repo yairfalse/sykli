@@ -437,6 +437,7 @@ defmodule Sykli.TeamCoordinator.Router do
   defp status_for(:team_gate_invalid_decision), do: 400
   defp status_for(:team_gate_unknown_session), do: 403
   defp status_for(:team_gate_team_mismatch), do: 403
+  defp status_for(:team_gate_invalid_session), do: 500
   defp status_for({:team_gate_terminal, _status}), do: 409
   defp status_for({:missing_field, _field}), do: 400
   defp status_for({:invalid_field, _field}), do: 400
@@ -558,6 +559,9 @@ defmodule Sykli.TeamCoordinator.Router do
 
   defp coordinator_error(:team_gate_team_mismatch),
     do: error("gate.team_mismatch", "session does not belong to claimed team")
+
+  defp coordinator_error(:team_gate_invalid_session),
+    do: error("gate.invalid_session", "daemon session record is missing team metadata")
 
   defp coordinator_error({:team_gate_terminal, status}),
     do: error("gate.terminal", "gate is already terminal: #{status}")

@@ -72,6 +72,9 @@ defmodule Sykli.TeamCoordinator.Store do
      %{
        now: Keyword.get(opts, :now, &DateTime.utc_now/0),
        id: Keyword.get(opts, :id, &Sykli.ULID.generate/0),
+       # Sessions silent past this many seconds are dead per the protocol's
+       # resume cutoff; the sweep removes them and their delivery queues.
+       session_expiry_seconds: Keyword.get(opts, :session_expiry_seconds, 300),
        orgs: %{},
        orgs_by_slug: %{},
        teams: %{},
@@ -295,9 +298,11 @@ defmodule Sykli.TeamCoordinator.Store do
 
       state =
         state
+        |> prune_stale_sessions()
         |> supersede_existing_daemon(identity, session_id, now)
         |> put_in([:daemon_sessions, session_id], session)
         |> put_in([:daemon_sessions_by_identity, identity], session_id)
+        |> reenqueue_undelivered_decisions(identity, session_id)
         |> audit("daemon.joined", "daemon_session", session_id, org_id, team_id)
 
       {:reply, {:ok, session_response(session), session}, state}
@@ -323,6 +328,8 @@ defmodule Sykli.TeamCoordinator.Store do
   end
 
   def handle_call({:heartbeat_daemon_session, id, attrs}, _from, state) do
+    state = prune_stale_sessions(state)
+
     with {:ok, session} <- fetch_daemon_session(state, id),
          :ok <- validate_session_id_match(id, Map.get(attrs, "session_id")),
          {:ok, status} <- required_heartbeat_status(attrs),
@@ -344,7 +351,7 @@ defmodule Sykli.TeamCoordinator.Store do
 
       state =
         state
-        |> acknowledge_gate_decisions(id, acknowledged_ids)
+        |> acknowledge_gate_decisions(id, acknowledged_ids, now)
         |> put_in([:daemon_sessions, id], updated)
         |> audit("daemon.heartbeat", "daemon_session", id, session["org_id"], session["team_id"])
 
@@ -645,6 +652,7 @@ defmodule Sykli.TeamCoordinator.Store do
        |> Map.put("org_id", org_id)
        |> Map.put("team_id", team_id)
        |> Map.put("daemon_session_id", daemon_session_id)
+       |> Map.put("daemon_id", session["daemon_id"])
        |> Map.put("created_at", now)
        |> Map.put("updated_at", now)}
     end
@@ -658,8 +666,15 @@ defmodule Sykli.TeamCoordinator.Store do
     end
   end
 
-  defp validate_session_team(%{"team_id" => team_id}, team_id), do: :ok
-  defp validate_session_team(_session, _team_id), do: {:error, :team_gate_team_mismatch}
+  defp validate_session_team(%{"team_id" => team_id}, team_id) when is_binary(team_id), do: :ok
+
+  defp validate_session_team(%{"team_id" => session_team}, _team_id)
+       when is_binary(session_team) and session_team != "",
+       do: {:error, :team_gate_team_mismatch}
+
+  # A session record without usable team metadata is coordinator-side data
+  # corruption, not an authorization failure — report it as such (#202).
+  defp validate_session_team(_session, _team_id), do: {:error, :team_gate_invalid_session}
 
   defp validate_waiting_gate("waiting"), do: :ok
   defp validate_waiting_gate(_status), do: {:error, :team_gate_invalid_payload}
@@ -721,12 +736,26 @@ defmodule Sykli.TeamCoordinator.Store do
     |> Kernel.++([payload])
   end
 
-  defp acknowledge_gate_decisions(state, _session_id, []), do: state
+  defp acknowledge_gate_decisions(state, _session_id, [], _now), do: state
 
-  defp acknowledge_gate_decisions(state, session_id, ids) do
-    update_in(state, [:pending_gate_decisions, session_id], fn
+  defp acknowledge_gate_decisions(state, session_id, ids, now) do
+    state
+    |> update_in([:pending_gate_decisions, session_id], fn
       nil -> []
       decisions -> Enum.reject(decisions, &(&1["id"] in ids))
+    end)
+    |> stamp_acknowledged_gates(ids, now)
+  end
+
+  # Delivery state lives on the gate record, not only in the per-session
+  # queue — queues are a disposable delivery cache (#205); an unacknowledged
+  # decision can always be re-enqueued from the gate on rejoin.
+  defp stamp_acknowledged_gates(state, ids, now) do
+    Enum.reduce(ids, state, fn id, acc ->
+      case acc.gates[id] do
+        nil -> acc
+        gate -> put_in(acc, [:gates, id], Map.put(gate, "acknowledged_at", now))
+      end
     end)
   end
 
@@ -867,6 +896,72 @@ defmodule Sykli.TeamCoordinator.Store do
           end)
 
         %{state | pending_gate_decisions: Map.put(pending, new_session_id, merged)}
+    end
+  end
+
+  # Recovery path for #205: a rejoin after the previous session (and its
+  # queue) was pruned must still receive decided-but-unacknowledged gates.
+  # The gate record is the source of truth; the queue is rebuilt from it
+  # and the gate is retargeted to the new session. replace_decision/2
+  # dedups against anything the supersede fast path already moved.
+  defp reenqueue_undelivered_decisions(state, {org_id, team_id, daemon_id}, new_session_id) do
+    state.gates
+    |> Map.values()
+    |> Enum.filter(fn gate ->
+      gate["org_id"] == org_id and gate["team_id"] == team_id and
+        gate["daemon_id"] == daemon_id and gate["status"] != "waiting" and
+        is_nil(gate["acknowledged_at"])
+    end)
+    |> Enum.reduce(state, fn gate, acc ->
+      retargeted = Map.put(gate, "daemon_session_id", new_session_id)
+
+      acc
+      |> put_in([:gates, gate["id"]], retargeted)
+      |> enqueue_gate_decision(retargeted)
+    end)
+  end
+
+  # Retention sweep for #205: sessions whose last heartbeat is older than
+  # the expiry are dead per the protocol's resume cutoff — remove the
+  # session, its delivery queue, and its identity mapping. Runs
+  # opportunistically on join and heartbeat (the in-memory skeleton has no
+  # timers). Unacknowledged decisions survive on the gate records and are
+  # re-enqueued if the daemon ever rejoins.
+  defp prune_stale_sessions(state) do
+    case DateTime.from_iso8601(now(state)) do
+      {:ok, now_dt, _offset} ->
+        cutoff = DateTime.add(now_dt, -state.session_expiry_seconds, :second)
+
+        stale_ids =
+          state.daemon_sessions
+          |> Enum.filter(fn {_id, session} -> session_stale?(session, cutoff) end)
+          |> Enum.map(fn {id, _session} -> id end)
+          |> MapSet.new()
+
+        if MapSet.size(stale_ids) == 0 do
+          state
+        else
+          %{
+            state
+            | daemon_sessions: Map.drop(state.daemon_sessions, MapSet.to_list(stale_ids)),
+              pending_gate_decisions:
+                Map.drop(state.pending_gate_decisions, MapSet.to_list(stale_ids)),
+              daemon_sessions_by_identity:
+                state.daemon_sessions_by_identity
+                |> Enum.reject(fn {_identity, id} -> MapSet.member?(stale_ids, id) end)
+                |> Map.new()
+          }
+        end
+
+      _other ->
+        state
+    end
+  end
+
+  defp session_stale?(session, cutoff) do
+    case DateTime.from_iso8601(session["last_seen_at"] || "") do
+      {:ok, last_seen, _offset} -> DateTime.compare(last_seen, cutoff) == :lt
+      _other -> false
     end
   end
 
