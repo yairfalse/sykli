@@ -126,7 +126,7 @@ defmodule Sykli.CLI do
 
   defp print_help do
     IO.puts("""
-    sykli - CI pipelines in your language
+    sykli - execution contracts for agent work
 
     Usage: sykli [options] [path]
            sykli run [options] [path]
