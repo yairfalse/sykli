@@ -43,6 +43,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   local gate store approved. This closes the 2026-05-22 audit's "live
   layer is a stub" finding.
 
+### Fixed
+
+- **Coordinator gate-decision lifecycle (closes #202, #205).** Sessions
+  silent past the protocol's resume cutoff (default 300s, configurable via
+  the store's `session_expiry_seconds`) are pruned together with their
+  decision-delivery queues on join and heartbeat. Delivery state now lives
+  on the gate record (`acknowledged_at`, `daemon_id`), making queues a
+  disposable cache: a daemon rejoining after its old session was pruned
+  receives decided-but-unacknowledged gates re-enqueued from the gate
+  records; acknowledged decisions are never redelivered. Separately, a
+  coordinator session record with corrupt/missing team metadata now
+  reports `gate.invalid_session` (500) instead of masquerading as
+  `gate.team_mismatch` (403). All `gate.*` coordinator codes are now
+  cataloged in `docs/error-codes.md`.
+
 ### Changed
 
 - **`sykli --help` tagline aligned with the project positioning.** The

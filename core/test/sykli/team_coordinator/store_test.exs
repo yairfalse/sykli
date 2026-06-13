@@ -254,4 +254,198 @@ defmodule Sykli.TeamCoordinator.StoreTest do
       end)
     end
   end
+
+  describe "gate decision lifecycle (#202, #205)" do
+    test "prunes sessions and their queues past the expiry" do
+      {now_fun, advance} = ticking_now("2026-06-13T10:00:00Z")
+
+      {:ok, store} =
+        Store.start_link(now: now_fun, id: counter_ids(), session_expiry_seconds: 300)
+
+      bootstrap(store)
+
+      stale = join(store, "old-laptop")
+      gate = publish_gate(store, stale, "gate_stale")
+      decide(store, gate["id"])
+
+      advance.(301)
+      _fresh = join(store, "other-daemon")
+
+      assert {:ok, sessions} = Store.list_daemon_sessions(store, %{})
+      refute Enum.any?(sessions, &(&1["session_id"] == stale["session_id"]))
+
+      assert {:error, {:daemon_session_not_found, _}} =
+               Store.heartbeat_daemon_session(store, stale["session_id"], %{
+                 "session_id" => stale["session_id"],
+                 "status" => "available"
+               })
+    end
+
+    test "rejoin after prune re-enqueues unacknowledged decisions from gate records" do
+      {now_fun, advance} = ticking_now("2026-06-13T10:00:00Z")
+
+      {:ok, store} =
+        Store.start_link(now: now_fun, id: counter_ids(), session_expiry_seconds: 300)
+
+      bootstrap(store)
+
+      first = join(store, "yair-mbp")
+      gate = publish_gate(store, first, "gate_rt")
+      decide(store, gate["id"])
+
+      # daemon goes dark past the cutoff; the queue dies with the session
+      advance.(301)
+      rejoined = join(store, "yair-mbp")
+
+      assert {:ok, heartbeat, _session} =
+               Store.heartbeat_daemon_session(store, rejoined["session_id"], %{
+                 "session_id" => rejoined["session_id"],
+                 "status" => "available"
+               })
+
+      assert [%{"id" => "gate_rt", "status" => "approved"}] = heartbeat["decisions"]
+    end
+
+    test "acknowledged decisions are not redelivered after rejoin" do
+      {now_fun, advance} = ticking_now("2026-06-13T10:00:00Z")
+
+      {:ok, store} =
+        Store.start_link(now: now_fun, id: counter_ids(), session_expiry_seconds: 300)
+
+      bootstrap(store)
+
+      first = join(store, "yair-mbp")
+      gate = publish_gate(store, first, "gate_done")
+      decide(store, gate["id"])
+
+      assert {:ok, %{"decisions" => [_delivered]}, _} =
+               Store.heartbeat_daemon_session(store, first["session_id"], %{
+                 "session_id" => first["session_id"],
+                 "status" => "available"
+               })
+
+      assert {:ok, %{"decisions" => []}, _} =
+               Store.heartbeat_daemon_session(store, first["session_id"], %{
+                 "session_id" => first["session_id"],
+                 "status" => "available",
+                 "acknowledged_decision_ids" => ["gate_done"]
+               })
+
+      advance.(301)
+      rejoined = join(store, "yair-mbp")
+
+      assert {:ok, %{"decisions" => []}, _} =
+               Store.heartbeat_daemon_session(store, rejoined["session_id"], %{
+                 "session_id" => rejoined["session_id"],
+                 "status" => "available"
+               })
+    end
+
+    test "corrupted session team metadata reports invalid_session, not team_mismatch" do
+      {now_fun, _advance} = ticking_now("2026-06-13T10:00:00Z")
+      {:ok, store} = Store.start_link(now: now_fun, id: counter_ids())
+      bootstrap(store)
+      session = join(store, "yair-mbp")
+
+      :sys.replace_state(store, fn state ->
+        update_in(state, [:daemon_sessions, session["session_id"]], &Map.delete(&1, "team_id"))
+      end)
+
+      assert {:error, :team_gate_invalid_session} =
+               Store.upsert_gate(store, gate_payload(session, "gate_corrupt"))
+    end
+
+    test "claiming a mismatched team still reports team_mismatch" do
+      {now_fun, _advance} = ticking_now("2026-06-13T10:00:00Z")
+      {:ok, store} = Store.start_link(now: now_fun, id: counter_ids())
+      bootstrap(store)
+
+      {:ok, _team2} =
+        Store.create_team(store, %{
+          "org_slug" => "false-systems",
+          "slug" => "infra",
+          "name" => "Infra"
+        })
+
+      session = join(store, "yair-mbp")
+      payload = Map.put(gate_payload(session, "gate_x"), "team_slug", "infra")
+
+      assert {:error, :team_gate_team_mismatch} = Store.upsert_gate(store, payload)
+    end
+  end
+
+  defp ticking_now(start_iso) do
+    {:ok, start, _offset} = DateTime.from_iso8601(start_iso)
+    {:ok, agent} = Agent.start_link(fn -> start end)
+
+    now_fun = fn -> Agent.get(agent, & &1) end
+    advance = fn seconds -> Agent.update(agent, &DateTime.add(&1, seconds, :second)) end
+    {now_fun, advance}
+  end
+
+  defp counter_ids do
+    {:ok, agent} = Agent.start_link(fn -> 0 end)
+    fn -> "id_#{Agent.get_and_update(agent, &{&1 + 1, &1 + 1})}" end
+  end
+
+  defp bootstrap(store) do
+    {:ok, _org} = Store.create_org(store, %{"slug" => "false-systems", "name" => "FS"})
+
+    {:ok, _team} =
+      Store.create_team(store, %{
+        "org_slug" => "false-systems",
+        "slug" => "platform",
+        "name" => "Platform"
+      })
+
+    :ok
+  end
+
+  defp join(store, daemon_id) do
+    {:ok, _response, session} =
+      Store.create_daemon_session(store, %{
+        "org" => "false-systems",
+        "team" => "platform",
+        "daemon_id" => daemon_id,
+        "labels" => [],
+        "capabilities" => ["local"],
+        "version" => "0.7.0",
+        "accepts_remote_work" => false
+      })
+
+    session
+  end
+
+  defp gate_payload(session, gate_id) do
+    %{
+      "org_slug" => "false-systems",
+      "team_slug" => "platform",
+      "daemon_session_id" => session["session_id"],
+      "id" => gate_id,
+      "run_id" => "run_#{gate_id}",
+      "node_id" => nil,
+      "work_item_id" => nil,
+      "status" => "waiting",
+      "decided_by" => nil,
+      "decided_at" => nil,
+      "reason" => nil
+    }
+  end
+
+  defp publish_gate(store, session, gate_id) do
+    {:ok, gate, :inserted} = Store.upsert_gate(store, gate_payload(session, gate_id))
+    gate
+  end
+
+  defp decide(store, gate_id) do
+    {:ok, _gate} =
+      Store.record_gate_decision(store, gate_id, %{
+        "org_slug" => "false-systems",
+        "team_slug" => "platform",
+        "status" => "approved",
+        "decided_by" => "member:reviewer",
+        "decided_at" => "2026-06-13T10:01:00Z",
+        "reason" => "Reviewed"
+      })
+  end
 end

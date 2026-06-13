@@ -74,6 +74,12 @@ daemon status/session JSON surfaces.
 | `daemon.join_missing_team` | `sykli daemon join` was called without `--team`. | public-unstable | `core/lib/sykli/daemon/join.ex` |
 | `daemon.join_missing_token` | `sykli daemon join` was called without `--token` or `SYKLI_TEAM_TOKEN`. | public-unstable | `core/lib/sykli/daemon/join.ex` |
 | `daemon.stay_failed` | `sykli daemon join --stay` could not start the foreground heartbeat loop. | public-unstable | `core/lib/sykli/daemon/join.ex` |
+| `gate.invalid_payload` | Coordinator gate publish payload failed validation. | public-unstable | `core/lib/sykli/team_coordinator/router.ex` |
+| `gate.invalid_decision` | Coordinator gate decision payload failed validation. | public-unstable | `core/lib/sykli/team_coordinator/router.ex` |
+| `gate.invalid_session` | Coordinator daemon-session record is missing team metadata (server-side data corruption, not an authz failure). | public-unstable | `core/lib/sykli/team_coordinator/router.ex` |
+| `gate.unknown_session` | Gate publish referenced a daemon session the coordinator does not know. | public-unstable | `core/lib/sykli/team_coordinator/router.ex` |
+| `gate.team_mismatch` | Gate publish or decision claimed a team the daemon session does not belong to. | public-unstable | `core/lib/sykli/team_coordinator/router.ex` |
+| `gate.terminal` | Gate decision attempted on a gate already in a terminal status. | public-unstable | `core/lib/sykli/team_coordinator/router.ex` |
 | `daemon.invalid_leave_command` | `sykli daemon leave` received an unsupported flag or command form. | public-unstable | `core/lib/sykli/daemon/leave.ex` |
 | `daemon.leave_failed` | `sykli daemon leave` could not remove the local session file. | public-unstable | `core/lib/sykli/daemon/leave.ex` |
 
