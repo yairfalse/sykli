@@ -174,6 +174,21 @@ daemon-side deferred publish path.
 | `source_not_found` / `source_not_regular` / `symlink_not_allowed` | Internal artifact-copy reasons returned by local target storage; callers should format or wrap them before exposing a public boundary. | internal | `core/lib/sykli/target/local.ex`, `core/lib/sykli/target/storage.ex` |
 | `unknown` | JSON envelope fallback when an error-like value is not a `Sykli.Error`. | internal | `core/lib/sykli/cli/json_response.ex:51`, `core/lib/sykli/cli.ex:317` |
 
+### mcp
+
+MCP tool-dispatch codes are public-unstable while the agent tool surface
+stabilizes. They originate inside `Sykli.MCP.Tools`, not the engine, and are
+rendered through the shared `Sykli.CLI.JsonResponse` envelope (with
+`isError: true`) so agents branch on `error.code` instead of parsing prose.
+
+| Code | Description | Tier | Emitted from |
+|------|-------------|------|--------------|
+| `mcp.unknown_tool` | An MCP `tools/call` named a tool that does not exist. | public-unstable | `core/lib/sykli/error.ex` |
+| `mcp.no_occurrence` | A tool needs occurrence data but no run has been recorded for the project yet. | public-unstable | `core/lib/sykli/error.ex` |
+| `mcp.missing_argument` | A required tool argument was absent or empty. | public-unstable | `core/lib/sykli/error.ex` |
+| `mcp.tool_crashed` | A tool raised an unexpected exception during dispatch. | public-unstable | `core/lib/sykli/error.ex` |
+| `graph.invalid_contract` | A graph contract violation surfaced while parsing the pipeline for a read-only MCP tool (e.g. `task_type` on a review node). | public-unstable | `core/lib/sykli/mcp/tools.ex` |
+
 ### runtime
 
 | Code | Description | Tier | Emitted from |

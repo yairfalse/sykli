@@ -868,6 +868,66 @@ defmodule Sykli.Error do
   end
 
   # ─────────────────────────────────────────────────────────────────────────────
+  # MCP TOOL ERRORS
+  # ─────────────────────────────────────────────────────────────────────────────
+  #
+  # Failures that originate inside the MCP tool dispatch itself (not the engine).
+  # Codes are public-unstable while the MCP surface stabilizes. Hints are written
+  # for an *agent* reader: each one should name a concrete next tool call.
+
+  @doc """
+  mcp.unknown_tool: An MCP `tools/call` named a tool that does not exist.
+  """
+  def mcp_unknown_tool(name) do
+    %__MODULE__{
+      code: "mcp.unknown_tool",
+      type: :validation,
+      message: "unknown MCP tool: #{name}",
+      step: :run,
+      hints: ["call tools/list to discover the available tool names"]
+    }
+  end
+
+  @doc """
+  mcp.no_occurrence: A tool needs occurrence data but none has been recorded yet.
+  """
+  def mcp_no_occurrence do
+    %__MODULE__{
+      code: "mcp.no_occurrence",
+      type: :execution,
+      message: "no occurrence data found for this project",
+      step: :run,
+      hints: ["call run_pipeline first to produce a run, then retry this tool"]
+    }
+  end
+
+  @doc """
+  mcp.missing_argument: A required tool argument was absent or empty.
+  """
+  def mcp_missing_argument(argument, tool) do
+    %__MODULE__{
+      code: "mcp.missing_argument",
+      type: :validation,
+      message: "missing required argument '#{argument}' for tool '#{tool}'",
+      step: :run,
+      hints: ["check the tool's inputSchema in tools/list and supply '#{argument}'"]
+    }
+  end
+
+  @doc """
+  mcp.tool_crashed: A tool raised an unexpected exception during dispatch.
+  """
+  def mcp_tool_crashed(message) do
+    %__MODULE__{
+      code: "mcp.tool_crashed",
+      type: :internal,
+      message: "MCP tool crashed: #{message}",
+      step: :run,
+      hints: ["report this issue at https://github.com/false-systems/sykli/issues"]
+    }
+  end
+
+  # ─────────────────────────────────────────────────────────────────────────────
   # INTERNAL ERRORS
   # ─────────────────────────────────────────────────────────────────────────────
 

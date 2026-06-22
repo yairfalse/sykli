@@ -1,6 +1,7 @@
 defmodule Sykli.MCP.ToolsTest do
   use ExUnit.Case, async: true
 
+  alias Sykli.Error
   alias Sykli.MCP.Tools
 
   describe "list/0" do
@@ -27,14 +28,16 @@ defmodule Sykli.MCP.ToolsTest do
   end
 
   describe "call/2" do
-    test "unknown tool returns error" do
-      assert {:error, "Unknown tool: bogus"} = Tools.call("bogus", %{})
+    test "unknown tool returns a coded error" do
+      assert {:error, %Error{code: "mcp.unknown_tool"} = err} = Tools.call("bogus", %{})
+      assert err.hints != []
     end
 
-    test "explain_pipeline with nonexistent path returns error" do
+    test "explain_pipeline with nonexistent path returns a coded error" do
       path = "/tmp/sykli-mcp-test-#{:rand.uniform(999_999)}"
-      assert {:error, message} = Tools.call("explain_pipeline", %{"path" => path})
-      assert is_binary(message)
+      assert {:error, %Error{} = err} = Tools.call("explain_pipeline", %{"path" => path})
+      assert is_binary(err.code)
+      assert is_binary(err.message)
     end
 
     test "get_history with empty dir returns empty runs" do
@@ -48,35 +51,40 @@ defmodule Sykli.MCP.ToolsTest do
       assert result.patterns == %{}
     end
 
-    test "get_failure with no data returns error" do
+    test "get_failure with no data returns mcp.no_occurrence" do
       path = System.tmp_dir!() |> Path.join("sykli-mcp-test-#{:rand.uniform(999_999)}")
       File.mkdir_p!(path)
 
       on_exit(fn -> File.rm_rf!(path) end)
 
-      assert {:error, message} = Tools.call("get_failure", %{"path" => path})
-      assert message =~ "No occurrence data"
+      assert {:error, %Error{code: "mcp.no_occurrence"}} =
+               Tools.call("get_failure", %{"path" => path})
     end
 
-    test "tool crash is caught and returns error" do
+    test "missing required tasks argument returns mcp.missing_argument" do
+      assert {:error, %Error{code: "mcp.missing_argument"}} =
+               Tools.call("retry_task", %{"tasks" => []})
+    end
+
+    test "tool crash is caught and returns a coded error" do
       # suggest_tests with a nonexistent path should return an error, not crash
       path = "/tmp/sykli-mcp-test-#{:rand.uniform(999_999)}"
       result = Tools.call("suggest_tests", %{"path" => path})
-      assert {:error, _message} = result
+      assert {:error, %Error{}} = result
     end
 
-    test "retry_task with nonexistent path returns error" do
+    test "retry_task with nonexistent path returns a coded error" do
       path = "/tmp/sykli-mcp-test-#{:rand.uniform(999_999)}"
       result = Tools.call("retry_task", %{"path" => path, "tasks" => ["some_task"]})
-      assert {:error, message} = result
-      assert is_binary(message)
+      assert {:error, %Error{} = err} = result
+      assert is_binary(err.message)
     end
 
-    test "run_fix with nonexistent path returns error" do
+    test "run_fix with nonexistent path returns a coded error" do
       path = "/tmp/sykli-mcp-test-#{:rand.uniform(999_999)}"
       result = Tools.call("run_fix", %{"path" => path})
-      assert {:error, message} = result
-      assert is_binary(message)
+      assert {:error, %Error{} = err} = result
+      assert is_binary(err.message)
     end
 
     test "run_pipeline exposes agent-readable failure facts" do

@@ -93,12 +93,15 @@ defmodule Sykli.MCP.ProtocolTest do
       assert is_list(content)
       assert length(content) == 1
       assert hd(content)["type"] == "text"
-      # Should be valid JSON
+      # Should be the shared JsonResponse envelope wrapping the tool result
       parsed = Jason.decode!(hd(content)["text"])
-      assert parsed["runs"] == []
+      assert parsed["ok"] == true
+      assert parsed["version"] == "1"
+      assert parsed["error"] == nil
+      assert parsed["data"]["runs"] == []
     end
 
-    test "returns isError for unknown tool" do
+    test "returns isError with a coded error envelope for unknown tool" do
       request = %{
         "jsonrpc" => "2.0",
         "id" => 4,
@@ -109,8 +112,11 @@ defmodule Sykli.MCP.ProtocolTest do
       response = Protocol.handle(request)
 
       assert response["result"]["isError"] == true
-      text = hd(response["result"]["content"])["text"]
-      assert text =~ "Unknown tool"
+      parsed = Jason.decode!(hd(response["result"]["content"])["text"])
+      assert parsed["ok"] == false
+      assert parsed["data"] == nil
+      assert parsed["error"]["code"] == "mcp.unknown_tool"
+      assert is_list(parsed["error"]["hints"])
     end
   end
 
