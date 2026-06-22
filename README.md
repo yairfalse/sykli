@@ -20,6 +20,19 @@ evidence instead of terminal soup.
 Agents should not regex CI logs. Sykli gives them typed failures, contract
 slices, retry hints, and evidence.
 
+## About
+
+Sykli is an agent-readable execution layer for software work. It lets projects
+define build, test, deploy, review, and approval work as typed graphs; runs
+those graphs locally or in CI; and returns structured evidence that agents,
+reviewers, and downstream systems can trust.
+
+Short version for the repo sidebar:
+
+```text
+The contract layer between AI agents and the work they execute.
+```
+
 ## The Sykli Loop
 
 ```text
@@ -37,6 +50,26 @@ plan -> contract -> run -> semantic failure -> evidence -> repair
 The point is not to make agentic work perfectly deterministic. The point is to
 make the contract around it deterministic enough to inspect, verify, replay,
 and hand to another tool.
+
+```mermaid
+flowchart LR
+    agent["AI agent"]
+    mcp["sykli mcp"]
+    contract["typed execution contract"]
+    runtime["Sykli runtime"]
+    result["semantic result"]
+    evidence[".sykli/ evidence"]
+    repair["repair decision"]
+
+    agent -->|"what should I run?"| mcp
+    mcp --> contract
+    contract --> runtime
+    runtime --> result
+    result -->|"failure_semantics\nagent_hints\ncontract_slice"| agent
+    result --> evidence
+    evidence -->|"trusted facts"| repair
+    repair --> agent
+```
 
 ## A Tiny Contract
 
