@@ -2,26 +2,43 @@
 
 Execution contracts for agent work.
 
-Sykli turns build, test, deploy, review, and approval work into typed,
-versioned, verifiable execution graphs.
+Sykli is the contract layer between AI agents and the work they execute.
 
-Agents can plan, generate, review, and adapt, but their work still needs
-boundaries: what is being run, what it depends on, what environment it needs,
-what success means, and what evidence another tool can trust afterward.
+Agents can edit code, propose fixes, and adapt plans. They still need a
+reliable answer to basic questions:
 
-Sykli is that boundary.
+- What work exists in this repo?
+- What should run for this change?
+- What does success mean?
+- Why did a run fail?
+- Can retry help?
+- What evidence can another tool trust afterward?
 
-You define the graph in a real programming language: Go, Rust, TypeScript,
-Elixir, or Python. Sykli emits a canonical JSON contract, validates it against
-versioned schemas, executes it on BEAM, and writes structured runtime evidence
-to `.sykli/`.
+Sykli answers those questions with typed execution contracts and structured
+evidence instead of terminal soup.
 
-The goal is not to make agentic work perfectly deterministic. The goal is to
+Agents should not regex CI logs. Sykli gives them typed failures, contract
+slices, retry hints, and evidence.
+
+## The Sykli Loop
+
+```text
+plan -> contract -> run -> semantic failure -> evidence -> repair
+```
+
+1. The repo defines an execution graph in Go, Rust, TypeScript, Elixir, or
+   Python.
+2. The SDK emits a canonical JSON contract governed by versioned schemas.
+3. Sykli validates the graph, schedules the work, and records structured
+   results.
+4. Agents consume typed failure semantics, agent hints, contract slices, and
+   `.sykli/` evidence instead of scraping logs.
+
+The point is not to make agentic work perfectly deterministic. The point is to
 make the contract around it deterministic enough to inspect, verify, replay,
-and hand to other tools.
+and hand to another tool.
 
-Sykli makes agent work visible before it runs and trustworthy after it
-finishes.
+## A Tiny Contract
 
 ```go
 package main
@@ -47,13 +64,6 @@ func main() {
             sykli.FileExists("app"),
         )
 
-    s.Review("review:api_breakage").
-        Primitive("api_breakage").
-        Agent("local").
-        Diff("main...HEAD").
-        Context("README.md", "docs/sdk-schema.md").
-        After("test")
-
     s.Emit()
 }
 ```
@@ -63,15 +73,12 @@ sykli · pipeline.go                                local · 0.7.0
 
   ●  test     go test ./...                        108ms
   ●  build    go build -o app                      612ms
-  ○  review:api_breakage   api_breakage            planned
 
-  ─  2 passed · 1 review planned                   720ms
+  ─  2 passed                                      720ms
 ```
 
-Task nodes execute deterministic work such as build and test commands. Review
-nodes model evaluation work as graph nodes: primitive, agent identifier,
-context files, dependencies, and `deterministic: false` by default. Review
-nodes are not shell tasks.
+That program is not the product. The emitted contract is. Sykli validates it,
+runs it, and records evidence about what happened.
 
 ## When It Fails, Agents Read Facts — Not Logs
 
@@ -102,6 +109,16 @@ a task whose command succeeded but whose declared `success_criteria` did not:
     "inspect_dependencies": false,
     "requires_human_decision": false,
     "unknown_failure_class": false
+  },
+  "contract_slice": {
+    "name": "test",
+    "task_type": "test",
+    "success_criteria": [
+      {
+        "type": "exit_code",
+        "equals": 0
+      }
+    ]
   }
 }
 ```
@@ -119,17 +136,61 @@ and `sykli mcp` serves them to agents directly. See
 [`docs/failure-semantics.md`](docs/failure-semantics.md) and
 [`docs/agent-readable-failure-output.md`](docs/agent-readable-failure-output.md).
 
-## What Sykli Gives You
+## MCP: The Agent Interface
 
-- Typed SDKs instead of YAML as the source of truth.
-- Canonical JSON contract emitted by every SDK.
-- Explicit wire-format versions and schema validation.
-- DAG validation, dependency scheduling, supervision, retries, and caching.
-- Structured `task_type`, `success_criteria`, and `evidence_required` fields.
-- Task, review, gate, artifact, resource, container, and cache primitives.
-- `.sykli/` evidence output for agents, MCP tools, CI, and downstream systems.
-- Portable execution across local shell, Docker, Podman, Kubernetes, and BEAM
-  mesh, depending on feature maturity.
+`sykli mcp` exposes the execution graph and run evidence as tools an agent can
+call:
+
+```text
+agent -> suggest_tests      # what should I run for this change?
+agent -> run_pipeline       # run the graph or selected tasks
+agent -> get_failure        # what failed, semantically?
+agent -> run_fix            # correlate failure facts with source context
+agent -> get_history        # is this flaky or newly broken?
+```
+
+That gives an AI coding agent a loop it can actually reason over:
+
+```text
+change code -> ask what to run -> run it -> inspect typed failure -> repair -> rerun
+```
+
+MCP is the transport. Sykli's value is the contract and evidence behind the
+tools: typed graph data, coded errors, failure semantics, agent hints, and
+contract slices.
+
+## Evidence That Survives The Session
+
+Every run writes structured evidence under `.sykli/`:
+
+```text
+.sykli/
+├── occurrence.json       # latest terminal FALSE Protocol occurrence
+├── occurrences_json/     # archived JSON occurrences
+├── occurrences/          # archived ETF occurrences
+├── runs/                 # run history manifests
+├── context.json          # pipeline and health context from `sykli context`
+├── work/items/           # local work item state
+├── gates/                # local gate decision state
+└── outbox/               # deferred Team Mode sync payloads
+```
+
+An agent session can end. The evidence remains. Another agent, reviewer, CI
+wrapper, or audit tool can read the same structured facts without replaying
+the terminal.
+
+The detailed on-disk schema is documented in
+[`docs/false-protocol-schema.md`](docs/false-protocol-schema.md).
+
+## Product Pillars
+
+1. **Contract.** A graph is not YAML. A graph is a typed, versioned contract.
+2. **Execution.** The contract runs locally, in containers, in CI, or on
+   distributed targets as those surfaces mature.
+3. **Failure semantics.** Agents get `runtime_failure`, `criteria_failure`,
+   `timeout`, `dependency_failure`, `policy_block`, and other typed classes.
+4. **Evidence.** Every run leaves structured facts that downstream tools can
+   inspect.
 
 ## Sykli Is Not CI
 
@@ -143,19 +204,6 @@ primitives: tasks, dependencies, inputs, outputs, and execution order.
 
 The shift is that the pipeline is no longer hidden inside vendor YAML and shell
 scripts. It becomes a typed program that emits an explicit execution contract.
-
-## Why YAML Is Not Enough
-
-YAML pipelines fail at four things that get worse as the graph grows:
-
-- **No types.** Typos and wrong parameter shapes usually fail at runtime.
-- **Poor reuse.** Anchors and includes are not real composition.
-- **Hidden logic.** Behavior is split across conditionals, matrices, env files,
-  shell scripts, and runner semantics.
-- **Vendor lock-in.** The pipeline belongs to the CI vendor instead of the
-  project.
-
-A pipeline is a program. Agent work needs a contract.
 
 ## How It Works
 
@@ -462,29 +510,6 @@ sykli -r podman
 Selection priority and runtime extension notes are in
 [`docs/runtimes.md`](docs/runtimes.md).
 
-## `.sykli/` Evidence
-
-```text
-.sykli/
-├── occurrence.json       # latest terminal FALSE Protocol occurrence
-├── occurrences_json/     # archived JSON occurrences
-├── occurrences/          # archived ETF occurrences
-├── attestation.json      # run-level DSSE/SLSA provenance envelope
-├── attestations/         # per-task DSSE envelopes when outputs are attested
-├── context.json          # pipeline and health context from `sykli context`
-├── runs/                 # run history manifests
-├── work/items/           # local work item state
-├── gates/                # local gate decision state
-├── daemon/               # coordinator session + heartbeat liveness
-└── outbox/               # deferred Team Mode sync payloads (runs/, gates/)
-```
-
-This is the local evidence plane. Agents and downstream tools read structured
-data instead of scraping terminal output.
-
-The detailed on-disk schema is documented in
-[`docs/false-protocol-schema.md`](docs/false-protocol-schema.md).
-
 ## Project Status
 
 | Component | Status |
@@ -499,6 +524,9 @@ usable surfaces, not production-readiness claims.
 
 ## Roadmap
 
+- **Agent Contract Release.** Tighten MCP response envelopes, coded tool
+  errors, stable agent-readable failure output, `.sykli/` evidence docs, and a
+  focused Codex/Claude repair demo.
 - Review primitive adapters for API, security, coverage, behavior, and
   architecture checks.
 - Structured review outputs with primitive-specific schemas.
