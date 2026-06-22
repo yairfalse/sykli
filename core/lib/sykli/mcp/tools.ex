@@ -2,13 +2,19 @@ defmodule Sykli.MCP.Tools do
   @moduledoc """
   MCP tool definitions and implementations.
 
-  Five tools that expose sykli's core capabilities to AI assistants:
+  Seven tools that expose sykli's execution-graph capabilities to AI agents:
 
-  - `run_pipeline` — execute the pipeline
-  - `explain_pipeline` — describe pipeline structure
+  - `run_pipeline` — execute the graph
+  - `explain_pipeline` — describe graph structure
   - `get_failure` — get last failure with error context
   - `suggest_tests` — which tasks to run for changed files
   - `get_history` — recent runs with patterns
+  - `retry_task` — re-run specific tasks by name
+  - `run_fix` — structured analysis of the last failure
+
+  Every tool returns its result through the shared `Sykli.CLI.JsonResponse`
+  envelope (see `Sykli.MCP.Protocol`), and every failure is a coded
+  `%Sykli.Error{}` so agents branch on `error.code` instead of parsing prose.
   """
 
   alias Sykli.{Detector, Graph, Explain, RunHistory, Delta, Context}
@@ -22,7 +28,7 @@ defmodule Sykli.MCP.Tools do
       %{
         "name" => "run_pipeline",
         "description" =>
-          "Execute the sykli CI pipeline. Returns task statuses, durations, and errors.",
+          "Execute the sykli execution graph. Returns per-task status, duration, cache flags, typed failure semantics, and errors. CI is one use case; nodes may be build, test, review, or reasoning tasks.",
         "inputSchema" => %{
           "type" => "object",
           "properties" => %{
@@ -33,10 +39,12 @@ defmodule Sykli.MCP.Tools do
             "tasks" => %{
               "type" => "array",
               "items" => %{"type" => "string"},
+              "minItems" => 1,
               "description" => "Only run these specific tasks (default: all)"
             },
             "timeout" => %{
               "type" => "integer",
+              "minimum" => 1,
               "description" => "Per-task timeout in milliseconds (default: 300000)"
             }
           }
@@ -45,7 +53,7 @@ defmodule Sykli.MCP.Tools do
       %{
         "name" => "explain_pipeline",
         "description" =>
-          "Describe the pipeline structure: tasks, dependencies, execution levels, critical path, and semantic metadata. Zero-cost read-only operation.",
+          "Describe the execution graph structure: tasks, dependencies, execution levels, critical path, and semantic metadata. Zero-cost read-only operation.",
         "inputSchema" => %{
           "type" => "object",
           "properties" => %{
@@ -77,7 +85,7 @@ defmodule Sykli.MCP.Tools do
       %{
         "name" => "suggest_tests",
         "description" =>
-          "Suggest which tasks to run based on changed files. Uses semantic coverage and dependency analysis to find affected and skippable tasks.",
+          "Suggest which tasks to run based on changed files. Uses semantic coverage and dependency analysis to find affected and skippable tasks. Returns a ready-to-call `run_tasks` list for run_pipeline.",
         "inputSchema" => %{
           "type" => "object",
           "properties" => %{
@@ -107,6 +115,7 @@ defmodule Sykli.MCP.Tools do
             },
             "limit" => %{
               "type" => "integer",
+              "minimum" => 1,
               "description" => "Number of runs to return (default: 10)"
             }
           }
@@ -126,6 +135,7 @@ defmodule Sykli.MCP.Tools do
             "tasks" => %{
               "type" => "array",
               "items" => %{"type" => "string"},
+              "minItems" => 1,
               "description" => "Task names to retry"
             }
           },
@@ -156,14 +166,17 @@ defmodule Sykli.MCP.Tools do
   @doc """
   Dispatches a tool call by name.
 
-  Returns `{:ok, result_map}` or `{:error, message}`.
+  Returns `{:ok, result_map}` on success or `{:error, %Sykli.Error{}}` on
+  failure. The protocol layer renders both through the shared
+  `Sykli.CLI.JsonResponse` envelope so agents parse one shape across the CLI
+  and MCP surfaces.
   """
-  @spec call(String.t(), map()) :: {:ok, map()} | {:error, String.t()}
+  @spec call(String.t(), map()) :: {:ok, map()} | {:error, Sykli.Error.t()}
   def call(name, arguments) do
     do_call(name, arguments)
   rescue
     e ->
-      {:error, "Tool crashed: #{Exception.message(e)}"}
+      {:error, Sykli.Error.mcp_tool_crashed(Exception.message(e))}
   end
 
   # --- Tool implementations ---
@@ -188,7 +201,7 @@ defmodule Sykli.MCP.Tools do
          }}
 
       {:error, reason} ->
-        {:error, "Pipeline failed: #{inspect(reason)}"}
+        {:error, Sykli.Error.wrap(reason)}
     end
   end
 
@@ -211,7 +224,7 @@ defmodule Sykli.MCP.Tools do
       {:ok, explanation}
     else
       {:error, reason} ->
-        {:error, format_error(reason)}
+        {:error, mcp_error(reason)}
     end
   end
 
@@ -231,7 +244,7 @@ defmodule Sykli.MCP.Tools do
 
     case occurrence do
       nil ->
-        {:error, "No occurrence data found. Run 'sykli' first."}
+        {:error, Sykli.Error.mcp_no_occurrence()}
 
       data ->
         {:ok, data}
@@ -261,7 +274,14 @@ defmodule Sykli.MCP.Tools do
         end
 
       if changed_files == [] do
-        {:ok, %{changed_files: [], affected: [], skipped: [], message: "No changes detected"}}
+        {:ok,
+         %{
+           changed_files: [],
+           affected: [],
+           skipped: [],
+           run_tasks: [],
+           message: "No changes detected"
+         }}
       else
         # Semantic coverage analysis
         suggested = Context.tasks_for_changes(expanded, changed_files)
@@ -278,6 +298,10 @@ defmodule Sykli.MCP.Tools do
         suggested_set = MapSet.new(suggested)
         affected_set = MapSet.new(affected_names)
         run_set = MapSet.union(suggested_set, affected_set)
+
+        # Deduped, graph-ordered list an agent can pass straight to
+        # run_pipeline.tasks without reconstructing it from `affected`.
+        run_tasks = Enum.filter(all_task_names, &MapSet.member?(run_set, &1))
 
         skipped =
           all_task_names
@@ -298,12 +322,13 @@ defmodule Sykli.MCP.Tools do
          %{
            changed_files: changed_files,
            affected: affected,
-           skipped: skipped
+           skipped: skipped,
+           run_tasks: run_tasks
          }}
       end
     else
       {:error, reason} ->
-        {:error, format_error(reason)}
+        {:error, mcp_error(reason)}
     end
   end
 
@@ -376,7 +401,7 @@ defmodule Sykli.MCP.Tools do
     task_names = args["tasks"] || []
 
     if task_names == [] do
-      {:error, "No task names provided"}
+      {:error, Sykli.Error.mcp_missing_argument("tasks", "retry_task")}
     else
       name_set = MapSet.new(task_names)
       filter_fn = fn task -> MapSet.member?(name_set, task.name) end
@@ -400,7 +425,7 @@ defmodule Sykli.MCP.Tools do
            }}
 
         {:error, reason} ->
-          {:error, "Retry failed: #{inspect(reason)}"}
+          {:error, Sykli.Error.wrap(reason)}
       end
     end
   end
@@ -416,7 +441,7 @@ defmodule Sykli.MCP.Tools do
         {:ok, analysis}
 
       {:error, :no_occurrence} ->
-        {:error, "No occurrence data found. Run 'sykli' first."}
+        {:error, Sykli.Error.mcp_no_occurrence()}
 
       {:error, :no_failures} ->
         {:ok, %{status: "no_failures", message: "No failed tasks in the last run."}}
@@ -424,7 +449,7 @@ defmodule Sykli.MCP.Tools do
   end
 
   defp do_call(name, _args) do
-    {:error, "Unknown tool: #{name}"}
+    {:error, Sykli.Error.mcp_unknown_tool(name)}
   end
 
   # --- Helpers ---
@@ -538,18 +563,30 @@ defmodule Sykli.MCP.Tools do
     end
   end
 
-  defp format_error(:no_sdk_file), do: "No sykli SDK file found (sykli.go, sykli.rs, etc.)"
-  defp format_error({:go_failed, msg}), do: "Go SDK failed: #{msg}"
-  defp format_error({:rust_failed, msg}), do: "Rust SDK failed: #{msg}"
-  defp format_error({:elixir_failed, msg}), do: "Elixir SDK failed: #{msg}"
-  defp format_error({:typescript_failed, msg}), do: "TypeScript SDK failed: #{msg}"
-  defp format_error({:python_failed, msg}), do: "Python SDK failed: #{msg}"
-  defp format_error({:missing_tool, tool, hint}), do: "Missing #{tool}: #{hint}"
-  defp format_error({:task_type_on_review, _} = reason), do: Sykli.Graph.format_error(reason)
+  # Converts a parse/detect/SDK failure reason into a coded `%Sykli.Error{}`.
+  # Graph contract violations keep their rich `Graph.format_error/1` message but
+  # gain a stable code so agents branch without parsing prose; everything else
+  # routes through the engine-wide `Sykli.Error.wrap/1`.
+  defp mcp_error({:task_type_on_review, _} = reason), do: graph_contract_error(reason)
 
-  defp format_error({:task_type_requires_v3_or_newer, _, _, _} = reason),
-    do: Sykli.Graph.format_error(reason)
+  defp mcp_error({:task_type_requires_v3_or_newer, _, _, _} = reason),
+    do: graph_contract_error(reason)
 
-  defp format_error({:unknown_task_type, _, _} = reason), do: Sykli.Graph.format_error(reason)
-  defp format_error(reason), do: inspect(reason)
+  defp mcp_error({:unknown_task_type, _, _} = reason), do: graph_contract_error(reason)
+  defp mcp_error(reason), do: Sykli.Error.wrap(reason)
+
+  defp graph_contract_error(reason) do
+    message =
+      reason
+      |> Sykli.Graph.format_error()
+      |> String.replace_prefix("Error: ", "")
+
+    %Sykli.Error{
+      code: "graph.invalid_contract",
+      type: :validation,
+      step: :parse,
+      message: message,
+      hints: ["fix the contract violation in your SDK pipeline and re-emit"]
+    }
+  end
 end

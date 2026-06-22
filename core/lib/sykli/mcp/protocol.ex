@@ -8,6 +8,7 @@ defmodule Sykli.MCP.Protocol do
   and dispatches tool calls to `Sykli.MCP.Tools`.
   """
 
+  alias Sykli.CLI.JsonResponse
   alias Sykli.MCP.Tools
 
   @server_name "sykli"
@@ -54,15 +55,13 @@ defmodule Sykli.MCP.Protocol do
 
     case Tools.call(name, arguments) do
       {:ok, result} ->
-        json = Jason.encode!(result)
-
         ok_response(id, %{
-          "content" => [%{"type" => "text", "text" => json}]
+          "content" => [%{"type" => "text", "text" => JsonResponse.ok(result)}]
         })
 
-      {:error, message} ->
+      {:error, %Sykli.Error{} = error} ->
         ok_response(id, %{
-          "content" => [%{"type" => "text", "text" => message}],
+          "content" => [%{"type" => "text", "text" => JsonResponse.error(error)}],
           "isError" => true
         })
     end
