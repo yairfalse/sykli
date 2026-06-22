@@ -3,6 +3,27 @@ name: Sykli CI (Dogfood)
 on:
   pull_request:
     branches: [main]
+    paths:
+      - '.github/workflows/sykli-ci.yml'
+      - 'core/**'
+      - 'sdk/**'
+      - 'schemas/**'
+      - 'scripts/**'
+      - 'test/**'
+      - 'tests/**'
+      - 'examples/**'
+      - 'test_projects/**'
+      - 'sykli.exs'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sykli-dogfood-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   sykli:
@@ -10,6 +31,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Elixir
         uses: erlef/setup-beam@v1
@@ -43,6 +66,11 @@ jobs:
           sudo mv sykli /usr/local/bin/
 
       - name: Run Sykli Pipeline
-        run: sykli
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            sykli delta
+          else
+            sykli
+          fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

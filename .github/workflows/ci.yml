@@ -8,10 +8,91 @@ on:
     # (the Monster PR-train stacks phases on feature/ branches).
     branches: [main, 'feature/**']
 
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      core: ${{ steps.filter.outputs.core }}
+      credo: ${{ steps.filter.outputs.credo }}
+      blackbox: ${{ steps.filter.outputs.blackbox }}
+      conformance: ${{ steps.filter.outputs.conformance }}
+      sdk_go: ${{ steps.filter.outputs.sdk_go }}
+      sdk_rust: ${{ steps.filter.outputs.sdk_rust }}
+      sdk_elixir: ${{ steps.filter.outputs.sdk_elixir }}
+      sdk_typescript: ${{ steps.filter.outputs.sdk_typescript }}
+      sdk_python: ${{ steps.filter.outputs.sdk_python }}
+      integration: ${{ steps.filter.outputs.integration }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Classify changed paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            core:
+              - '.github/workflows/ci.yml'
+              - 'core/**'
+              - 'schemas/**'
+              - 'scripts/**'
+              - 'action.yml'
+              - 'install.sh'
+            credo:
+              - '.github/workflows/ci.yml'
+              - 'core/**'
+            blackbox:
+              - '.github/workflows/ci.yml'
+              - 'core/**'
+              - 'sdk/**'
+              - 'schemas/**'
+              - 'scripts/**'
+              - 'test/blackbox/**'
+              - 'test_projects/**'
+              - 'action.yml'
+              - 'install.sh'
+              - 'sykli.exs'
+            conformance:
+              - '.github/workflows/ci.yml'
+              - 'sdk/**'
+              - 'schemas/**'
+              - 'scripts/gen-vocab.py'
+              - 'tests/conformance/**'
+              - 'VERSION'
+            sdk_go:
+              - '.github/workflows/ci.yml'
+              - 'sdk/go/**'
+            sdk_rust:
+              - '.github/workflows/ci.yml'
+              - 'sdk/rust/**'
+            sdk_elixir:
+              - '.github/workflows/ci.yml'
+              - 'sdk/elixir/**'
+            sdk_typescript:
+              - '.github/workflows/ci.yml'
+              - 'sdk/typescript/**'
+            sdk_python:
+              - '.github/workflows/ci.yml'
+              - 'sdk/python/**'
+            integration:
+              - '.github/workflows/ci.yml'
+              - 'core/**'
+              - 'sdk/go/**'
+              - 'examples/**'
+
   core:
     name: Core Tests
     runs-on: ubuntu-latest
+    needs: changes
+    if: github.event_name == 'push' || needs.changes.outputs.core == 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -51,6 +132,8 @@ jobs:
   credo:
     name: Credo
     runs-on: ubuntu-latest
+    needs: changes
+    if: github.event_name == 'push' || needs.changes.outputs.credo == 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -77,6 +160,8 @@ jobs:
   blackbox:
     name: Black-box Tests
     runs-on: ubuntu-latest
+    needs: changes
+    if: github.event_name == 'push' || needs.changes.outputs.blackbox == 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -123,6 +208,8 @@ jobs:
   conformance:
     name: SDK Conformance
     runs-on: ubuntu-latest
+    needs: changes
+    if: github.event_name == 'push' || needs.changes.outputs.conformance == 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -189,6 +276,8 @@ jobs:
   sdk-go:
     name: Go SDK Tests
     runs-on: ubuntu-latest
+    needs: changes
+    if: github.event_name == 'push' || needs.changes.outputs.sdk_go == 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -208,6 +297,8 @@ jobs:
   sdk-rust:
     name: Rust SDK Tests
     runs-on: ubuntu-latest
+    needs: changes
+    if: github.event_name == 'push' || needs.changes.outputs.sdk_rust == 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -225,6 +316,8 @@ jobs:
   sdk-elixir:
     name: Elixir SDK Tests
     runs-on: ubuntu-latest
+    needs: changes
+    if: github.event_name == 'push' || needs.changes.outputs.sdk_elixir == 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -255,6 +348,8 @@ jobs:
   sdk-typescript:
     name: TypeScript SDK Tests
     runs-on: ubuntu-latest
+    needs: changes
+    if: github.event_name == 'push' || needs.changes.outputs.sdk_typescript == 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -278,6 +373,8 @@ jobs:
   sdk-python:
     name: Python SDK Tests
     runs-on: ubuntu-latest
+    needs: changes
+    if: github.event_name == 'push' || needs.changes.outputs.sdk_python == 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -297,7 +394,10 @@ jobs:
   integration:
     name: Integration Tests
     runs-on: ubuntu-latest
-    needs: [core, sdk-go, sdk-rust, sdk-elixir, sdk-typescript, sdk-python]
+    needs: changes
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      needs.changes.outputs.integration == 'true'
     steps:
       - uses: actions/checkout@v4
 
