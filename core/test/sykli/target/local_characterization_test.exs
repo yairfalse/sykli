@@ -16,6 +16,8 @@ defmodule Sykli.Target.LocalCharacterizationTest do
 
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureIO
+
   alias Sykli.Target.Local
 
   defmodule UnavailableRuntime do
@@ -121,6 +123,32 @@ defmodule Sykli.Target.LocalCharacterizationTest do
       assert {:ok, _} = Local.run_task(task, state, [])
 
       Local.teardown(state)
+    end
+  end
+
+  describe "presentation layering (#237)" do
+    # The execution layer (Target) must not render human-facing output. Presentation
+    # — live progress, success/failure lines, the "Target: local (...)" banner — is
+    # Sykli.CLI.Renderer's job. This guards against reintroducing banned CLI
+    # vocabulary (e.g. "Target: local (", an "NL" line counter) or non-canonical
+    # glyphs (✓/▶) from the target layer, which the renderer's own tests cannot see.
+    test "setup/1, run_task/3 and teardown/1 emit no terminal presentation" do
+      task = %Sykli.Graph.Task{
+        name: "silent-task",
+        command: "true",
+        container: nil,
+        mounts: [],
+        env: %{}
+      }
+
+      output =
+        capture_io(fn ->
+          {:ok, state} = Local.setup(workdir: System.tmp_dir!(), runtime: Sykli.Runtime.Fake)
+          assert {:ok, _} = Local.run_task(task, state, [])
+          Local.teardown(state)
+        end)
+
+      assert output == ""
     end
   end
 end
