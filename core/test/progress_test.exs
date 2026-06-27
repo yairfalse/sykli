@@ -33,6 +33,17 @@ defmodule Sykli.ProgressTest do
     end
   end
 
+  defmodule RaisingSink do
+    @moduledoc false
+    @behaviour Sykli.Executor.Output.Sink
+
+    @impl true
+    def task_starting(_prefix, _name, _reason), do: raise("presentation failed")
+
+    @impl true
+    def summary(_results, _total, _status, _tasks), do: throw(:presentation_failed)
+  end
+
   defp make_task(name, command, opts \\ []) do
     %Sykli.Graph.Task{
       name: name,
@@ -88,6 +99,25 @@ defmodule Sykli.ProgressTest do
       # Every run ends with a summary event; that proves the executor → Output →
       # sink path is wired.
       assert_received {:sink, :summary, status} when status in [:ok, :error]
+    end
+
+    test "output sink failures do not affect executor results" do
+      Application.put_env(:sykli, :executor_output_sink, RaisingSink)
+
+      on_exit(fn ->
+        Application.delete_env(:sykli, :executor_output_sink)
+      end)
+
+      tasks = [make_task("test", "true")]
+      graph = Map.new(tasks, fn t -> {t.name, t} end)
+
+      result =
+        capture_io(fn ->
+          assert {:ok, [%Sykli.Executor.TaskResult{status: :passed}]} =
+                   Sykli.Executor.run(tasks, graph, workdir: "/tmp")
+        end)
+
+      assert result == ""
     end
   end
 end

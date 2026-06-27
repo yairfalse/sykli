@@ -65,15 +65,24 @@ defmodule Sykli.Executor.Output do
   def error(error), do: notify(:error, [error])
 
   # Dispatch to the configured sink, if any. Callbacks are optional: an event a
-  # sink doesn't implement is silently dropped. Return values are ignored.
+  # sink doesn't implement is silently dropped. Return values and failures are
+  # ignored because presentation observers must not change executor semantics.
   defp notify(fun, args) do
     case Application.get_env(:sykli, :executor_output_sink) do
       nil ->
         :ok
 
       mod ->
-        if function_exported?(mod, fun, length(args)), do: apply(mod, fun, args)
+        if function_exported?(mod, fun, length(args)), do: safe_apply(mod, fun, args)
         :ok
     end
+  end
+
+  defp safe_apply(mod, fun, args) do
+    apply(mod, fun, args)
+  rescue
+    _ -> :ok
+  catch
+    _, _ -> :ok
   end
 end
