@@ -171,6 +171,61 @@ defmodule Sykli.Occurrence.EnrichmentTest do
   end
 
   # ─────────────────────────────────────────────────────────────────────────────
+  # CROSS-RUN ANALYSIS (disk fallback)
+  # ─────────────────────────────────────────────────────────────────────────────
+
+  describe "cross-run analysis disk fallback (#241)" do
+    test "reads prior runs from the .sykli JSON archive when the Store is absent",
+         %{workdir: workdir} do
+      # The hot ETS Store only runs in daemon mode; in the one-shot CLI path the
+      # archive on disk is the only source of prior runs.
+      json_dir = Path.join([workdir, ".sykli", "occurrences_json"])
+      File.mkdir_p!(json_dir)
+
+      prior = %{"data" => %{"tasks" => [%{"name" => "build", "status" => "passed"}]}}
+      # ULID-shaped name so the newest-first sort behaves like production.
+      File.write!(Path.join(json_dir, "01HQPRIORRUN0000000000000.json"), Jason.encode!(prior))
+
+      occ = make_occurrence("run-now", "ci.run.failed", "failure")
+      graph = %{"build" => %{command: "go build"}}
+
+      error = %Sykli.Error{
+        code: "task_failed",
+        type: :execution,
+        message: "task 'build' failed",
+        task: "build",
+        command: "go build",
+        exit_code: 1,
+        output: "boom",
+        hints: [],
+        notes: [],
+        locations: []
+      }
+
+      results =
+        {:error, [%TaskResult{name: "build", status: :failed, duration_ms: 5, error: error}]}
+
+      enriched = Enrichment.enrich(occ, graph, results, workdir)
+
+      # build passed last run -> "pass" outcome, and failing now is a new regression.
+      assert enriched.data["recent_outcomes"]["build"] == ["pass"]
+      assert enriched.data["regression"]["is_new_failure"] == true
+      assert "build" in enriched.data["regression"]["tasks"]
+    end
+
+    test "no archive on disk yields no cross-run data", %{workdir: workdir} do
+      occ = make_occurrence("run-now", "ci.run.failed", "failure")
+      graph = %{"build" => %{command: "go build"}}
+      results = {:error, [%TaskResult{name: "build", status: :failed, duration_ms: 5}]}
+
+      enriched = Enrichment.enrich(occ, graph, results, workdir)
+
+      refute Map.has_key?(enriched.data, "recent_outcomes")
+      refute Map.has_key?(enriched.data, "regression")
+    end
+  end
+
+  # ─────────────────────────────────────────────────────────────────────────────
   # ERROR BLOCK (tested through enrich)
   # ─────────────────────────────────────────────────────────────────────────────
 

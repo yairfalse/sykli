@@ -84,7 +84,7 @@ defmodule Sykli.Occurrence.Enrichment do
     error_data = build_error_data(results, workdir)
 
     # Build cross-run analysis (goes into data, not history — spec is strict)
-    cross_run_data = build_cross_run_data(results)
+    cross_run_data = build_cross_run_data(results, workdir)
 
     # Merge all into data
     merged_data =
@@ -402,8 +402,8 @@ defmodule Sykli.Occurrence.Enrichment do
   defp map_step_outcome(:blocked), do: "failure"
   defp map_step_outcome(:skipped), do: "skipped"
 
-  defp build_cross_run_data(results) do
-    case safe_store_list(20) do
+  defp build_cross_run_data(results, workdir) do
+    case previous_occurrences(20, workdir) do
       [] ->
         nil
 
@@ -421,11 +421,53 @@ defmodule Sykli.Occurrence.Enrichment do
     end
   end
 
+  # Prefer the hot ETS Store (running in daemon mode); fall back to the on-disk
+  # JSON archive so cross-run analysis still works in the one-shot CLI path, where
+  # the Store GenServer is not started. Without this, recent_outcomes/regression
+  # were silently dead outside the daemon (#241).
+  defp previous_occurrences(limit, workdir) do
+    case safe_store_list(limit) do
+      [] -> read_recent_occurrences_from_disk(limit, workdir)
+      occurrences -> occurrences
+    end
+  end
+
   defp safe_store_list(limit) do
     Store.list(limit: limit)
   catch
     :exit, _ -> []
     :error, _ -> []
+  end
+
+  defp read_recent_occurrences_from_disk(limit, workdir) do
+    json_dir = Path.join([workdir, ".sykli", "occurrences_json"])
+
+    case File.ls(json_dir) do
+      {:ok, files} ->
+        files
+        |> Enum.filter(&String.ends_with?(&1, ".json"))
+        # run_ids are ULIDs, so a lexicographic sort is chronological; newest first.
+        |> Enum.sort(:desc)
+        |> Enum.take(limit)
+        |> Enum.flat_map(fn file ->
+          case decode_occurrence_file(Path.join(json_dir, file)) do
+            {:ok, occ} -> [occ]
+            :error -> []
+          end
+        end)
+
+      {:error, _} ->
+        []
+    end
+  end
+
+  defp decode_occurrence_file(path) do
+    with {:ok, contents} <- File.read(path),
+         {:ok, occ} <- Jason.decode(contents) do
+      {:ok, occ}
+    else
+      _ -> :error
+    end
   end
 
   defp build_recent_outcomes(results, previous_occurrences) do
