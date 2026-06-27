@@ -1,8 +1,38 @@
 defmodule Sykli.ProgressTest do
+  @moduledoc """
+  Executor presentation contract.
+
+  This file used to assert on the legacy `Sykli.Executor.Output` live-print text
+  (progress counters, a `"Level"` header, an inline run summary, etc.). That
+  subsystem was retired in #256: the executor is now silent by default and
+  emits presentation events through a configurable sink, while
+  `Sykli.CLI.Renderer` presents the final results. These tests pin the new
+  contract.
+  """
   use ExUnit.Case, async: false
   import ExUnit.CaptureIO
 
-  # Helper to create task struct
+  defmodule ProbeSink do
+    @moduledoc false
+    @behaviour Sykli.Executor.Output.Sink
+
+    @impl true
+    def task_starting(_prefix, name, _reason), do: relay({:sink, :task_starting, name})
+
+    @impl true
+    def task_cached(_prefix, name), do: relay({:sink, :task_cached, name})
+
+    @impl true
+    def summary(_results, _total, status, _tasks), do: relay({:sink, :summary, status})
+
+    defp relay(msg) do
+      case Application.get_env(:sykli, :progress_test_probe) do
+        pid when is_pid(pid) -> send(pid, msg)
+        _ -> :ok
+      end
+    end
+  end
+
   defp make_task(name, command, opts \\ []) do
     %Sykli.Graph.Task{
       name: name,
@@ -17,9 +47,10 @@ defmodule Sykli.ProgressTest do
     }
   end
 
-  describe "progress counter" do
-    test "shows [current/total] before task name" do
-      tasks = [make_task("test", "echo test"), make_task("build", "echo build")]
+  describe "executor presentation contract" do
+    test "the executor no longer emits the legacy live-print presentation (#256)" do
+      # `true` produces no stdout, so anything captured would be presentation.
+      tasks = [make_task("alpha", "true"), make_task("beta", "true")]
       graph = Map.new(tasks, fn t -> {t.name, t} end)
 
       output =
@@ -27,101 +58,36 @@ defmodule Sykli.ProgressTest do
           Sykli.Executor.run(tasks, graph, workdir: "/tmp")
         end)
 
-      # Should show progress like [1/2] or [2/2]
-      assert output =~ ~r/\[\d+\/2\]/
+      # Retired Sykli.Executor.Output markers must not appear: the banned "Level"
+      # header, the [n/total] progress counter, the ▶ task glyph, and the inline
+      # "N passed" summary (the duplicate-summary regression). Presentation is now
+      # Sykli.CLI.Renderer's job, applied by the CLI after the run.
+      refute output =~ "Level"
+      refute output =~ "▶"
+      refute output =~ ~r/\[\d+\/\d+\]/
+      refute output =~ ~r/\d+ passed/
     end
-  end
 
-  describe "parallel indicator" do
-    test "shows tasks running in parallel" do
-      # Two tasks with no deps run in parallel
-      tasks = [make_task("a", "echo a"), make_task("b", "echo b")]
+    test "a registered output sink receives executor events" do
+      Application.put_env(:sykli, :progress_test_probe, self())
+      Application.put_env(:sykli, :executor_output_sink, ProbeSink)
+
+      on_exit(fn ->
+        Application.delete_env(:sykli, :executor_output_sink)
+        Application.delete_env(:sykli, :progress_test_probe)
+      end)
+
+      tasks = [make_task("test", "echo #{System.unique_integer([:positive])}")]
       graph = Map.new(tasks, fn t -> {t.name, t} end)
 
-      output =
-        capture_io(fn ->
-          Sykli.Executor.run(tasks, graph, workdir: "/tmp")
-        end)
+      # The sink is silent w.r.t. stdout; we observe it via the relayed messages.
+      capture_io(fn ->
+        Sykli.Executor.run(tasks, graph, workdir: "/tmp")
+      end)
 
-      # Should indicate parallel execution (e.g., "2 parallel" or similar)
-      assert output =~ ~r/parallel|║|simultaneously/i or output =~ "2 task(s)"
-    end
-  end
-
-  describe "cache status" do
-    @tag :skip
-    test "shows CACHED for cache hits" do
-      # TODO: Implement with cache mocking
-      flunk("Not implemented - requires cache mocking")
-    end
-  end
-
-  # NOTE: the "timestamps" describe block was removed in #237. Per-task wall-clock
-  # timestamps were emitted by Sykli.Target.Local's running line, which is presentation
-  # the execution layer must not produce — Sykli.CLI.Renderer reports durations, not
-  # per-task timestamps. The remaining tests here still exercise the legacy
-  # Sykli.Executor.Output live-print path, which is slated for retirement (see the
-  # #237 follow-up + #154); they should be revisited when that path is unified.
-
-  describe "pending queue" do
-    test "shows upcoming tasks" do
-      # Task b depends on a, so b should show as pending while a runs
-      tasks = [
-        make_task("a", "echo a"),
-        make_task("b", "echo b", depends_on: ["a"])
-      ]
-
-      graph = Map.new(tasks, fn t -> {t.name, t} end)
-
-      output =
-        capture_io(fn ->
-          Sykli.Executor.run(tasks, graph, workdir: "/tmp")
-        end)
-
-      # Should show something about next/pending/upcoming
-      assert output =~ ~r/next|pending|→|Level/i
-    end
-  end
-
-  describe "output line count" do
-    test "shows line count in summary" do
-      tasks = [make_task("test", "echo line1 && echo line2")]
-      graph = Map.new(tasks, fn t -> {t.name, t} end)
-
-      output =
-        capture_io(fn ->
-          Sykli.Executor.run(tasks, graph, workdir: "/tmp")
-        end)
-
-      # Should show line count like "2 lines" or similar in output
-      assert output =~ ~r/line|output|\d+L/i or String.contains?(output, "passed")
-    end
-  end
-
-  describe "summary" do
-    test "shows total duration" do
-      tasks = [make_task("test", "echo test")]
-      graph = Map.new(tasks, fn t -> {t.name, t} end)
-
-      output =
-        capture_io(fn ->
-          Sykli.Executor.run(tasks, graph, workdir: "/tmp")
-        end)
-
-      # Should show duration in summary
-      assert output =~ ~r/\d+(\.\d+)?(ms|s|m)/
-    end
-
-    test "shows passed/failed counts" do
-      tasks = [make_task("test", "echo test")]
-      graph = Map.new(tasks, fn t -> {t.name, t} end)
-
-      output =
-        capture_io(fn ->
-          Sykli.Executor.run(tasks, graph, workdir: "/tmp")
-        end)
-
-      assert output =~ ~r/\d+ passed/
+      # Every run ends with a summary event; that proves the executor → Output →
+      # sink path is wired.
+      assert_received {:sink, :summary, status} when status in [:ok, :error]
     end
   end
 end
