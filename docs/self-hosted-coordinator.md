@@ -524,8 +524,8 @@ Gates:
 ```text
 GET   /v1/gates                      # list waiting/decided
 POST  /v1/gates                      # daemon registers a waiting gate
-POST  /v1/gates/:id/approve          # approver decision
-POST  /v1/gates/:id/reject           # approver decision
+GET   /v1/gates/:id                  # show
+POST  /v1/gates/:id/decisions        # approver decision (approve or reject)
 ```
 
 Evidence:
@@ -578,6 +578,17 @@ POST /v1/work-items
 GET  /v1/work-items/:id
 POST /v1/work-items/:id/claim
 POST /v1/work-items/:id/notes
+POST /v1/runs
+GET  /v1/runs
+GET  /v1/runs/:id
+POST /v1/gates
+GET  /v1/gates
+GET  /v1/gates/:id
+POST /v1/gates/:id/decisions
+POST /v1/daemon-sessions
+GET  /v1/daemon-sessions
+GET  /v1/daemon-sessions/:id
+POST /v1/daemon-sessions/:id/heartbeat
 ```
 
 All `/v1/*` endpoints require `Authorization: Bearer <token>`.

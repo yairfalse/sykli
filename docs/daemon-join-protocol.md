@@ -299,9 +299,8 @@ The daemon emits the following events as POSTs to the relevant API:
 - `review.completed` — recorded under `POST /v1/runs/:id/nodes` with
   the review result body
 - `gate.requested` — `POST /v1/gates`
-- `gate.approved` — `POST /v1/gates/:id/approve` (originates from a
-  CLI/MCP call against the coordinator, not the daemon)
-- `gate.rejected` — `POST /v1/gates/:id/reject`
+- `gate.decided` — `POST /v1/gates/:id/decisions` (approve or reject;
+  originates from a CLI/MCP call against the coordinator, not the daemon)
 - `run.completed` — `PATCH /v1/runs/:id`
 - `evidence.ref.created` — `POST /v1/evidence-refs`
 
