@@ -223,13 +223,18 @@ defmodule Sykli.Target.Local do
 
       case runtime.create_network(network_name) do
         {:ok, _} ->
-          # Start each service
-          container_ids = start_service_containers(runtime, network_name, services)
+          case start_service_containers(runtime, network_name, services) do
+            {:ok, container_ids} ->
+              # Give services a moment to start
+              if length(services) > 0, do: Process.sleep(1000)
 
-          # Give services a moment to start
-          if length(services) > 0, do: Process.sleep(1000)
+              {:ok, {network_name, container_ids, runtime}}
 
-          {:ok, {network_name, container_ids, runtime}}
+            {:error, reason, started_container_ids} ->
+              Enum.each(started_container_ids, &runtime.stop_service/1)
+              runtime.remove_network(network_name)
+              {:error, reason}
+          end
 
         {:error, reason} ->
           {:error, {:network_create_failed, reason}}
@@ -769,18 +774,24 @@ defmodule Sykli.Target.Local do
   # ─────────────────────────────────────────────────────────────────────────────
 
   defp start_service_containers(runtime, network_name, services) do
-    Enum.map(services, fn %Sykli.Graph.Service{image: image, name: name} ->
-      container_name = "#{network_name}-#{name}"
+    result =
+      Enum.reduce_while(services, [], fn %Sykli.Graph.Service{image: image, name: name},
+                                         started_ids ->
+        container_name = "#{network_name}-#{name}"
 
-      case runtime.start_service(container_name, image, network_name, []) do
-        {:ok, container_id} ->
-          container_id
+        case runtime.start_service(container_name, image, network_name, []) do
+          {:ok, container_id} ->
+            {:cont, [container_id | started_ids]}
 
-        {:error, _reason} ->
-          nil
-      end
-    end)
-    |> Enum.reject(&is_nil/1)
+          {:error, reason} ->
+            {:halt, {:error, {:service_start_failed, name, reason}, Enum.reverse(started_ids)}}
+        end
+      end)
+
+    case result do
+      {:error, _reason, _started_ids} = error -> error
+      started_ids -> {:ok, Enum.reverse(started_ids)}
+    end
   end
 
   # ─────────────────────────────────────────────────────────────────────────────

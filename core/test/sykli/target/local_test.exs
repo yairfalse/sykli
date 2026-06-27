@@ -3,6 +3,35 @@ defmodule Sykli.Target.LocalTest do
 
   alias Sykli.Target.Local
 
+  defmodule ServiceStartupFailureRuntime do
+    def name, do: "service-startup-failure"
+
+    def create_network(name) do
+      send(Process.get(:local_test_pid), {:create_network, name})
+      {:ok, "net-id"}
+    end
+
+    def start_service(name, _image, _network, _opts) do
+      send(Process.get(:local_test_pid), {:start_service, name})
+
+      if String.ends_with?(name, "-cache") do
+        {:error, :image_pull_failed}
+      else
+        {:ok, "container-db"}
+      end
+    end
+
+    def stop_service(container_id) do
+      send(Process.get(:local_test_pid), {:stop_service, container_id})
+      :ok
+    end
+
+    def remove_network(network_name) do
+      send(Process.get(:local_test_pid), {:remove_network, network_name})
+      :ok
+    end
+  end
+
   # ─────────────────────────────────────────────────────────────────────────────
   # IDENTITY
   # ─────────────────────────────────────────────────────────────────────────────
@@ -120,6 +149,24 @@ defmodule Sykli.Target.LocalTest do
 
       assert network_a == network_b
       assert String.starts_with?(network_a, "sykli-integration_test-")
+    end
+
+    test "returns an error and cleans up when a service fails to start" do
+      Process.put(:local_test_pid, self())
+
+      services = [
+        %Sykli.Graph.Service{name: "db", image: "postgres:15"},
+        %Sykli.Graph.Service{name: "cache", image: "redis:7"}
+      ]
+
+      state = %Local{workdir: "/tmp/sykli-project", runtime: ServiceStartupFailureRuntime}
+
+      assert {:error, {:service_start_failed, "cache", :image_pull_failed}} =
+               Local.start_services("integration/test", services, state)
+
+      assert_receive {:stop_service, "container-db"}
+      assert_receive {:remove_network, network_name}
+      assert String.starts_with?(network_name, "sykli-integration_test-")
     end
   end
 
