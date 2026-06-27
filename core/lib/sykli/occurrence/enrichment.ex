@@ -446,18 +446,36 @@ defmodule Sykli.Occurrence.Enrichment do
       {:ok, files} ->
         files
         |> Enum.filter(&String.ends_with?(&1, ".json"))
-        # run_ids are ULIDs, so a lexicographic sort is chronological; newest first.
-        |> Enum.sort(:desc)
-        |> Enum.take(limit)
         |> Enum.flat_map(fn file ->
-          case decode_occurrence_file(Path.join(json_dir, file)) do
-            {:ok, occ} -> [occ]
+          path = Path.join(json_dir, file)
+
+          case decode_occurrence_file(path) do
+            {:ok, occ} -> [{occurrence_sort_key(occ, path), occ}]
             :error -> []
           end
         end)
+        |> Enum.sort_by(fn {sort_key, _occ} -> sort_key end, :desc)
+        |> Enum.take(limit)
+        |> Enum.map(fn {_sort_key, occ} -> occ end)
 
       {:error, _} ->
         []
+    end
+  end
+
+  defp occurrence_sort_key(%{"timestamp" => timestamp}, path) when is_binary(timestamp) do
+    case DateTime.from_iso8601(timestamp) do
+      {:ok, datetime, _offset} -> DateTime.to_unix(datetime, :microsecond)
+      _ -> file_mtime_sort_key(path)
+    end
+  end
+
+  defp occurrence_sort_key(_occ, path), do: file_mtime_sort_key(path)
+
+  defp file_mtime_sort_key(path) do
+    case File.stat(path, time: :posix) do
+      {:ok, %{mtime: mtime}} -> mtime
+      {:error, _reason} -> 0
     end
   end
 

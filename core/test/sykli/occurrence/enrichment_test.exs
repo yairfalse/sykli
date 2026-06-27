@@ -213,6 +213,32 @@ defmodule Sykli.Occurrence.EnrichmentTest do
       assert "build" in enriched.data["regression"]["tasks"]
     end
 
+    test "orders prior runs by occurrence timestamp rather than filename", %{workdir: workdir} do
+      json_dir = Path.join([workdir, ".sykli", "occurrences_json"])
+      File.mkdir_p!(json_dir)
+
+      older = %{
+        "timestamp" => "2024-01-01T00:00:00Z",
+        "data" => %{"tasks" => [%{"name" => "build", "status" => "failed"}]}
+      }
+
+      newer = %{
+        "timestamp" => "2024-01-02T00:00:00Z",
+        "data" => %{"tasks" => [%{"name" => "build", "status" => "passed"}]}
+      }
+
+      File.write!(Path.join(json_dir, "z-old-run.json"), Jason.encode!(older))
+      File.write!(Path.join(json_dir, "a-new-run.json"), Jason.encode!(newer))
+
+      occ = make_occurrence("run-now", "ci.run.failed", "failure")
+      graph = %{"build" => %{command: "go build"}}
+      results = {:error, [%TaskResult{name: "build", status: :failed, duration_ms: 5}]}
+
+      enriched = Enrichment.enrich(occ, graph, results, workdir)
+
+      assert enriched.data["recent_outcomes"]["build"] == ["pass", "fail"]
+    end
+
     test "no archive on disk yields no cross-run data", %{workdir: workdir} do
       occ = make_occurrence("run-now", "ci.run.failed", "failure")
       graph = %{"build" => %{command: "go build"}}
