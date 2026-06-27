@@ -75,6 +75,37 @@ defmodule Sykli.Executor.RetryTest do
       level_names = Enum.map(levels, fn l -> Enum.map(l, & &1.name) |> Enum.sort() end)
       assert level_names == [["a"], ["b", "c"], ["d"]]
     end
+
+    test "deep nested diamonds memoize shared subtrees with correct levels" do
+      # Chained diamonds: each merge node n_i fans out to a_i/b_i which both merge
+      # into n_i. Every n_i is a subtree shared by the pair above it — exactly the
+      # shape that made the (previously un-memoized) level calc exponential. The
+      # levels must still be exact: n_i sits at level 2*i, the a/b pair at 2*i-1.
+      tasks =
+        [%Task{name: "n0", command: "echo", depends_on: []}] ++
+          Enum.flat_map(1..8, fn i ->
+            prev = "n#{i - 1}"
+
+            [
+              %Task{name: "a#{i}", command: "echo", depends_on: [prev]},
+              %Task{name: "b#{i}", command: "echo", depends_on: [prev]},
+              %Task{name: "n#{i}", command: "echo", depends_on: ["a#{i}", "b#{i}"]}
+            ]
+          end)
+
+      graph = build_graph(tasks)
+      levels = Executor.group_by_level(tasks, graph)
+
+      level_of = fn name ->
+        Enum.find_index(levels, fn level -> Enum.any?(level, &(&1.name == name)) end)
+      end
+
+      assert length(levels) == 17
+      assert level_of.("n0") == 0
+      assert level_of.("a1") == 1
+      assert level_of.("n1") == 2
+      assert level_of.("n8") == 16
+    end
   end
 
   describe "TaskResult status contract" do
