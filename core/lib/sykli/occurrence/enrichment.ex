@@ -84,7 +84,7 @@ defmodule Sykli.Occurrence.Enrichment do
     error_data = build_error_data(results, workdir)
 
     # Build cross-run analysis (goes into data, not history — spec is strict)
-    cross_run_data = build_cross_run_data(results)
+    cross_run_data = build_cross_run_data(results, workdir)
 
     # Merge all into data
     merged_data =
@@ -402,8 +402,8 @@ defmodule Sykli.Occurrence.Enrichment do
   defp map_step_outcome(:blocked), do: "failure"
   defp map_step_outcome(:skipped), do: "skipped"
 
-  defp build_cross_run_data(results) do
-    case safe_store_list(20) do
+  defp build_cross_run_data(results, workdir) do
+    case previous_occurrences(20, workdir) do
       [] ->
         nil
 
@@ -421,11 +421,74 @@ defmodule Sykli.Occurrence.Enrichment do
     end
   end
 
+  # Prefer the hot ETS Store (running in daemon mode); fall back to the on-disk
+  # JSON archive so cross-run analysis still works in the one-shot CLI path, where
+  # the Store GenServer is not started. Without this, recent_outcomes/regression
+  # were silently dead outside the daemon (#241).
+  defp previous_occurrences(limit, workdir) do
+    case safe_store_list(limit) do
+      [] -> read_recent_occurrences_from_disk(limit, workdir)
+      occurrences -> occurrences
+    end
+  end
+
   defp safe_store_list(limit) do
     Store.list(limit: limit)
   catch
     :exit, _ -> []
     :error, _ -> []
+  end
+
+  defp read_recent_occurrences_from_disk(limit, workdir) do
+    json_dir = Path.join([workdir, ".sykli", "occurrences_json"])
+
+    case File.ls(json_dir) do
+      {:ok, files} ->
+        files
+        |> Enum.filter(&String.ends_with?(&1, ".json"))
+        |> Enum.flat_map(fn file ->
+          path = Path.join(json_dir, file)
+
+          case decode_occurrence_file(path) do
+            {:ok, occ} -> [{occurrence_sort_key(occ, path), occ}]
+            :error -> []
+          end
+        end)
+        |> Enum.sort_by(fn {sort_key, _occ} -> sort_key end, :desc)
+        |> Enum.take(limit)
+        |> Enum.map(fn {_sort_key, occ} -> occ end)
+
+      {:error, _} ->
+        []
+    end
+  end
+
+  defp occurrence_sort_key(%{"timestamp" => timestamp}, path) when is_binary(timestamp) do
+    case DateTime.from_iso8601(timestamp) do
+      {:ok, datetime, _offset} -> DateTime.to_unix(datetime, :microsecond)
+      _ -> file_mtime_sort_key(path)
+    end
+  end
+
+  defp occurrence_sort_key(_occ, path), do: file_mtime_sort_key(path)
+
+  # Returns microseconds since the epoch to stay comparable with the
+  # microsecond keys from occurrence_sort_key/2 — otherwise a POSIX-seconds
+  # mtime (~1e9) would sort as ancient next to a microsecond timestamp (~1e15).
+  defp file_mtime_sort_key(path) do
+    case File.stat(path, time: :posix) do
+      {:ok, %{mtime: mtime}} -> mtime * 1_000_000
+      {:error, _reason} -> 0
+    end
+  end
+
+  defp decode_occurrence_file(path) do
+    with {:ok, contents} <- File.read(path),
+         {:ok, occ} <- Jason.decode(contents) do
+      {:ok, occ}
+    else
+      _ -> :error
+    end
   end
 
   defp build_recent_outcomes(results, previous_occurrences) do
