@@ -822,35 +822,52 @@ defmodule Sykli.CLI do
     affected_set = MapSet.new(affected_names)
     count = length(affected_names)
 
-    IO.puts("#{IO.ANSI.cyan()}Running #{count} affected task(s)#{IO.ANSI.reset()}")
+    IO.puts("#{IO.ANSI.faint()}Running #{count} affected task(s)#{IO.ANSI.reset()}")
 
     Enum.each(affected_names, fn name ->
-      IO.puts("  • #{name}")
+      IO.puts("  #{IO.ANSI.faint()}• #{name}#{IO.ANSI.reset()}")
     end)
 
-    IO.puts("")
-
-    # Use Sykli.run with a filter
     start_time = System.monotonic_time(:millisecond)
 
-    case Sykli.run(path, filter: fn task -> MapSet.member?(affected_set, task.name) end) do
+    # Suppress executor/runtime live output during the run; the canonical
+    # Sykli.CLI.Renderer presents the structured results afterward, the same as
+    # `sykli run` (see #237/#256).
+    original_gl = suppress_stdout()
+
+    result =
+      try do
+        Sykli.run(path, filter: fn task -> MapSet.member?(affected_set, task.name) end)
+      after
+        restore_stdout(original_gl)
+      end
+
+    duration = System.monotonic_time(:millisecond) - start_time
+
+    case result do
       {:ok, results} ->
-        duration = System.monotonic_time(:millisecond) - start_time
-
-        IO.puts(
-          "\n#{IO.ANSI.green()}✓ All affected tasks completed in #{format_duration(duration)}#{IO.ANSI.reset()}"
-        )
-
-        Enum.each(results, fn %Sykli.Executor.TaskResult{name: name} ->
-          IO.puts("  ✓ #{name}")
-        end)
-
+        IO.puts(render_affected(path, results, duration))
         halt(0)
 
-      {:error, _} ->
-        IO.puts("\n#{IO.ANSI.red()}Build failed#{IO.ANSI.reset()}")
+      {:error, results} when is_list(results) ->
+        IO.puts(render_affected(path, results, duration))
+        halt(1)
+
+      {:error, reason} ->
+        display_error(reason)
         halt(1)
     end
+  end
+
+  defp render_affected(path, results, duration) do
+    Renderer.render_run(
+      pipeline_label(path),
+      target_label([]),
+      @version,
+      results,
+      duration,
+      ansi?: Live.ansi?()
+    )
   end
 
   # ----- WATCH SUBCOMMAND -----
