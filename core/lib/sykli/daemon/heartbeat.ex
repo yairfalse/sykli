@@ -167,7 +167,7 @@ defmodule Sykli.Daemon.Heartbeat do
 
   defp handle_success(state, data) do
     if state.failures > 0 or not state.synced_once do
-      outbox_drain(state.opts).()
+      outbox_drain(state).()
     end
 
     refuse_unconsented_assignments(state, data)
@@ -318,8 +318,24 @@ defmodule Sykli.Daemon.Heartbeat do
     schedule_fun.(delay_ms)
   end
 
-  defp outbox_drain(opts),
-    do: Keyword.get(opts, :outbox_drain, fn -> Sykli.TeamCoordinator.OutboxDrain.drain_all() end)
+  defp outbox_drain(%__MODULE__{} = state) do
+    Keyword.get(state.opts, :outbox_drain, fn ->
+      Sykli.TeamCoordinator.OutboxDrain.drain_all(drain_opts(state))
+    end)
+  end
+
+  # Drain with the loop's LIVE session (not a cwd re-read, which could miss a
+  # daemon configured at a non-cwd path or pick up a stale session after rejoin)
+  # and the daemon's workdir. The heartbeat's :path opt is the `.sykli` dir
+  # (SessionStore convention), so the outbox workdir is its parent (#203).
+  defp drain_opts(state) do
+    base = [session: state.session, token: state.token]
+
+    case Keyword.get(state.opts, :path) do
+      nil -> base
+      sykli_dir -> Keyword.put(base, :path, Path.dirname(sykli_dir))
+    end
+  end
 
   defp jitter_fun(opts), do: Keyword.get(opts, :jitter_fun, &:rand.uniform/1)
 
