@@ -911,7 +911,7 @@
       "command": "sykli >/dev/null && sykli >/dev/null && test \"$(wc -l < side_effect.log | tr -d ' ')\" = 1",
       "shell": true,
       "expect_exit": 0,
-      "source": "README.md §Content-addressed caching; CLAUDE.md .sykli/ Directory",
+      "source": "README.md \u00a7Content-addressed caching; CLAUDE.md .sykli/ Directory",
       "validated_by": "Would fail if cache hit still executes the command body.",
       "findings": "Expected-red finding: second run executes command again instead of producing a cache hit."
     },
@@ -922,8 +922,8 @@
       "command": "sykli >/dev/null && sykli",
       "shell": true,
       "expect_exit": 0,
-      "expect_stdout": "○",
-      "source": "CLAUDE.md §CLI output rules — Glyph language; README.md §Content-addressed caching",
+      "expect_stdout": "\u25cb",
+      "source": "CLAUDE.md \u00a7CLI output rules \u2014 Glyph language; README.md \u00a7Content-addressed caching",
       "validated_by": "Would fail if cached tasks use the pass glyph or execute again.",
       "findings": "Expected-red finding: identical second run renders passed glyph, not cache-hit glyph."
     },
@@ -934,7 +934,7 @@
       "command": "sykli >/dev/null && printf \"// changed\\n\" >> main.go && sykli >/dev/null && test \"$(wc -l < input_runs.log | tr -d ' ')\" = 2",
       "shell": true,
       "expect_exit": 0,
-      "source": "README.md §Content-addressed caching",
+      "source": "README.md \u00a7Content-addressed caching",
       "validated_by": "Injected bug: ignore task inputs in cache key; second run would stay cached and line count would be 1."
     },
     {
@@ -944,7 +944,7 @@
       "command": "sykli >/dev/null && sykli >/dev/null && test \"$(wc -l < input_runs.log | tr -d ' ')\" = 1",
       "shell": true,
       "expect_exit": 0,
-      "source": "CLAUDE.md §Project principles — Local-first; README.md §Content-addressed caching",
+      "source": "CLAUDE.md \u00a7Project principles \u2014 Local-first; README.md \u00a7Content-addressed caching",
       "validated_by": "Would fail if cache fingerprint changes between identical runs.",
       "findings": "Expected-red finding: identical run executes again."
     },
@@ -952,7 +952,7 @@
       "id": "CACHE-005",
       "name": "Identical graph in sibling workdirs does not share local cache",
       "fixture": "cache_side_effect",
-      "command": "mkdir a b && cp sykli.exs a/ && cp sykli.exs b/ && (cd a && sykli >/dev/null) && (cd b && sykli >../b.out) && ! grep -q \"○\" b.out",
+      "command": "mkdir a b && cp sykli.exs a/ && cp sykli.exs b/ && (cd a && sykli >/dev/null) && (cd b && sykli >../b.out) && ! grep -q \"\u25cb\" b.out",
       "shell": true,
       "expect_exit": 0,
       "source": "CLAUDE.md Recent changes; cache fingerprint includes repo-relative workdir",
@@ -971,7 +971,7 @@
         "ok",
         "version"
       ],
-      "source": "CLAUDE.md §JSON output; README.md §Content-addressed caching",
+      "source": "CLAUDE.md \u00a7JSON output; README.md \u00a7Content-addressed caching",
       "validated_by": "Injected bug: hand-roll cache stats JSON without shared envelope; key assertion fails.",
       "expect_json_jq": [
         ".ok == true",
@@ -989,7 +989,7 @@
       "command": "sykli >/dev/null && test -f .sykli/occurrence.json && sykli cache clean >/dev/null && test -f .sykli/occurrence.json",
       "shell": true,
       "expect_exit": 0,
-      "source": "CLAUDE.md §.sykli/ Directory; README.md §Observe",
+      "source": "CLAUDE.md \u00a7.sykli/ Directory; README.md \u00a7Observe",
       "validated_by": "Injected bug: cache clean removes all of .sykli; occurrence file assertion fails."
     },
     {
@@ -1010,7 +1010,7 @@
         ".error == null",
         ".data.location | type == \"string\""
       ],
-      "source": "CLAUDE.md §JSON output",
+      "source": "CLAUDE.md \u00a7JSON output",
       "validated_by": "Injected bug: route JSON through TTY renderer; ANSI assertion fails."
     },
     {
@@ -1023,7 +1023,7 @@
       "expect_json_jq": [
         ".data.tasks[0].status == \"cached\""
       ],
-      "source": "CLAUDE.md §TaskResult Status Values; README.md §Content-addressed caching",
+      "source": "CLAUDE.md \u00a7TaskResult Status Values; README.md \u00a7Content-addressed caching",
       "validated_by": "Would fail if cached results collapse into passed.",
       "findings": "Expected-red finding: second run reports status passed."
     },
@@ -1036,7 +1036,7 @@
       "expect_stdout_not_contains": [
         "VISIBLE_STDOUT_SHOULD_BE_HIDDEN"
       ],
-      "source": "CLAUDE.md §CLI output rules — item 4 (banned vocabulary)",
+      "source": "CLAUDE.md \u00a7CLI output rules \u2014 item 4 (banned vocabulary)",
       "validated_by": "Injected bug: always stream task stdout; forbidden-output assertion fails."
     },
     {
@@ -1046,7 +1046,7 @@
       "command": "sykli >/dev/null && printf \"// changed\\n\" >> main.go && sykli >/dev/null && jq -e . .sykli/occurrence.json >/dev/null",
       "shell": true,
       "expect_exit": 0,
-      "source": "CLAUDE.md §.sykli/ Directory",
+      "source": "CLAUDE.md \u00a7.sykli/ Directory",
       "validated_by": "Injected bug: write partial occurrence on cache invalidation; jq assertion fails."
     },
     {
@@ -1056,7 +1056,7 @@
       "command": "sykli >/dev/null && if [ -d .sykli/cache ]; then ! grep -R \"$(pwd)\" .sykli/cache 2>/dev/null; else true; fi",
       "shell": true,
       "expect_exit": 0,
-      "source": "CLAUDE.md §Project principles — Local-first; CHANGELOG 0.5.0 Security OIDC temp files cleanup",
+      "source": "CLAUDE.md \u00a7Project principles \u2014 Local-first; CHANGELOG 0.5.0 Security OIDC temp files cleanup",
       "validated_by": "Injected bug: persist absolute workspace path in cache metadata; grep assertion fails."
     },
     {
@@ -1069,7 +1069,7 @@
         ".data.tasks[0].status == \"failed\"",
         ".data.tasks[0].status != \"errored\""
       ],
-      "source": "CLAUDE.md §TaskResult Status Values",
+      "source": "CLAUDE.md \u00a7TaskResult Status Values",
       "validated_by": "Injected bug: map non-zero exits to errored; jq assertion fails."
     },
     {
@@ -1082,7 +1082,7 @@
         ".data.tasks[0].status == \"errored\"",
         ".data.tasks[0].status != \"failed\""
       ],
-      "source": "CLAUDE.md §TaskResult Status Values; CHANGELOG 0.5.0 OIDC/secret validation",
+      "source": "CLAUDE.md \u00a7TaskResult Status Values; CHANGELOG 0.5.0 OIDC/secret validation",
       "validated_by": "Injected bug: treat secret resolution as command failure; jq assertion fails."
     },
     {
@@ -1092,7 +1092,7 @@
       "command": "sykli >/dev/null 2>&1 || true; test ! -f blocked_side_effect.log",
       "shell": true,
       "expect_exit": 0,
-      "source": "CLAUDE.md §TaskResult Status Values",
+      "source": "CLAUDE.md \u00a7TaskResult Status Values",
       "validated_by": "Injected bug: schedule blocked downstream anyway; side-effect file assertion fails."
     },
     {
@@ -1104,7 +1104,7 @@
       "expect_json_jq": [
         ".data.tasks[] | select(.name == \"downstream\") | .status == \"blocked\""
       ],
-      "source": "CLAUDE.md §TaskResult Status Values",
+      "source": "CLAUDE.md \u00a7TaskResult Status Values",
       "validated_by": "Injected bug: report dependency-blocked task as skipped; jq assertion fails."
     },
     {
@@ -1118,7 +1118,7 @@
         ".data.errors | length > 0",
         ".error == null"
       ],
-      "source": "CLAUDE.md §JSON output failure-with-data",
+      "source": "CLAUDE.md \u00a7JSON output failure-with-data",
       "validated_by": "Injected bug: return structured Error for domain validation; .error null assertion fails."
     },
     {
@@ -1130,7 +1130,7 @@
       "expect_json_jq": [
         "(.data.errors | tostring) | contains(\"self\")"
       ],
-      "source": "README.md §Pipelines are real code; CLAUDE.md §Graph validation",
+      "source": "README.md \u00a7Pipelines are real code; CLAUDE.md \u00a7Graph validation",
       "validated_by": "Injected bug: generic validation message; offending task assertion fails."
     },
     {
@@ -1142,7 +1142,7 @@
       "expect_json_jq": [
         ".data.tasks[0].status == \"errored\""
       ],
-      "source": "CLAUDE.md §TaskResult Status Values",
+      "source": "CLAUDE.md \u00a7TaskResult Status Values",
       "validated_by": "Injected bug: map timeouts to command failures; jq assertion catches it.",
       "findings": "Regression coverage for timeout status."
     },
@@ -1156,7 +1156,7 @@
         ".data.tasks[] | select(.name == \"deploy\") | .status == \"skipped\"",
         ".data.tasks[] | select(.name == \"deploy\") | .cached == false"
       ],
-      "source": "CLAUDE.md §TaskResult Status Values",
+      "source": "CLAUDE.md \u00a7TaskResult Status Values",
       "validated_by": "Injected bug: skipped tasks pass through cache layer; jq assertion fails."
     },
     {
@@ -1171,7 +1171,7 @@
         "ok",
         "version"
       ],
-      "source": "CLAUDE.md §JSON output",
+      "source": "CLAUDE.md \u00a7JSON output",
       "validated_by": "Injected bug: omit error key on success; exact-key assertion fails."
     },
     {
@@ -1186,7 +1186,7 @@
         "ok",
         "version"
       ],
-      "source": "CLAUDE.md §JSON output",
+      "source": "CLAUDE.md \u00a7JSON output",
       "validated_by": "Injected bug: add ad-hoc top-level status; exact-key assertion fails."
     },
     {
@@ -1199,7 +1199,7 @@
         ".version == \"1\"",
         "(.version | type) == \"string\""
       ],
-      "source": "CLAUDE.md §JSON output",
+      "source": "CLAUDE.md \u00a7JSON output",
       "validated_by": "Injected bug: serialize version as number; type assertion fails."
     },
     {
@@ -1209,7 +1209,7 @@
       "command": "sykli validate --json | tee json.out >/dev/null; test \"$(grep -c \"^{\" json.out)\" = 1 && tail -c 1 json.out | od -An -t u1 | grep -q 10",
       "shell": true,
       "expect_exit": 0,
-      "source": "CLAUDE.md §JSON output",
+      "source": "CLAUDE.md \u00a7JSON output",
       "validated_by": "Injected bug: print banner before JSON; object-count assertion fails."
     },
     {
@@ -1219,7 +1219,7 @@
       "command": "sykli --json",
       "expect_exit": 0,
       "expect_no_ansi": true,
-      "source": "CLAUDE.md §JSON output; CLAUDE.md §CLI output rules",
+      "source": "CLAUDE.md \u00a7JSON output; CLAUDE.md \u00a7CLI output rules",
       "validated_by": "Injected bug: pass JSON through visual renderer; ANSI assertion fails."
     },
     {
@@ -1231,7 +1231,7 @@
       "expect_json_jq": [
         ".error.code | test(\"^[a-z0-9_]+(\\\\.[a-z0-9_]+)*$\")"
       ],
-      "source": "CLAUDE.md §Structured errors; JSON output",
+      "source": "CLAUDE.md \u00a7Structured errors; JSON output",
       "validated_by": "Injected bug: use prose error code; regex assertion fails."
     },
     {
@@ -1245,7 +1245,7 @@
         ".data != null",
         ".error == null"
       ],
-      "source": "CLAUDE.md §JSON output failure-with-data",
+      "source": "CLAUDE.md \u00a7JSON output failure-with-data",
       "validated_by": "Injected bug: return infrastructure error for duplicate names; assertion fails."
     },
     {
@@ -1262,8 +1262,23 @@
         "version"
       ],
       "expect_no_ansi": true,
-      "source": "CLAUDE.md §JSON output",
+      "source": "CLAUDE.md \u00a7JSON output",
       "validated_by": "Injected bug: history prints table in JSON mode; key/no-ANSI assertions fail."
+    },
+    {
+      "id": "JSON-009",
+      "name": "run --json includes contract_slice for tasks with declared semantics",
+      "fixture": "contract_slice_task",
+      "command": "sykli run --json",
+      "shell": true,
+      "expect_exit": 0,
+      "expect_json_jq": [
+        ".ok == true",
+        ".data.tasks[0].contract_slice.task_type == \"test\"",
+        ".data.tasks[0].contract_slice.success_criteria | type == \"array\""
+      ],
+      "source": "CLAUDE.md \u00a7JSON output; docs/done.md dual-surface; issue #239",
+      "validated_by": "Injected bug: drop contract_slice from cli run --json; jq assertion fails."
     },
     {
       "id": "DET-001",
@@ -1272,7 +1287,7 @@
       "command": "sykli validate --json > a.json && sykli validate --json > b.json && cmp -s a.json b.json",
       "shell": true,
       "expect_exit": 0,
-      "source": "CLAUDE.md §Patterns & Conventions — NoWallClock",
+      "source": "CLAUDE.md \u00a7Patterns & Conventions \u2014 NoWallClock",
       "validated_by": "Injected bug: include wall-clock in validate payload; cmp assertion fails."
     },
     {
@@ -1282,7 +1297,7 @@
       "command": "sykli graph --dot > a.dot && sykli graph --dot > b.dot && cmp -s a.dot b.dot",
       "shell": true,
       "expect_exit": 0,
-      "source": "CLAUDE.md §Patterns & Conventions — NoWallClock",
+      "source": "CLAUDE.md \u00a7Patterns & Conventions \u2014 NoWallClock",
       "validated_by": "Injected bug: include generated timestamp in graph output; cmp assertion fails."
     },
     {
@@ -1292,7 +1307,7 @@
       "command": "mkdir -p r1 r2 && cp sykli.exs r1/ && cp sykli.exs r2/ && (cd r1 && sykli >/dev/null) && (cd r2 && sykli >/dev/null) && jq 'del(.id,.timestamp,.context.labels[\"sykli.run_id\"],.data.tasks[].duration_ms,.data.duration_ms,.history.duration_ms,.history.steps[].duration_ms,.history.steps[].timestamp) | .data.tasks |= map(if .log? then .log |= sub(\"logs/[^/]+/\";\"logs/RUN_ID/\") else . end)' r1/.sykli/occurrence.json > a.json && jq 'del(.id,.timestamp,.context.labels[\"sykli.run_id\"],.data.tasks[].duration_ms,.data.duration_ms,.history.duration_ms,.history.steps[].duration_ms,.history.steps[].timestamp) | .data.tasks |= map(if .log? then .log |= sub(\"logs/[^/]+/\";\"logs/RUN_ID/\") else . end)' r2/.sykli/occurrence.json > b.json && cmp -s a.json b.json",
       "shell": true,
       "expect_exit": 0,
-      "source": "CLAUDE.md §FALSE Protocol Occurrences; CLAUDE.md §Patterns & Conventions — NoWallClock",
+      "source": "CLAUDE.md \u00a7FALSE Protocol Occurrences; CLAUDE.md \u00a7Patterns & Conventions \u2014 NoWallClock",
       "validated_by": "Injected bug: persist a random field in occurrence data; the fresh-workspace cmp catches it.",
       "findings": "Determinism holds for identical input from clean state. Each run uses a fresh workspace (distinct cache key, so neither is a cache hit); only the variable run-id segment of the log path is normalized, keeping the rest of the log evidence path under comparison."
     },
@@ -1303,7 +1318,7 @@
       "command": "if sykli validate --json | grep -Eq \"20[0-9]{2}-[0-9]{2}-[0-9]{2}T\"; then exit 1; else exit 0; fi",
       "shell": true,
       "expect_exit": 0,
-      "source": "CLAUDE.md §No wall-clock or global RNG",
+      "source": "CLAUDE.md \u00a7No wall-clock or global RNG",
       "validated_by": "Injected bug: include DateTime.utc_now in validate payload; grep assertion fails."
     },
     {
@@ -1313,7 +1328,7 @@
       "command": "if sykli graph | grep -Eq \"20[0-9]{2}-[0-9]{2}-[0-9]{2}T\"; then exit 1; else exit 0; fi",
       "shell": true,
       "expect_exit": 0,
-      "source": "CLAUDE.md §No wall-clock or global RNG; CLAUDE.md §Patterns & Conventions — NoWallClock",
+      "source": "CLAUDE.md \u00a7No wall-clock or global RNG; CLAUDE.md \u00a7Patterns & Conventions \u2014 NoWallClock",
       "validated_by": "Injected bug: stamp graph generation time; grep assertion fails."
     },
     {
@@ -1324,7 +1339,7 @@
       "shell": true,
       "expect_exit": 0,
       "requires": "mix",
-      "source": "CLAUDE.md §No wall-clock or global RNG",
+      "source": "CLAUDE.md \u00a7No wall-clock or global RNG",
       "validated_by": "Injected bug: remove NoWallClock check; credo would pass and status assertion fails.",
       "findings": "NoWallClock now covers pure contract & output-shaping transforms (graph/, validate, vocab, contract hashing, occurrence serialization); a planted violation under lib/sykli/graph/ is rejected."
     },
@@ -1342,7 +1357,7 @@
         "python3",
         "mix"
       ],
-      "source": "CLAUDE.md §SDKs; sdk/*/README.md public surface parity",
+      "source": "CLAUDE.md \u00a7SDKs; sdk/*/README.md public surface parity",
       "validated_by": "Injected bug: change one SDK basic JSON key; conformance runner fails."
     },
     {
@@ -1393,7 +1408,7 @@
         "python3",
         "mix"
       ],
-      "source": "README.md §Content-addressed caching; SDK READMEs",
+      "source": "README.md \u00a7Content-addressed caching; SDK READMEs",
       "validated_by": "Injected bug: serialize inputs under covers; conformance runner fails."
     },
     {
@@ -1410,7 +1425,7 @@
         "python3",
         "mix"
       ],
-      "source": "SDK READMEs; CLAUDE.md §SDKs",
+      "source": "SDK READMEs; CLAUDE.md \u00a7SDKs",
       "validated_by": "Injected bug: one SDK keeps duplicate deps; conformance runner fails."
     },
     {
@@ -1438,7 +1453,7 @@
       "shell": true,
       "expect_exit": 0,
       "requires": "go",
-      "source": "sdk/go/README.md; CLAUDE.md §Graph validation",
+      "source": "sdk/go/README.md; CLAUDE.md \u00a7Graph validation",
       "validated_by": "Injected bug: Go SDK emits cyclic graph; conformance error case fails."
     },
     {
@@ -1460,7 +1475,7 @@
       "shell": true,
       "expect_exit": 0,
       "requires": "cargo",
-      "source": "sdk/rust/README.md; CLAUDE.md §SDKs",
+      "source": "sdk/rust/README.md; CLAUDE.md \u00a7SDKs",
       "validated_by": "Injected bug: Rust SDK emits no-command task; conformance error case fails."
     },
     {
@@ -1471,7 +1486,7 @@
       "shell": true,
       "expect_exit": 0,
       "requires": "node",
-      "source": "sdk/typescript/README.md; CLAUDE.md §SDKs",
+      "source": "sdk/typescript/README.md; CLAUDE.md \u00a7SDKs",
       "validated_by": "Injected bug: TS SDK emits unknown dependency; conformance error case fails."
     },
     {
@@ -1481,7 +1496,7 @@
       "command": "sykli",
       "expect_exit": 1,
       "expect_stdout": "Run  sykli fix  for AI-readable analysis.",
-      "source": "CLAUDE.md §CLI output rules — item 6 (TTY detection)",
+      "source": "CLAUDE.md \u00a7CLI output rules \u2014 item 6 (TTY detection)",
       "validated_by": "Injected bug: remove fix hint from failure renderer; string assertion fails."
     },
     {
@@ -1497,7 +1512,7 @@
         "Target: local (docker:",
         "All tasks completed"
       ],
-      "source": "CLAUDE.md §CLI output rules — item 2 (one accent color)",
+      "source": "CLAUDE.md \u00a7CLI output rules \u2014 item 2 (one accent color)",
       "validated_by": "Injected bug: restore old level/debug output; forbidden-pattern assertion fails."
     },
     {
@@ -1506,8 +1521,8 @@
       "fixture": "single_task",
       "command": "sykli",
       "expect_exit": 0,
-      "expect_stdout": "●",
-      "source": "CLAUDE.md §CLI output rules — Glyph language",
+      "expect_stdout": "\u25cf",
+      "source": "CLAUDE.md \u00a7CLI output rules \u2014 Glyph language",
       "validated_by": "Injected bug: replace pass glyph with checkmark; assertion fails."
     },
     {
@@ -1516,8 +1531,8 @@
       "fixture": "failing_task",
       "command": "sykli",
       "expect_exit": 1,
-      "expect_stdout": "✕",
-      "source": "CLAUDE.md §CLI output rules — Glyph language",
+      "expect_stdout": "\u2715",
+      "source": "CLAUDE.md \u00a7CLI output rules \u2014 Glyph language",
       "validated_by": "Injected bug: replace fail glyph with x; assertion fails."
     },
     {
@@ -1526,8 +1541,8 @@
       "fixture": "fail_blocks_downstream",
       "command": "sykli",
       "expect_exit": 1,
-      "expect_stdout": "─",
-      "source": "CLAUDE.md §CLI output rules — Glyph language",
+      "expect_stdout": "\u2500",
+      "source": "CLAUDE.md \u00a7CLI output rules \u2014 Glyph language",
       "validated_by": "Injected bug: render blocked as skipped text without glyph; assertion fails."
     },
     {
@@ -1537,17 +1552,17 @@
       "command": "sykli",
       "expect_exit": 0,
       "expect_no_ansi": true,
-      "source": "CLAUDE.md §CLI output rules — item 5 (failure mode); non-TTY fallback",
+      "source": "CLAUDE.md \u00a7CLI output rules \u2014 item 5 (failure mode); non-TTY fallback",
       "validated_by": "Injected bug: emit ANSI unconditionally; no-ANSI assertion fails."
     },
     {
       "id": "UI-007",
       "name": "Passing five-task run has single summary line",
       "fixture": "five_tasks",
-      "command": "sykli > out.txt && test \"$(grep -cE \"^  ─  5 passed\" out.txt)\" = 1",
+      "command": "sykli > out.txt && test \"$(grep -cE \"^  \u2500  5 passed\" out.txt)\" = 1",
       "shell": true,
       "expect_exit": 0,
-      "source": "CLAUDE.md §CLI output rules — item 1 (glyph language)",
+      "source": "CLAUDE.md \u00a7CLI output rules \u2014 item 1 (glyph language)",
       "validated_by": "Injected bug: print both old and new summaries; count assertion fails."
     },
     {
@@ -1559,7 +1574,7 @@
       "expect_stdout_not_contains": [
         "VISIBLE_STDOUT_SHOULD_BE_HIDDEN"
       ],
-      "source": "CLAUDE.md §CLI output rules — item 4 (banned vocabulary)",
+      "source": "CLAUDE.md \u00a7CLI output rules \u2014 item 4 (banned vocabulary)",
       "validated_by": "Injected bug: stream stdout by default; forbidden-pattern assertion fails."
     },
     {
@@ -1572,7 +1587,7 @@
         ".ok == true",
         ".data.valid == true"
       ],
-      "source": "CLAUDE.md §Definition of done; one-line invocation consistency",
+      "source": "CLAUDE.md \u00a7Definition of done; one-line invocation consistency",
       "validated_by": "Injected bug: validate only scans directories; explicit file path returns sdk_not_found."
     },
     {
@@ -1582,7 +1597,7 @@
       "command": "sykli --json validate > global.json && sykli validate --json > subcommand.json && cmp -s global.json subcommand.json",
       "shell": true,
       "expect_exit": 0,
-      "source": "CLAUDE.md §Definition of done; agent surface supports --json in any flag position",
+      "source": "CLAUDE.md \u00a7Definition of done; agent surface supports --json in any flag position",
       "validated_by": "Injected bug: leading --json is parsed as a run flag and validate becomes a path."
     },
     {
@@ -1808,7 +1823,7 @@
         ".data.gate.decided_by == \"member:reviewer\"",
         ".data.gate.reason == \"Reviewed\""
       ],
-      "source": "docs/daemon-join-protocol.md heartbeat decisions; Monster Phase D — the gate round-trip must be functional at runtime, not just at the endpoint level",
+      "source": "docs/daemon-join-protocol.md heartbeat decisions; Monster Phase D \u2014 the gate round-trip must be functional at runtime, not just at the endpoint level",
       "validated_by": "Injected bug: heartbeat loop never runs, decisions are not applied to the local gate store, or acks never clear the coordinator queue."
     },
     {
@@ -1904,7 +1919,7 @@
       "command": "SYKLI_GITHUB_RECEIVER_ENABLED=true SYKLI_LABELS= sykli --help >/dev/null",
       "shell": true,
       "expect_exit": 0,
-      "source": "CLAUDE.md §OTP Supervision Tree — webhook receiver role",
+      "source": "CLAUDE.md \u00a7OTP Supervision Tree \u2014 webhook receiver role",
       "validated_by": "Injected bug: always start Bandit listener; --help would fail or bind unexpectedly."
     },
     {
@@ -1917,7 +1932,7 @@
       "expect_json_jq": [
         ".ok == true"
       ],
-      "source": "CLAUDE.md §Environment Variables — GITHUB_TOKEN legacy fallback",
+      "source": "CLAUDE.md \u00a7Environment Variables \u2014 GITHUB_TOKEN legacy fallback",
       "validated_by": "Injected bug: require GitHub App env for all GitHub-aware commands; validate would fail."
     },
     {
@@ -1930,7 +1945,7 @@
       "expect_json_jq": [
         ".ok == true"
       ],
-      "source": "CLAUDE.md §Project principles — Local-first",
+      "source": "CLAUDE.md \u00a7Project principles \u2014 Local-first",
       "validated_by": "Injected bug: make App credentials mandatory at boot; local run fails."
     },
     {
@@ -1943,7 +1958,7 @@
         ".data.tasks[0].status == \"failed\"",
         ".data.tasks[0].success_criteria_results[0].message == \"path escapes task workdir\""
       ],
-      "source": "docs/runtime-trust-model.md; CLAUDE.md §Runtime isolation and path containment; CHANGELOG 0.2.0 path traversal fix",
+      "source": "docs/runtime-trust-model.md; CLAUDE.md \u00a7Runtime isolation and path containment; CHANGELOG 0.2.0 path traversal fix",
       "validated_by": "Injected bug: skip path containment on criterion paths; the traversing ../etc/passwd path would resolve outside the workdir instead of being rejected. Asserts Sykli's own path containment (per the trust model: the Shell runtime is not a command sandbox, but the engine contains its own file ops)."
     }
   ]

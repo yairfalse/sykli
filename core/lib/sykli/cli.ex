@@ -273,7 +273,9 @@ defmodule Sykli.CLI do
 
     case prepare_work_run_context(path, opts) do
       {:ok, work_meta, work_run_opts} ->
-        run_opts = work_run_opts ++ run_opts
+        # return_graph: true lets the --json surface project each task's
+        # contract_slice from its graph task, matching occurrence/MCP/report (#239).
+        run_opts = [{:return_graph, true} | work_run_opts ++ run_opts]
         result = Sykli.run(path, run_opts)
         duration = System.monotonic_time(:millisecond) - start_time
 
@@ -297,9 +299,11 @@ defmodule Sykli.CLI do
 
   defp output_run_result(result, duration, path, opts, json_output, work_meta) do
     case result do
-      {:ok, results} ->
+      {:ok, results, graph} ->
         if json_output do
-          IO.puts(JsonResponse.ok(run_json_data("passed", results, duration, path, work_meta)))
+          IO.puts(
+            JsonResponse.ok(run_json_data("passed", results, duration, path, work_meta, graph))
+          )
         else
           IO.puts(
             Renderer.render_run(
@@ -315,9 +319,11 @@ defmodule Sykli.CLI do
 
         halt(0)
 
-      {:error, results} when is_list(results) ->
+      {:error, results, graph} when is_list(results) ->
         if json_output do
-          IO.puts(JsonResponse.ok(run_json_data("failed", results, duration, path, work_meta)))
+          IO.puts(
+            JsonResponse.ok(run_json_data("failed", results, duration, path, work_meta, graph))
+          )
         else
           IO.puts(
             Renderer.render_run(
@@ -362,11 +368,11 @@ defmodule Sykli.CLI do
     end
   end
 
-  defp run_json_data(status, results, duration_ms, path, work_meta) do
+  defp run_json_data(status, results, duration_ms, path, work_meta, graph) do
     %{
       status: status,
       duration_ms: duration_ms,
-      tasks: Enum.map(results, &task_result_to_map/1),
+      tasks: Enum.map(results, &task_result_to_map(&1, graph)),
       occurrence_path: Path.join([path, ".sykli", "occurrence.json"])
     }
     |> Map.merge(latest_run_json_meta(path, work_meta))
@@ -402,7 +408,7 @@ defmodule Sykli.CLI do
     end
   end
 
-  defp task_result_to_map(%Sykli.Executor.TaskResult{} = r) do
+  defp task_result_to_map(%Sykli.Executor.TaskResult{} = r, graph) do
     base =
       %{
         name: r.name,
@@ -415,6 +421,7 @@ defmodule Sykli.CLI do
       |> maybe_add_review_result(r.review_result)
       |> maybe_add_failure_semantics(r.failure_semantics)
       |> maybe_add_agent_hints(r.failure_semantics)
+      |> maybe_add_contract_slice(Map.get(graph, r.name))
 
     case r.error do
       %Sykli.Error{} = err ->
@@ -425,6 +432,18 @@ defmodule Sykli.CLI do
 
       other ->
         Map.put(base, :error, %{code: "unknown", message: inspect(other), hints: []})
+    end
+  end
+
+  # Projects the task's declared contract from the graph task, matching the
+  # occurrence/MCP/report surfaces. Omitted when there's no governing task or the
+  # slice is empty (#239 — run --json previously had no graph task in scope).
+  defp maybe_add_contract_slice(base, nil), do: base
+
+  defp maybe_add_contract_slice(base, task) do
+    case Sykli.ContractSlice.from_task(task) do
+      nil -> base
+      slice -> Map.put(base, :contract_slice, slice)
     end
   end
 
