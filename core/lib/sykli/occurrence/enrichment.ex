@@ -472,9 +472,12 @@ defmodule Sykli.Occurrence.Enrichment do
 
   defp occurrence_sort_key(_occ, path), do: file_mtime_sort_key(path)
 
+  # Returns microseconds since the epoch to stay comparable with the
+  # microsecond keys from occurrence_sort_key/2 — otherwise a POSIX-seconds
+  # mtime (~1e9) would sort as ancient next to a microsecond timestamp (~1e15).
   defp file_mtime_sort_key(path) do
     case File.stat(path, time: :posix) do
-      {:ok, %{mtime: mtime}} -> mtime
+      {:ok, %{mtime: mtime}} -> mtime * 1_000_000
       {:error, _reason} -> 0
     end
   end
