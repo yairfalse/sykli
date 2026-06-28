@@ -260,11 +260,16 @@ defmodule Sykli.Executor do
     # Start with all tasks at level 0
     task_names = Enum.map(tasks, & &1.name)
 
-    # Calculate level for each task
-    levels =
-      task_names
-      |> Enum.map(fn name -> {name, calc_level(name, graph, %{})} end)
-      |> Map.new()
+    # Calculate level for each task, threading a shared memo through every
+    # computation. The cache is carried forward so a dependency subtree shared by
+    # multiple tasks is computed once — previously the cache was passed but never
+    # populated, so each node re-descended its full subtree (O(exp) on deep
+    # diamond DAGs).
+    {levels, _cache} =
+      Enum.reduce(task_names, {%{}, %{}}, fn name, {levels, cache} ->
+        {level, cache} = calc_level(name, graph, cache)
+        {Map.put(levels, name, level), cache}
+      end)
 
     # Group by level, return list of lists
     tasks
@@ -273,24 +278,36 @@ defmodule Sykli.Executor do
     |> Enum.map(fn {_level, level_tasks} -> level_tasks end)
   end
 
-  # Recursive level calculation:
-  # level = max(level of all dependencies) + 1
-  # base case: no deps = level 0
+  # Recursive level calculation with memoization:
+  # level = max(level of all dependencies) + 1; base case: no deps = level 0.
+  # Returns `{level, updated_cache}` so each node's level is computed once and
+  # reused. (The graph is a validated DAG by the time this runs — cycles are
+  # rejected upstream — so the recursion terminates.)
   defp calc_level(name, graph, cache) do
-    if Map.has_key?(cache, name) do
-      cache[name]
-    else
-      task = Map.get(graph, name)
-      deps = if task, do: task.depends_on, else: []
+    case Map.fetch(cache, name) do
+      {:ok, level} ->
+        {level, cache}
 
-      if deps == [] do
-        0
-      else
-        deps
-        |> Enum.map(&calc_level(&1, graph, cache))
-        |> Enum.max()
-        |> Kernel.+(1)
-      end
+      :error ->
+        task = Map.get(graph, name)
+        deps = if task, do: task.depends_on || [], else: []
+
+        {level, cache} =
+          case deps do
+            [] ->
+              {0, cache}
+
+            deps ->
+              {max_dep, cache} =
+                Enum.reduce(deps, {-1, cache}, fn dep, {acc_max, cache} ->
+                  {dep_level, cache} = calc_level(dep, graph, cache)
+                  {max(acc_max, dep_level), cache}
+                end)
+
+              {max_dep + 1, cache}
+          end
+
+        {level, Map.put(cache, name, level)}
     end
   end
 
