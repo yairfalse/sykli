@@ -536,7 +536,10 @@ defmodule Sykli do
         prequeued? =
           Sykli.Outbox.enqueue("runs", payload, path: path, secrets: secret_values) == :ok
 
-        Task.Supervisor.async_nolink(Sykli.TaskSupervisor, fn ->
+        # Fire-and-forget: start_child (not async_nolink) so no reply/`:DOWN`
+        # message accumulates in long-lived callers like the MCP server. The
+        # run summary is best-effort and deferred to the outbox on failure.
+        Task.Supervisor.start_child(Sykli.TaskSupervisor, fn ->
           publish_or_enqueue_run_summary(
             session,
             summary,
