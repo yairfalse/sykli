@@ -56,21 +56,12 @@ defmodule Sykli.ProgressTest do
     end
   end
 
-  describe "timestamps" do
-    test "shows start time for non-cached tasks" do
-      # Use a unique command that won't be cached
-      tasks = [make_task("test", "echo #{System.unique_integer()}")]
-      graph = Map.new(tasks, fn t -> {t.name, t} end)
-
-      output =
-        capture_io(fn ->
-          Sykli.Executor.run(tasks, graph, workdir: "/tmp")
-        end)
-
-      # Should show timestamp like HH:MM:SS for non-cached tasks
-      assert output =~ ~r/\d{2}:\d{2}:\d{2}/
-    end
-  end
+  # NOTE: the "timestamps" describe block was removed in #237. Per-task wall-clock
+  # timestamps were emitted by Sykli.Target.Local's running line, which is presentation
+  # the execution layer must not produce — Sykli.CLI.Renderer reports durations, not
+  # per-task timestamps. The remaining tests here still exercise the legacy
+  # Sykli.Executor.Output live-print path, which is slated for retirement (see the
+  # #237 follow-up + #154); they should be revisited when that path is unified.
 
   describe "pending queue" do
     test "shows upcoming tasks" do

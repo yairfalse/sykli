@@ -1150,8 +1150,12 @@ defmodule Sykli.Executor do
         end
 
       {:error, reason} ->
+        # `reason` is already a structured tuple from the target
+        # ({:service_start_failed, service, why} | {:network_create_failed, why}
+        # | {:runtime_no_services, runtime}). Pass it through — re-wrapping here
+        # double-wrapped the service-start case and mislabeled the others.
         Output.service_start_failed(name, reason)
-        TaskRunResult.error({:service_start_failed, reason})
+        TaskRunResult.error(reason)
     end
   end
 

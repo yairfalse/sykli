@@ -124,12 +124,8 @@ defmodule Sykli.Target.Local do
     runtime = Sykli.Runtime.Resolver.resolve(opts)
     containerless_runtime = Sykli.Runtime.Resolver.resolve_containerless(opts)
 
-    with {:ok, info} <- runtime.available?(),
+    with {:ok, _info} <- runtime.available?(),
          {:ok, _containerless_info} <- containerless_runtime.available?() do
-      IO.puts(
-        "#{IO.ANSI.faint()}Target: local (#{runtime.name()}: #{format_runtime_info(info)})#{IO.ANSI.reset()}"
-      )
-
       timeout_ms = Keyword.get(opts, :timeout)
 
       {:ok,
@@ -227,15 +223,18 @@ defmodule Sykli.Target.Local do
 
       case runtime.create_network(network_name) do
         {:ok, _} ->
-          IO.puts("  #{IO.ANSI.faint()}Created network #{network_name}#{IO.ANSI.reset()}")
+          case start_service_containers(runtime, network_name, services) do
+            {:ok, container_ids} ->
+              # Give services a moment to start
+              if length(services) > 0, do: Process.sleep(1000)
 
-          # Start each service
-          container_ids = start_service_containers(runtime, network_name, services)
+              {:ok, {network_name, container_ids, runtime}}
 
-          # Give services a moment to start
-          if length(services) > 0, do: Process.sleep(1000)
-
-          {:ok, {network_name, container_ids, runtime}}
+            {:error, reason, started_container_ids} ->
+              Enum.each(started_container_ids, &runtime.stop_service/1)
+              runtime.remove_network(network_name)
+              {:error, reason}
+          end
 
         {:error, reason} ->
           {:error, {:network_create_failed, reason}}
@@ -255,7 +254,6 @@ defmodule Sykli.Target.Local do
     # Remove network
     if network_name do
       runtime.remove_network(network_name)
-      IO.puts("  #{IO.ANSI.faint()}Removed network #{network_name}#{IO.ANSI.reset()}")
     end
 
     :ok
@@ -269,7 +267,6 @@ defmodule Sykli.Target.Local do
   def run_task(task, state, opts) do
     base_workdir = Keyword.get(opts, :workdir, state.workdir)
     network = Keyword.get(opts, :network)
-    progress = Keyword.get(opts, :progress)
     # Per-task timeout: task.timeout (seconds) > global --timeout > 5 min default
     timeout_ms =
       cond do
@@ -287,18 +284,10 @@ defmodule Sykli.Target.Local do
         base_workdir
       end
 
-    prefix = progress_prefix(progress)
-
-    # Get timestamp
-    {_, {h, m, s}} = :calendar.local_time()
-    timestamp = :io_lib.format("~2..0B:~2..0B:~2..0B", [h, m, s]) |> to_string()
-
-    # Determine runtime and build execution params
+    # Presentation (live progress, success/failure lines) is the renderer's job,
+    # not the target's. Target.Local executes and returns structured results only;
+    # Sykli.CLI.Renderer renders them. See #237.
     {runtime, image, mounts, display_cmd} = build_execution_params(task, workdir, state)
-
-    IO.puts(
-      "#{prefix}#{IO.ANSI.cyan()}▶ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{timestamp} #{display_cmd}#{IO.ANSI.reset()}"
-    )
 
     start_time = System.monotonic_time(:millisecond)
 
@@ -311,14 +300,7 @@ defmodule Sykli.Target.Local do
     ]
 
     case runtime.run(task.command, image, mounts, run_opts) do
-      {:ok, 0, lines, output} ->
-        duration_ms = System.monotonic_time(:millisecond) - start_time
-        lines_str = if lines > 0, do: " #{lines}L", else: ""
-
-        IO.puts(
-          "#{IO.ANSI.green()}✓ #{task.name}#{IO.ANSI.reset()} #{IO.ANSI.faint()}#{format_duration(duration_ms)}#{lines_str}#{IO.ANSI.reset()}"
-        )
-
+      {:ok, 0, _lines, output} ->
         {:ok, output || ""}
 
       {:ok, code, _lines, output} ->
@@ -333,20 +315,16 @@ defmodule Sykli.Target.Local do
             duration_ms: duration_ms
           )
 
-        IO.puts(Sykli.Error.Formatter.format_simple(error))
         {:error, error}
 
       {:error, :timeout} ->
-        error = Sykli.Error.task_timeout(task.name, display_cmd, timeout_ms)
-        IO.puts(Sykli.Error.Formatter.format_simple(error))
-        {:error, error}
+        {:error, Sykli.Error.task_timeout(task.name, display_cmd, timeout_ms)}
 
       {:error, reason} ->
         error =
           Sykli.Error.internal("task execution failed: #{inspect(reason)}")
           |> Sykli.Error.with_task(task.name)
 
-        IO.puts(Sykli.Error.Formatter.format_simple(error))
         {:error, error}
     end
   end
@@ -796,23 +774,24 @@ defmodule Sykli.Target.Local do
   # ─────────────────────────────────────────────────────────────────────────────
 
   defp start_service_containers(runtime, network_name, services) do
-    Enum.map(services, fn %Sykli.Graph.Service{image: image, name: name} ->
-      container_name = "#{network_name}-#{name}"
+    result =
+      Enum.reduce_while(services, [], fn %Sykli.Graph.Service{image: image, name: name},
+                                         started_ids ->
+        container_name = "#{network_name}-#{name}"
 
-      case runtime.start_service(container_name, image, network_name, []) do
-        {:ok, container_id} ->
-          IO.puts("  #{IO.ANSI.faint()}Started service #{name} (#{image})#{IO.ANSI.reset()}")
-          container_id
+        case runtime.start_service(container_name, image, network_name, []) do
+          {:ok, container_id} ->
+            {:cont, [container_id | started_ids]}
 
-        {:error, reason} ->
-          IO.puts(
-            "  #{IO.ANSI.red()}Failed to start service #{name}: #{inspect(reason)}#{IO.ANSI.reset()}"
-          )
+          {:error, reason} ->
+            {:halt, {:error, {:service_start_failed, name, reason}, Enum.reverse(started_ids)}}
+        end
+      end)
 
-          nil
-      end
-    end)
-    |> Enum.reject(&is_nil/1)
+    case result do
+      {:error, _reason, _started_ids} = error -> error
+      started_ids -> {:ok, Enum.reverse(started_ids)}
+    end
   end
 
   # ─────────────────────────────────────────────────────────────────────────────
@@ -854,17 +833,4 @@ defmodule Sykli.Target.Local do
   defp path_within?(path, base) do
     path == base or String.starts_with?(path, base <> "/")
   end
-
-  defp progress_prefix(nil), do: ""
-
-  defp progress_prefix({current, total}),
-    do: "#{IO.ANSI.faint()}[#{current}/#{total}]#{IO.ANSI.reset()} "
-
-  defp format_duration(ms) when ms < 1000, do: "#{ms}ms"
-  defp format_duration(ms) when ms < 60_000, do: "#{Float.round(ms / 1000, 1)}s"
-  defp format_duration(ms), do: "#{Float.round(ms / 60_000, 1)}m"
-
-  defp format_runtime_info(%{version: version}), do: version
-  defp format_runtime_info(%{shell: shell}), do: shell
-  defp format_runtime_info(info), do: inspect(info)
 end
