@@ -333,7 +333,8 @@ defmodule Sykli.CLI.Coordinator do
       --bind ADDRESS  Listen address (default: #{@default_bind}; use 0.0.0.0 only intentionally)
 
     The coordinator skeleton stores state in memory. It exposes health,
-    org/team, and work item endpoints only; it does not execute work.
+    org/team, work-item, run, gate (including gate decisions), and
+    daemon-session/heartbeat endpoints; it never executes work.
     """)
   end
 end

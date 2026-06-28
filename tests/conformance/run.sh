@@ -119,7 +119,8 @@ else
 fi
 echo ""
 
-# Normalize JSON for comparison: sort keys, compact, normalize provides without value
+# Normalize JSON for comparison: sort keys and compact (whitespace-insensitive).
+# Comparison is semantic, not byte-for-byte: SDKs may differ in key order/whitespace.
 normalize_json() {
   python3 -c "
 import json, sys

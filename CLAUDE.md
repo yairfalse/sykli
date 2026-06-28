@@ -97,7 +97,7 @@ eval/harness/run.sh --case 001 --dry-run    # preview without running
 
 - `core/test/` — Elixir unit/integration tests run by `mix test`.
 - `test/blackbox/` — shell-driven black-box suite against the built `sykli` binary (dataset in `dataset.json`).
-- `tests/conformance/cases/` — positive cross-SDK conformance cases. SDKs must emit byte-identical JSON for these.
+- `tests/conformance/cases/` — positive cross-SDK conformance cases. SDKs must emit semantically-identical JSON for these (the runner normalizes key order and whitespace before comparing; `Sykli.ContractHash` likewise canonicalizes before hashing).
 - `tests/conformance/schema-invalid/` — negative schema-rejection fixtures. The schema validator asserts each one **fails** validation; missing-rejection is itself a failure.
 - `tests/conformance/fixtures/<sdk>/` — per-SDK pipeline files for each case in `cases/`.
 - `eval/oracle/` + `eval/harness/` — ground-truth cases and the AI-agent eval loop.

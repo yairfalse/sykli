@@ -507,16 +507,18 @@ GET   /v1/work-items                 # list, filter by team/status/assignee
 POST  /v1/work-items                 # create
 GET   /v1/work-items/:id             # show
 POST  /v1/work-items/:id/claim       # actor claims
-POST  /v1/work-items/:id/assign      # owner/approver assigns
+POST  /v1/work-items/:id/assign      # owner/approver assigns (planned; not in current skeleton)
 POST  /v1/work-items/:id/notes       # append note
 ```
 
-Runs:
+Runs (the implemented sync posts one complete, metadata-only summary per run;
+node/criteria/review/evidence refs travel inside the `POST /v1/runs` body —
+there is no incremental run-node or run-patch endpoint today):
 
 ```text
-POST  /v1/runs                       # daemon reports a new run
-PATCH /v1/runs/:id                   # update status / finished_at / summary
-POST  /v1/runs/:id/nodes             # append/update run node state
+POST  /v1/runs                       # daemon reports a complete run summary
+GET   /v1/runs                       # list
+GET   /v1/runs/:id                   # show
 ```
 
 Gates:
@@ -524,11 +526,12 @@ Gates:
 ```text
 GET   /v1/gates                      # list waiting/decided
 POST  /v1/gates                      # daemon registers a waiting gate
-POST  /v1/gates/:id/approve          # approver decision
-POST  /v1/gates/:id/reject           # approver decision
+GET   /v1/gates/:id                  # show
+POST  /v1/gates/:id/decisions        # approver decision (approve or reject)
 ```
 
-Evidence:
+Evidence (planned; **not in the current skeleton** — evidence refs travel
+inside the `POST /v1/runs` summary body today):
 
 ```text
 POST  /v1/evidence-refs              # daemon registers a reference
@@ -578,6 +581,17 @@ POST /v1/work-items
 GET  /v1/work-items/:id
 POST /v1/work-items/:id/claim
 POST /v1/work-items/:id/notes
+POST /v1/runs
+GET  /v1/runs
+GET  /v1/runs/:id
+POST /v1/gates
+GET  /v1/gates
+GET  /v1/gates/:id
+POST /v1/gates/:id/decisions
+POST /v1/daemon-sessions
+GET  /v1/daemon-sessions
+GET  /v1/daemon-sessions/:id
+POST /v1/daemon-sessions/:id/heartbeat
 ```
 
 All `/v1/*` endpoints require `Authorization: Bearer <token>`.

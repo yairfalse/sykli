@@ -292,18 +292,15 @@ The daemon emits the following events as POSTs to the relevant API:
 
 - `work.created` — `POST /v1/work-items`
 - `work.claimed` — `POST /v1/work-items/:id/claim`
-- `run.started` — `POST /v1/runs`
-- `run.node.updated` — `POST /v1/runs/:id/nodes`
-- `success_criteria.failed` — recorded under `POST /v1/runs/:id/nodes`
-  with the criterion result body
-- `review.completed` — recorded under `POST /v1/runs/:id/nodes` with
-  the review result body
+- `run.completed` — `POST /v1/runs` — the implemented run sync posts one
+  **complete, metadata-only** run summary per run. Node state, success-criteria
+  results, review results, and evidence refs all travel inside that single POST
+  body; there are no separate `/v1/runs/:id/nodes`, `PATCH /v1/runs/:id`, or
+  `/v1/evidence-refs` endpoints today (incremental run-node streaming and an
+  evidence-ref endpoint are possible later slices).
 - `gate.requested` — `POST /v1/gates`
-- `gate.approved` — `POST /v1/gates/:id/approve` (originates from a
-  CLI/MCP call against the coordinator, not the daemon)
-- `gate.rejected` — `POST /v1/gates/:id/reject`
-- `run.completed` — `PATCH /v1/runs/:id`
-- `evidence.ref.created` — `POST /v1/evidence-refs`
+- `gate.decided` — `POST /v1/gates/:id/decisions` (approve or reject;
+  originates from a CLI/MCP call against the coordinator, not the daemon)
 
 Every event must carry the originating `daemon_id`, `run_id` (when
 applicable), and `contract_hash` (for runs). Each event must be
