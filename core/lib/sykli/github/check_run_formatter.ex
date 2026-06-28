@@ -2,6 +2,8 @@ defmodule Sykli.GitHub.CheckRunFormatter do
   @moduledoc "Formats task results for GitHub check runs."
 
   alias Sykli.Executor.TaskResult
+  alias Sykli.Services.SecretMasker
+  alias Sykli.Services.SecretPatterns
 
   @max_lines 50
 
@@ -44,10 +46,17 @@ defmodule Sykli.GitHub.CheckRunFormatter do
   end
 
   defp output_block(%TaskResult{} = result) do
+    # GitHub Check Run summaries are a public egress surface. Mask the run's resolved
+    # secret values (per-task + env-derived) before truncation so a secret split across
+    # the @max_lines boundary is still redacted. Output is freeform text, so the
+    # value-based masking mechanism applies (mask_deep is for keyed maps).
+    secrets = SecretPatterns.all_values(result.secret_values)
+
     output =
       [result.output, error_output(result.error)]
       |> Enum.reject(&is_nil/1)
       |> Enum.join("\n")
+      |> SecretMasker.mask_string(secrets)
       |> last_lines(@max_lines)
 
     if output == "" do
