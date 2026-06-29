@@ -1,168 +1,144 @@
 defmodule Sykli.Cache.TieredRepositoryTest do
   use ExUnit.Case, async: false
 
-  @moduledoc """
-  Tests the circuit breaker logic in TieredRepository.
+  import ExUnit.CaptureLog
 
-  Since TieredRepository uses persistent_term for circuit breaker state,
-  these tests focus on the state management rather than actual L1/L2
-  cache operations (which would require S3 credentials).
-  """
+  alias Sykli.Cache.TieredRepository
 
-  # ─────────────────────────────────────────────────────────────────────────────
-  # CIRCUIT BREAKER STATE
-  # ─────────────────────────────────────────────────────────────────────────────
+  @failure_threshold 5
+  @default_test_cooldown_ms 1_000
 
   setup do
-    # Reset circuit breaker state before each test
-    :persistent_term.put(:sykli_s3_circuit, %{failures: 0, open_until: 0})
+    old_cooldown = Application.get_env(:sykli, :s3_circuit_cooldown_ms)
+
+    Application.put_env(:sykli, :s3_circuit_cooldown_ms, @default_test_cooldown_ms)
+    TieredRepository.ensure_circuit_table()
+    TieredRepository.__reset_circuit__()
 
     on_exit(fn ->
-      # Clean up persistent_term
-      try do
-        :persistent_term.put(:sykli_s3_circuit, %{failures: 0, open_until: 0})
-      rescue
-        _ -> :ok
-      end
+      restore_cooldown(old_cooldown)
+      TieredRepository.ensure_circuit_table()
+      TieredRepository.__reset_circuit__()
     end)
 
     :ok
   end
 
-  describe "circuit breaker state via persistent_term" do
-    test "initial state has zero failures" do
-      state = :persistent_term.get(:sykli_s3_circuit)
-      assert state.failures == 0
-      assert state.open_until == 0
+  describe "S3 circuit breaker" do
+    test "initial state is closed with zero failures" do
+      assert TieredRepository.__circuit_closed?()
+      assert %{failures: 0, open_until: 0} = TieredRepository.__circuit_state__()
     end
 
-    test "state persists across reads" do
-      :persistent_term.put(:sykli_s3_circuit, %{failures: 3, open_until: 0})
-      state = :persistent_term.get(:sykli_s3_circuit)
-      assert state.failures == 3
-    end
-
-    test "circuit is closed when failures below threshold" do
-      :persistent_term.put(:sykli_s3_circuit, %{failures: 4, open_until: 0})
-      state = :persistent_term.get(:sykli_s3_circuit)
-      # Threshold is 5, so 4 failures means circuit is still closed
-      assert state.failures < 5
-    end
-
-    test "circuit opens when failures reach threshold" do
-      # Simulate 5 failures with future open_until
-      open_until = System.monotonic_time(:millisecond) + 60_000
-
-      :persistent_term.put(:sykli_s3_circuit, %{
-        failures: 5,
-        open_until: open_until
-      })
-
-      state = :persistent_term.get(:sykli_s3_circuit)
-      assert state.failures >= 5
-      assert state.open_until > System.monotonic_time(:millisecond)
-    end
-
-    test "circuit closes after cooldown expires" do
-      # Set open_until to the past (cooldown expired)
-      :persistent_term.put(:sykli_s3_circuit, %{
-        failures: 5,
-        open_until: System.monotonic_time(:millisecond) - 1000
-      })
-
-      state = :persistent_term.get(:sykli_s3_circuit)
-      # Even though failures >= threshold, open_until is in the past
-      assert state.failures >= 5
-      assert System.monotonic_time(:millisecond) >= state.open_until
-    end
-
-    test "reset brings failures back to zero" do
-      :persistent_term.put(:sykli_s3_circuit, %{failures: 10, open_until: 999_999_999})
-      :persistent_term.put(:sykli_s3_circuit, %{failures: 0, open_until: 0})
-
-      state = :persistent_term.get(:sykli_s3_circuit)
-      assert state.failures == 0
-      assert state.open_until == 0
-    end
-
-    test "incremental failure tracking" do
-      # Simulate incremental failure recording
-      for i <- 1..4 do
-        :persistent_term.put(:sykli_s3_circuit, %{failures: i, open_until: 0})
+    test "opens after exactly the failure threshold" do
+      for _ <- 1..(@failure_threshold - 1) do
+        TieredRepository.__record_failure__()
       end
 
-      state = :persistent_term.get(:sykli_s3_circuit)
-      assert state.failures == 4
-      # Still below threshold
-      assert state.failures < 5
+      assert %{failures: 4, open_until: 0} = TieredRepository.__circuit_state__()
+      assert TieredRepository.__circuit_closed?()
+
+      log =
+        capture_log(fn ->
+          TieredRepository.__record_failure__()
+        end)
+
+      state = TieredRepository.__circuit_state__()
+      assert state.failures == @failure_threshold
+      assert state.open_until > now_ms()
+      refute TieredRepository.__circuit_closed?()
+
+      assert log =~
+               "[TieredCache] S3 circuit breaker OPEN after 5 consecutive failures " <>
+                 "(cooldown: #{@default_test_cooldown_ms}ms)"
     end
 
-    test "threshold crossing sets open_until in the future" do
-      # Simulate the 5th failure (crossing the threshold)
-      open_until = System.monotonic_time(:millisecond) + 60_000
+    test "success resets the consecutive failure count and closes the breaker" do
+      open_circuit()
+      refute TieredRepository.__circuit_closed?()
 
-      :persistent_term.put(:sykli_s3_circuit, %{
-        failures: 5,
-        open_until: open_until
-      })
+      log =
+        capture_log(fn ->
+          TieredRepository.__record_success__()
+        end)
 
-      state = :persistent_term.get(:sykli_s3_circuit)
-      assert state.failures == 5
-      # open_until should be ~60 seconds in the future
-      assert state.open_until > System.monotonic_time(:millisecond)
-      assert state.open_until <= System.monotonic_time(:millisecond) + 61_000
+      assert %{failures: 0, open_until: 0} = TieredRepository.__circuit_state__()
+      assert TieredRepository.__circuit_closed?()
+      assert log =~ "[TieredCache] S3 circuit breaker closed (recovered)"
+    end
+
+    test "after cooldown elapses the breaker allows a half-open probe" do
+      Application.put_env(:sykli, :s3_circuit_cooldown_ms, 5)
+
+      open_circuit()
+      refute TieredRepository.__circuit_closed?()
+
+      Process.sleep(10)
+      assert TieredRepository.__circuit_closed?()
+
+      Application.put_env(:sykli, :s3_circuit_cooldown_ms, @default_test_cooldown_ms)
+      TieredRepository.__record_failure__()
+
+      state = TieredRepository.__circuit_state__()
+      assert state.failures == @failure_threshold + 1
+      assert state.open_until > now_ms()
+      refute TieredRepository.__circuit_closed?()
+    end
+
+    test "concurrent failures are counted atomically without lost increments" do
+      failures = 50
+
+      {results, log} =
+        capture_result_and_log(fn ->
+          1..failures
+          |> Task.async_stream(
+            fn _ ->
+              TieredRepository.__record_failure__()
+            end,
+            max_concurrency: failures,
+            timeout: 5_000
+          )
+          |> Enum.to_list()
+        end)
+
+      assert Enum.all?(results, &match?({:ok, _}, &1))
+
+      state = TieredRepository.__circuit_state__()
+      assert state.failures == failures
+      assert state.open_until > now_ms()
+      refute TieredRepository.__circuit_closed?()
+
+      assert Regex.scan(~r/S3 circuit breaker OPEN after/, log) |> length() == 1
     end
   end
 
-  describe "circuit breaker logic (unit)" do
-    test "circuit_closed? returns true when failures below threshold" do
-      :persistent_term.put(:sykli_s3_circuit, %{failures: 0, open_until: 0})
-      assert circuit_closed?()
+  defp open_circuit do
+    capture_log(fn ->
+      for _ <- 1..@failure_threshold do
+        TieredRepository.__record_failure__()
+      end
+    end)
+  end
 
-      :persistent_term.put(:sykli_s3_circuit, %{failures: 4, open_until: 0})
-      assert circuit_closed?()
-    end
+  defp capture_result_and_log(fun) do
+    ref = make_ref()
+    test_pid = self()
 
-    test "circuit_closed? returns false when failures at threshold and cooldown active" do
-      open_until = System.monotonic_time(:millisecond) + 60_000
+    log =
+      capture_log(fn ->
+        result = fun.()
+        send(test_pid, {ref, result})
+      end)
 
-      :persistent_term.put(:sykli_s3_circuit, %{failures: 5, open_until: open_until})
-      refute circuit_closed?()
-    end
-
-    test "circuit_closed? returns true when failures at threshold but cooldown expired" do
-      open_until = System.monotonic_time(:millisecond) - 1000
-
-      :persistent_term.put(:sykli_s3_circuit, %{failures: 5, open_until: open_until})
-      assert circuit_closed?()
-    end
-
-    test "circuit_closed? returns true when persistent_term not initialized" do
-      :persistent_term.erase(:sykli_s3_circuit)
-      # Should default to closed (failures: 0)
-      assert circuit_closed?()
+    receive do
+      {^ref, result} -> {result, log}
     end
   end
 
-  # ─────────────────────────────────────────────────────────────────────────────
-  # HELPERS
-  # ─────────────────────────────────────────────────────────────────────────────
+  defp now_ms, do: System.monotonic_time(:millisecond)
 
-  # Replicates the circuit_closed? logic from TieredRepository
-  # so we can test it without needing real L1/L2 backends
-  defp circuit_closed? do
-    state = get_circuit_state()
+  defp restore_cooldown(nil), do: Application.delete_env(:sykli, :s3_circuit_cooldown_ms)
 
-    cond do
-      state.failures < 5 -> true
-      System.monotonic_time(:millisecond) >= state.open_until -> true
-      true -> false
-    end
-  end
-
-  defp get_circuit_state do
-    :persistent_term.get(:sykli_s3_circuit)
-  rescue
-    ArgumentError -> %{failures: 0, open_until: 0}
-  end
+  defp restore_cooldown(value),
+    do: Application.put_env(:sykli, :s3_circuit_cooldown_ms, value)
 end

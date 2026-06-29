@@ -19,6 +19,7 @@ defmodule Sykli.Cache.TieredRepository do
   alias Sykli.Cache.S3Repository, as: L2
 
   # Circuit breaker settings
+  @circuit_table :sykli_s3_circuit
   @failure_threshold 5
   @cooldown_ms 60_000
 
@@ -26,8 +27,8 @@ defmodule Sykli.Cache.TieredRepository do
   def init do
     L1.init()
     L2.init()
-    # Initialize circuit breaker state in persistent_term
-    :persistent_term.put(:sykli_s3_circuit, %{failures: 0, open_until: 0})
+    ensure_circuit_table()
+    reset_circuit_state()
   end
 
   @impl true
@@ -166,49 +167,129 @@ defmodule Sykli.Cache.TieredRepository do
 
   # ----- CIRCUIT BREAKER -----
 
+  @doc false
+  def ensure_circuit_table do
+    case :ets.whereis(@circuit_table) do
+      :undefined ->
+        try do
+          :ets.new(@circuit_table, [
+            :named_table,
+            :public,
+            :set,
+            read_concurrency: true,
+            write_concurrency: true
+          ])
+
+          reset_circuit_state()
+        rescue
+          ArgumentError ->
+            seed_circuit_table()
+        end
+
+      _table ->
+        seed_circuit_table()
+    end
+
+    :ok
+  end
+
   defp circuit_closed? do
-    state = get_circuit_state()
+    ensure_circuit_table()
+    failures = circuit_value(:failures, 0)
+    open_until = circuit_value(:open_until, 0)
 
     cond do
-      state.failures < @failure_threshold -> true
-      System.monotonic_time(:millisecond) >= state.open_until -> true
+      failures < @failure_threshold -> true
+      now_ms() >= open_until -> true
       true -> false
     end
   end
 
   defp record_success do
-    state = get_circuit_state()
+    ensure_circuit_table()
+    failures = circuit_value(:failures, 0)
 
-    if state.failures > 0 do
-      if state.failures >= @failure_threshold do
+    if failures > 0 do
+      if failures >= @failure_threshold do
         Logger.info("[TieredCache] S3 circuit breaker closed (recovered)")
       end
 
-      :persistent_term.put(:sykli_s3_circuit, %{failures: 0, open_until: 0})
+      reset_circuit_state()
     end
   end
 
   defp record_failure do
-    state = get_circuit_state()
-    new_failures = state.failures + 1
+    ensure_circuit_table()
 
-    if new_failures >= @failure_threshold and state.failures < @failure_threshold do
-      open_until = System.monotonic_time(:millisecond) + @cooldown_ms
+    new_failures =
+      :ets.update_counter(@circuit_table, :failures, {2, 1}, {:failures, 0})
 
-      Logger.warning(
-        "[TieredCache] S3 circuit breaker OPEN after #{new_failures} consecutive failures " <>
-          "(cooldown: #{@cooldown_ms}ms)"
-      )
+    cond do
+      new_failures == @failure_threshold ->
+        open_until = now_ms() + cooldown_ms()
 
-      :persistent_term.put(:sykli_s3_circuit, %{failures: new_failures, open_until: open_until})
-    else
-      :persistent_term.put(:sykli_s3_circuit, %{state | failures: new_failures})
+        :ets.insert(@circuit_table, {:open_until, open_until})
+
+        Logger.warning(
+          "[TieredCache] S3 circuit breaker OPEN after #{new_failures} consecutive failures " <>
+            "(cooldown: #{cooldown_ms()}ms)"
+        )
+
+      new_failures > @failure_threshold and circuit_value(:open_until, 0) != 0 ->
+        # Once the threshold-crossing failure has armed the breaker, later
+        # failures are either in-flight operations from the open window or
+        # failed half-open probes. Both extend/re-arm the cooldown without
+        # emitting a second OPEN warning.
+        :ets.insert(@circuit_table, {:open_until, now_ms() + cooldown_ms()})
+
+      true ->
+        :ok
     end
   end
 
-  defp get_circuit_state do
-    :persistent_term.get(:sykli_s3_circuit)
-  rescue
-    ArgumentError -> %{failures: 0, open_until: 0}
+  defp reset_circuit_state do
+    :ets.insert(@circuit_table, [{:failures, 0}, {:open_until, 0}])
+  end
+
+  defp seed_circuit_table do
+    :ets.insert_new(@circuit_table, {:failures, 0})
+    :ets.insert_new(@circuit_table, {:open_until, 0})
+  end
+
+  defp circuit_value(key, default) do
+    case :ets.lookup(@circuit_table, key) do
+      [{^key, value}] -> value
+      [] -> default
+    end
+  end
+
+  defp cooldown_ms do
+    Application.get_env(:sykli, :s3_circuit_cooldown_ms, @cooldown_ms)
+  end
+
+  defp now_ms, do: System.monotonic_time(:millisecond)
+
+  if Mix.env() == :test do
+    @doc false
+    def __circuit_closed?, do: circuit_closed?()
+
+    @doc false
+    def __record_success__, do: record_success()
+
+    @doc false
+    def __record_failure__, do: record_failure()
+
+    @doc false
+    def __circuit_state__ do
+      ensure_circuit_table()
+
+      %{
+        failures: circuit_value(:failures, 0),
+        open_until: circuit_value(:open_until, 0)
+      }
+    end
+
+    @doc false
+    def __reset_circuit__, do: reset_circuit_state()
   end
 end
