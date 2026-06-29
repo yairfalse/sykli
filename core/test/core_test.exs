@@ -138,6 +138,25 @@ defmodule SykliTest do
     assert length(order) == 2
   end
 
+  test "topo sort preserves exact Kahn FIFO output order (#242)" do
+    # Locks the "identical output order" guarantee of the linear rewrite. For a
+    # diamond a -> {b, c} -> d with <=32 nodes (key-sorted map iteration), Kahn's
+    # algorithm yields exactly [a, b, c, d]: a is the only root; processing it
+    # enqueues its dependents b, c in graph order; d is enqueued only once both
+    # b and c are drained.
+    json =
+      ~s({"version":"1","tasks":[) <>
+        ~s({"name":"a","command":"a"},) <>
+        ~s({"name":"b","command":"b","depends_on":["a"]},) <>
+        ~s({"name":"c","command":"c","depends_on":["a"]},) <>
+        ~s({"name":"d","command":"d","depends_on":["b","c"]}]})
+
+    {:ok, graph} = Sykli.Graph.parse(json)
+    {:ok, order} = Sykli.Graph.topo_sort(graph)
+
+    assert Enum.map(order, & &1.name) == ["a", "b", "c", "d"]
+  end
+
   test "topo sort returns a valid order for a large dense layered graph (#242)" do
     # Layered DAG: every node in a layer depends on every node in the previous
     # layer (dense fan-in/out). Exercises the reverse-adjacency + FIFO path at a
