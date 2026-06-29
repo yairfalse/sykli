@@ -724,46 +724,61 @@ defmodule Sykli.Graph do
       |> Enum.filter(fn {_name, deg} -> deg == 0 end)
       |> Enum.map(fn {name, _} -> name end)
 
-    do_topo_sort(queue, in_degree, graph, [])
+    # Precompute reverse adjacency (name -> dependents) once, so each node's
+    # dependents are an O(1) lookup instead of rescanning the whole graph on
+    # every dequeue. Combined with a real FIFO queue (no O(n) `++` append),
+    # this makes the sort linear in (V + E) rather than ~O(V^2 * E). See #242.
+    dependents_map = build_dependents_map(graph)
+
+    do_topo_sort(:queue.from_list(queue), in_degree, dependents_map, graph, [])
   end
 
-  defp do_topo_sort([], in_degree, graph, result) do
-    remaining = Enum.filter(in_degree, fn {_, deg} -> deg > 0 end)
+  # name => list of tasks that declare `name` in their `depends_on` (graph order).
+  defp build_dependents_map(graph) do
+    base = Map.new(Map.keys(graph), fn name -> {name, []} end)
 
-    if remaining == [] do
-      {:ok, Enum.reverse(result)}
-    else
-      # Find the actual cycle path using DFS
-      cycle_path = detect_cycle(graph)
-      {:error, {:cycle_detected, cycle_path}}
-    end
-  end
-
-  defp do_topo_sort([current | rest], in_degree, graph, result) do
-    task = Map.get(graph, current)
-
-    # Find tasks that depend on current
-    dependents =
-      graph
-      |> Enum.filter(fn {_name, t} -> current in (t.depends_on || []) end)
-      |> Enum.map(fn {name, _} -> name end)
-
-    # Decrease in-degree for dependents
-    {new_in_degree, new_queue} =
-      Enum.reduce(dependents, {in_degree, rest}, fn dep, {deg_acc, queue_acc} ->
-        new_deg = Map.update!(deg_acc, dep, &(&1 - 1))
-
-        if new_deg[dep] == 0 do
-          {new_deg, queue_acc ++ [dep]}
-        else
-          {new_deg, queue_acc}
-        end
+    graph
+    |> Enum.reduce(base, fn {name, task}, acc ->
+      Enum.reduce(task.depends_on || [], acc, fn dep, acc2 ->
+        Map.update(acc2, dep, [name], &[name | &1])
       end)
+    end)
+    |> Map.new(fn {name, deps} -> {name, Enum.reverse(deps)} end)
+  end
 
-    new_in_degree = Map.put(new_in_degree, current, -1)
+  defp do_topo_sort(queue, in_degree, dependents_map, graph, result) do
+    case :queue.out(queue) do
+      {:empty, _queue} ->
+        remaining = Enum.filter(in_degree, fn {_, deg} -> deg > 0 end)
 
-    result = if task, do: [task | result], else: result
-    do_topo_sort(new_queue, new_in_degree, graph, result)
+        if remaining == [] do
+          {:ok, Enum.reverse(result)}
+        else
+          # Find the actual cycle path using DFS
+          cycle_path = detect_cycle(graph)
+          {:error, {:cycle_detected, cycle_path}}
+        end
+
+      {{:value, current}, rest} ->
+        task = Map.get(graph, current)
+        dependents = Map.get(dependents_map, current, [])
+
+        # Decrease in-degree for dependents; enqueue any that reach zero.
+        {new_in_degree, new_queue} =
+          Enum.reduce(dependents, {in_degree, rest}, fn dep, {deg_acc, queue_acc} ->
+            new_deg = Map.update!(deg_acc, dep, &(&1 - 1))
+
+            if new_deg[dep] == 0 do
+              {new_deg, :queue.in(dep, queue_acc)}
+            else
+              {new_deg, queue_acc}
+            end
+          end)
+
+        new_in_degree = Map.put(new_in_degree, current, -1)
+        result = if task, do: [task | result], else: result
+        do_topo_sort(new_queue, new_in_degree, dependents_map, graph, result)
+    end
   end
 
   @doc """
