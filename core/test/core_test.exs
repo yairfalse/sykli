@@ -138,6 +138,32 @@ defmodule SykliTest do
     assert length(order) == 2
   end
 
+  test "topo sort returns a valid order for a large dense layered graph (#242)" do
+    # Layered DAG: every node in a layer depends on every node in the previous
+    # layer (dense fan-in/out). Exercises the reverse-adjacency + FIFO path at a
+    # scale where the old per-dequeue full-graph rescan would be quadratic.
+    layers = 30
+    width = 20
+
+    tasks =
+      for l <- 0..(layers - 1), w <- 0..(width - 1) do
+        deps = if l == 0, do: [], else: for(pw <- 0..(width - 1), do: "l#{l - 1}_n#{pw}")
+        %Sykli.Graph.Task{name: "l#{l}_n#{w}", command: "true", depends_on: deps}
+      end
+
+    graph = Map.new(tasks, fn t -> {t.name, t} end)
+
+    assert {:ok, order} = Sykli.Graph.topo_sort(graph)
+    assert length(order) == layers * width
+
+    # Validity: every task appears strictly after all of its dependencies.
+    positions = order |> Enum.with_index() |> Map.new(fn {t, i} -> {t.name, i} end)
+
+    for t <- order, dep <- t.depends_on do
+      assert positions[dep] < positions[t.name], "#{dep} must precede #{t.name}"
+    end
+  end
+
   # ----- MATRIX EXPANSION TESTS -----
 
   test "expand_matrix with no matrix returns unchanged" do
