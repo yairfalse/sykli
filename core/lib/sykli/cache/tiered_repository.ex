@@ -187,7 +187,10 @@ defmodule Sykli.Cache.TieredRepository do
         end
 
       _table ->
-        seed_circuit_table()
+        # Already created (and seeded on creation) — no per-call work. This runs
+        # on the cache hot path via circuit_closed?/record_*, so keep it to a
+        # single :ets.whereis. Missing rows still read as 0 via circuit_value/2.
+        :ok
     end
 
     :ok
