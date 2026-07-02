@@ -19,6 +19,7 @@ defmodule Sykli.MixProject do
   def cli do
     [
       preferred_envs: [
+        gate: :test,
         "test.docker": :test,
         "test.integration": :test,
         "test.podman": :test
@@ -28,6 +29,15 @@ defmodule Sykli.MixProject do
 
   defp aliases do
     [
+      gate: [
+        "deps.get --check-locked",
+        "deps.unlock --check-unused",
+        "format --check-formatted",
+        "credo --strict",
+        "compile --warnings-as-errors --force",
+        "deps.audit",
+        "test --seed 0"
+      ],
       "test.docker": ["test --only docker"],
       "test.integration": ["test --only integration"],
       "test.podman": ["test --only podman"],
@@ -62,7 +72,7 @@ defmodule Sykli.MixProject do
       {:file_system, "~> 1.0"},
       {:telemetry, "~> 1.3"},
       {:credo, "~> 1.7", runtime: false},
-      {:mix_audit, "~> 2.1", only: :dev, runtime: false},
+      {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},
       {:stream_data, "~> 1.1", only: :test}
     ]
   end

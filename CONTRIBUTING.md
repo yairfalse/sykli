@@ -25,6 +25,7 @@ cd core
 mix deps.get
 mix test                  # unit tests (no Docker needed — runs against a fake runtime)
 mix escript.build         # dev binary → core/sykli
+mix gate                  # deterministic guardrail gate: locked deps, static checks, audits, seed 0 tests
 mix verify                # the full local CI pyramid: format, test, credo, build, blackbox, conformance
 ```
 
@@ -41,6 +42,9 @@ test/blackbox/run.sh --filter=POS             # filtered black-box cases
 ```
 
 Before every commit: `mix format && mix test && mix escript.build`.
+
+Property failures from StreamData must be promoted into an explicit example
+test before the fix merges; the shrunken input is the regression.
 
 ## The rules that will catch you (they're all tested)
 

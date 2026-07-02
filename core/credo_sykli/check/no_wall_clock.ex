@@ -100,7 +100,7 @@ defmodule CredoSykli.Check.NoWallClock do
 
     contains_lib_sykli?(normalized) and
       not String.ends_with?(normalized, "lib/sykli/mesh/transport/erlang.ex") and
-      not String.contains?(normalized, "/lib/credo_sykli/")
+      not String.contains?(normalized, "/credo_sykli/")
   end
 
   defp contains_lib_sykli?(filename) do

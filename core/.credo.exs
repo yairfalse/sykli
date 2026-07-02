@@ -6,7 +6,7 @@
         included: [
           # Simulator-facing code: virtual time only.
           "lib/sykli/mesh/transport/",
-          "lib/credo_sykli/",
+          "credo_sykli/",
           "test/credo_sykli/",
           # Pure contract & output-shaping transforms: parsing, validation, the
           # closed-vocabulary modules, contract hashing, and occurrence shaping
@@ -31,7 +31,7 @@
         excluded: [~r"/_build/", ~r"/deps/", ~r"/node_modules/"]
       },
       plugins: [],
-      requires: ["lib/credo_sykli/check/no_wall_clock.ex"],
+      requires: ["credo_sykli/check/no_wall_clock.ex"],
       strict: true,
       parse_timeout: 5000,
       color: true,

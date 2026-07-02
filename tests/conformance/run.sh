@@ -198,8 +198,20 @@ TOML
 run_elixir() {
   local fixture="$1"
   cd "$ROOT/sdk/elixir"
-  mix run "$fixture" -- --emit 2>/dev/null
+  mix run --no-compile "$fixture" -- --emit 2>/dev/null
 }
+
+ensure_elixir_compiled() {
+  if [[ -n "$FILTER_SDK" && "$FILTER_SDK" != "elixir" ]]; then
+    return
+  fi
+
+  cd "$ROOT/sdk/elixir"
+  mix deps.get >/dev/null
+  mix compile >/dev/null
+}
+
+ensure_elixir_compiled
 
 PASS=0
 FAIL=0

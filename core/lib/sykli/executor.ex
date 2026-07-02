@@ -1119,7 +1119,7 @@ defmodule Sykli.Executor do
                        ) do
                     {:ok, evidence_results} ->
                       if cache_key do
-                        Sykli.Cache.store(cache_key, task, outputs || [], duration_ms, workdir)
+                        Sykli.Cache.store(cache_key, task, outputs, duration_ms, workdir)
                       end
 
                       maybe_github_status(name, "success")
@@ -1141,7 +1141,7 @@ defmodule Sykli.Executor do
                   case evaluate_evidence_required(task, target, state, run_opts, nil, duration_ms) do
                     {:ok, evidence_results} ->
                       if cache_key do
-                        Sykli.Cache.store(cache_key, task, outputs || [], duration_ms, workdir)
+                        Sykli.Cache.store(cache_key, task, outputs, duration_ms, workdir)
                       end
 
                       maybe_github_status(name, "success")

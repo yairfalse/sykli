@@ -16,7 +16,7 @@ defmodule Sykli.Cache.FileRepository do
   alias Sykli.Cache.Entry
 
   # Runtime path expansion (not compile-time) for Burrito compatibility
-  defp cache_dir, do: Path.expand("~/.sykli/cache")
+  defp cache_dir, do: Application.get_env(:sykli, :cache_dir) || Path.expand("~/.sykli/cache")
   defp meta_dir, do: Path.join(cache_dir(), "meta")
   defp blobs_dir, do: Path.join(cache_dir(), "blobs")
 
@@ -108,22 +108,24 @@ defmodule Sykli.Cache.FileRepository do
     hash = :crypto.hash(:sha256, content) |> Base.encode16(case: :lower)
     dest = blob_path(hash)
 
-    unless File.exists?(dest) do
-      tmp_path = dest <> ".tmp." <> Integer.to_string(:erlang.unique_integer([:positive]))
-
-      case File.write(tmp_path, content) do
-        :ok ->
-          case File.rename(tmp_path, dest) do
-            :ok -> :ok
-            {:error, _} -> File.rm(tmp_path)
-          end
-
-        {:error, _} ->
-          nil
-      end
+    if File.exists?(dest) do
+      {:ok, hash}
+    else
+      store_blob_file(content, hash, dest)
     end
+  end
 
-    {:ok, hash}
+  defp store_blob_file(content, hash, dest) do
+    tmp_path = dest <> ".tmp." <> Integer.to_string(:erlang.unique_integer([:positive]))
+
+    with :ok <- File.write(tmp_path, content),
+         :ok <- File.rename(tmp_path, dest) do
+      {:ok, hash}
+    else
+      {:error, _reason} = error ->
+        File.rm(tmp_path)
+        if File.exists?(dest), do: {:ok, hash}, else: error
+    end
   end
 
   @impl true

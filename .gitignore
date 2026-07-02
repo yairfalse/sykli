@@ -69,6 +69,7 @@ docs/*
 !docs/done.md
 !docs/error-codes.md
 !docs/false-protocol-schema.md
+!docs/guardrails-conformance.md
 !docs/github-native.md
 !docs/local-state-plane.md
 !docs/mcp-tools.md

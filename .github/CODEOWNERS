@@ -1,0 +1,8 @@
+.github/ @false-systems/maintainers
+.tool-versions @false-systems/maintainers
+core/.formatter.exs @false-systems/maintainers
+core/.credo.exs @false-systems/maintainers
+core/mix.exs @false-systems/maintainers
+core/mix.lock @false-systems/maintainers
+core/config/ @false-systems/maintainers
+docs/guardrails-conformance.md @false-systems/maintainers

@@ -7,7 +7,6 @@ defmodule Sykli.Watch do
   """
 
   use GenServer
-  require Logger
 
   @debounce_ms 200
 

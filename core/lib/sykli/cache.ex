@@ -597,25 +597,29 @@ defmodule Sykli.Cache do
   defp store_blob(abs_path, workdir) do
     with {:ok, %{type: type}} when type != :symlink <- File.lstat(abs_path),
          {:ok, content} <- File.read(abs_path) do
-      {:ok, blob_hash} = repo().store_blob(content)
+      case repo().store_blob(content) do
+        {:ok, blob_hash} ->
+          # Get file mode without following symlinks between read and metadata capture.
+          mode =
+            case File.lstat(abs_path) do
+              {:ok, %{mode: m}} -> m
+              _ -> 0o644
+            end
 
-      # Get file mode without following symlinks between read and metadata capture.
-      mode =
-        case File.lstat(abs_path) do
-          {:ok, %{mode: m}} -> m
-          _ -> 0o644
-        end
+          size = byte_size(content)
+          rel_path = Path.relative_to(abs_path, workdir)
 
-      size = byte_size(content)
-      rel_path = Path.relative_to(abs_path, workdir)
+          {:ok,
+           %{
+             "path" => rel_path,
+             "blob" => blob_hash,
+             "mode" => mode,
+             "size" => size
+           }}
 
-      {:ok,
-       %{
-         "path" => rel_path,
-         "blob" => blob_hash,
-         "mode" => mode,
-         "size" => size
-       }}
+        {:error, reason} ->
+          {:skip, {:blob_not_stored, reason}}
+      end
     else
       {:ok, %{type: :symlink}} ->
         {:skip, {:symlink_output_skipped, Path.relative_to(abs_path, workdir)}}

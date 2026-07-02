@@ -366,7 +366,7 @@ defmodule Sykli.CLI.Gate do
 
     with {:ok, session} <- read_team_session(runtime_opts, requested_team),
          :ok <- validate_requested_team(session, requested_team),
-         {:ok, token} <- team_token(opts, requested_team) do
+         {:ok, token} <- team_token(opts, requested_team, runtime_opts) do
       {:ok, session, token}
     end
   end
@@ -387,8 +387,13 @@ defmodule Sykli.CLI.Gate do
   defp validate_requested_team(_session, requested_team),
     do: {:error, {:gate_no_team_session, requested_team}}
 
-  defp team_token(opts, team) do
-    case Keyword.get(opts, :token) || System.get_env("SYKLI_TEAM_TOKEN") do
+  defp team_token(opts, team, runtime_opts) do
+    runtime_token =
+      if Keyword.has_key?(runtime_opts, :team_token),
+        do: Keyword.get(runtime_opts, :team_token),
+        else: System.get_env("SYKLI_TEAM_TOKEN")
+
+    case Keyword.get(opts, :token) || runtime_token do
       value when is_binary(value) ->
         value = String.trim(value)
         if value == "", do: {:error, {:gate_missing_team_token, team}}, else: {:ok, value}
