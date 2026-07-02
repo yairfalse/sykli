@@ -26,6 +26,7 @@ defmodule Sykli.Application do
     Sykli.GitHub.Webhook.Deliveries.setup()
     Sykli.GitHub.App.Cache.setup()
     Sykli.Mesh.Roles.setup()
+    Sykli.Cache.TieredRepository.ensure_circuit_table()
     Sykli.Mesh.Roles.bootstrap_local_roles()
 
     children = [
