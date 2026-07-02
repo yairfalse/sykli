@@ -2958,17 +2958,15 @@ defmodule Sykli.CLI do
             status: "running",
             pid: info.pid,
             pid_file: info.pid_file,
-            node: if(info.node, do: Atom.to_string(info.node), else: nil),
-            role:
-              if(info.node, do: Sykli.Daemon.node_role(info.node) |> Atom.to_string(), else: nil)
+            node: nil,
+            role: nil
           }
 
         {:stopped, info} ->
           %{
             status: "stopped",
             reason: Atom.to_string(info.reason),
-            stale_pid: Map.get(info, :stale_pid),
-            pid_file: Map.get(info, :pid_file)
+            stale_pid: Map.get(info, :stale_pid)
           }
       end
 

@@ -77,18 +77,6 @@ defmodule Sykli.GitHub.Webhook.Receiver do
     })
   end
 
-  defp respond_error(conn, reason) do
-    Logger.warning("[GitHub Webhook] upstream failure", reason: inspect(reason))
-
-    send_json(conn, 502, %{
-      ok: false,
-      error: %{
-        code: "github.webhook.upstream_failure",
-        message: "GitHub webhook handling failed"
-      }
-    })
-  end
-
   defp read_full_body(conn, opts) do
     # `max_body_bytes` is overridable via opts so tests can exercise the
     # 413 path without allocating a real 10 MB request body.

@@ -155,6 +155,7 @@ defmodule Sykli.CLI.GateTest do
         run_json(["list", "--team", "platform", "--json"],
           path: tmp_dir,
           gate_client: __MODULE__.FakeGateClient,
+          team_token_env: nil,
           expect: 1
         )
 
@@ -184,9 +185,6 @@ defmodule Sykli.CLI.GateTest do
 
     test "--token flag wins over SYKLI_TEAM_TOKEN", %{tmp_dir: tmp_dir} do
       write_session(tmp_dir)
-      old = System.get_env("SYKLI_TEAM_TOKEN")
-      System.put_env("SYKLI_TEAM_TOKEN", "env-token")
-      on_exit(fn -> restore_env("SYKLI_TEAM_TOKEN", old) end)
 
       result =
         run_json(
@@ -203,6 +201,7 @@ defmodule Sykli.CLI.GateTest do
           ],
           path: tmp_dir,
           gate_client: __MODULE__.FakeGateClient,
+          team_token_env: "env-token",
           now: @later
         )
 
@@ -268,9 +267,6 @@ defmodule Sykli.CLI.GateTest do
                path: tmp_dir
              )
   end
-
-  defp restore_env(name, nil), do: System.delete_env(name)
-  defp restore_env(name, value), do: System.put_env(name, value)
 
   defmodule FakeGateClient do
     def list(_session, token, _opts) do
