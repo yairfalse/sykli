@@ -1,3 +1,7 @@
+:code.purge(CredoSykli.Check.NoWallClock)
+:code.delete(CredoSykli.Check.NoWallClock)
+Code.compile_file("../../credo_sykli/check/no_wall_clock.ex", __DIR__)
+
 defmodule CredoSykli.NoWallClockTest do
   use Credo.Test.Case, async: true
 
