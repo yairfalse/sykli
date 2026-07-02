@@ -155,7 +155,7 @@ defmodule Sykli.CLI.GateTest do
         run_json(["list", "--team", "platform", "--json"],
           path: tmp_dir,
           gate_client: __MODULE__.FakeGateClient,
-          team_token_env: nil,
+          team_token: nil,
           expect: 1
         )
 
@@ -173,7 +173,7 @@ defmodule Sykli.CLI.GateTest do
         run_json(["list", "--team", "platform", "--json"],
           path: tmp_dir,
           gate_client: __MODULE__.FakeGateClient,
-          team_token_env: nil,
+          team_token: nil,
           expect: 1
         )
 
@@ -202,7 +202,7 @@ defmodule Sykli.CLI.GateTest do
           ],
           path: tmp_dir,
           gate_client: __MODULE__.FakeGateClient,
-          team_token_env: "env-token",
+          team_token: "env-token",
           now: @later
         )
 

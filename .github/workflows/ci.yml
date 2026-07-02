@@ -7,8 +7,6 @@ on:
     # Run on PRs targeting main and on stacked PRs targeting a feature branch
     # (the Monster PR-train stacks phases on feature/ branches).
     branches: [main, 'feature/**']
-  schedule:
-    - cron: '17 3 * * *'
 
 permissions:
   contents: read
@@ -27,7 +25,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       core: ${{ steps.filter.outputs.core }}
-      credo: ${{ steps.filter.outputs.credo }}
       blackbox: ${{ steps.filter.outputs.blackbox }}
       conformance: ${{ steps.filter.outputs.conformance }}
       sdk_go: ${{ steps.filter.outputs.sdk_go }}
@@ -51,9 +48,6 @@ jobs:
               - 'scripts/**'
               - 'action.yml'
               - 'install.sh'
-            credo:
-              - '.github/workflows/ci.yml'
-              - 'core/**'
             blackbox:
               - '.github/workflows/ci.yml'
               - 'core/**'
@@ -104,8 +98,7 @@ jobs:
       - name: Setup Elixir
         uses: erlef/setup-beam@v1
         with:
-          elixir-version: '1.17.3'
-          otp-version: '26.2.5.14'
+          version-file: .tool-versions
 
       - name: Cache deps
         uses: actions/cache@v4
@@ -124,59 +117,6 @@ jobs:
         working-directory: core
         run: mix escript.build
 
-  seed-soak:
-    name: Seed Soak
-    runs-on: ubuntu-latest
-    if: github.event_name == 'schedule'
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Elixir
-        uses: erlef/setup-beam@v1
-        with:
-          elixir-version: '1.17.3'
-          otp-version: '26.2.5.14'
-
-      - name: Cache deps
-        uses: actions/cache@v4
-        with:
-          path: core/deps
-          key: ${{ runner.os }}-mix-${{ hashFiles('core/mix.lock') }}
-
-      - name: Fresh-seed tests
-        working-directory: core
-        run: |
-          mix deps.get --check-locked
-          mix test
-
-  credo:
-    name: Credo
-    runs-on: ubuntu-latest
-    needs: changes
-    if: github.event_name == 'push' || needs.changes.outputs.credo == 'true'
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Elixir
-        uses: erlef/setup-beam@v1
-        with:
-          elixir-version: '1.17.3'
-          otp-version: '26.2.5.14'
-
-      - name: Cache deps
-        uses: actions/cache@v4
-        with:
-          path: core/deps
-          key: ${{ runner.os }}-mix-${{ hashFiles('core/mix.lock') }}
-
-      - name: Install dependencies
-        working-directory: core
-        run: mix deps.get
-
-      - name: Run Credo
-        working-directory: core
-        run: mix credo
-
   blackbox:
     name: Black-box Tests
     runs-on: ubuntu-latest
@@ -188,8 +128,7 @@ jobs:
       - name: Setup Elixir
         uses: erlef/setup-beam@v1
         with:
-          elixir-version: '1.17.3'
-          otp-version: '26.2.5.14'
+          version-file: .tool-versions
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -236,8 +175,7 @@ jobs:
       - name: Setup Elixir
         uses: erlef/setup-beam@v1
         with:
-          elixir-version: '1.17.3'
-          otp-version: '26.2.5.14'
+          version-file: .tool-versions
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -281,8 +219,7 @@ jobs:
       - name: Setup Elixir
         uses: erlef/setup-beam@v1
         with:
-          elixir-version: '1.17.3'
-          otp-version: '26.2.5.14'
+          version-file: .tool-versions
 
       - name: Install dependencies
         working-directory: core
@@ -344,8 +281,7 @@ jobs:
       - name: Setup Elixir
         uses: erlef/setup-beam@v1
         with:
-          elixir-version: '1.17.3'
-          otp-version: '26.2.5.14'
+          version-file: .tool-versions
 
       - name: Cache deps
         uses: actions/cache@v4
@@ -424,8 +360,7 @@ jobs:
       - name: Setup Elixir
         uses: erlef/setup-beam@v1
         with:
-          elixir-version: '1.17.3'
-          otp-version: '26.2.5.14'
+          version-file: .tool-versions
 
       - name: Setup Go
         uses: actions/setup-go@v5

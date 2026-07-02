@@ -2966,6 +2966,7 @@ defmodule Sykli.CLI do
           %{
             status: "stopped",
             reason: Atom.to_string(info.reason),
+            pid_file: nil,
             stale_pid: Map.get(info, :stale_pid)
           }
       end

@@ -13,7 +13,7 @@ Gate alias commands: `deps.get --check-locked`, `deps.unlock --check-unused`,
 | B-0.1 | met | `.tool-versions` pins OTP and Elixir. |
 | B-0.2 | met | `core/mix.lock` committed; `mix gate` checks locked and unused deps. |
 | B-0.3 | gap | `mix_audit` currently fetches advisory data; pinned advisory snapshot not implemented. Issue: pending guardrails rollout ticket. |
-| B-0.4 | met | Gate env declares `ERL_COMPILER_OPTIONS=+deterministic`. |
+| B-0.4 | met | Gate env declares `ERL_COMPILER_OPTIONS=[deterministic]`. |
 | B-0.5 | gap | Dialyzer/PLT cache not installed. Issue: pending guardrails rollout ticket. |
 | B-0.6 | met | Gate env is declared here and in CI. |
 | B-0.7 | met | Verdicts anchor to commit OID until Toimija token support lands. |

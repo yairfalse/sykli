@@ -388,7 +388,12 @@ defmodule Sykli.CLI.Gate do
     do: {:error, {:gate_no_team_session, requested_team}}
 
   defp team_token(opts, team, runtime_opts) do
-    case Keyword.get(opts, :token) || team_token_env(runtime_opts) do
+    runtime_token =
+      if Keyword.has_key?(runtime_opts, :team_token),
+        do: Keyword.get(runtime_opts, :team_token),
+        else: System.get_env("SYKLI_TEAM_TOKEN")
+
+    case Keyword.get(opts, :token) || runtime_token do
       value when is_binary(value) ->
         value = String.trim(value)
         if value == "", do: {:error, {:gate_missing_team_token, team}}, else: {:ok, value}
@@ -396,10 +401,6 @@ defmodule Sykli.CLI.Gate do
       _ ->
         {:error, {:gate_missing_team_token, team}}
     end
-  end
-
-  defp team_token_env(runtime_opts) do
-    Keyword.get_lazy(runtime_opts, :team_token_env, fn -> System.get_env("SYKLI_TEAM_TOKEN") end)
   end
 
   defp required_reason(opts) do

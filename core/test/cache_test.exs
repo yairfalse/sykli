@@ -256,6 +256,23 @@ defmodule Sykli.CacheTest do
       assert :ok = Sykli.Cache.store(key, task, ["nonexistent.txt"], 100, @test_workdir)
     end
 
+    test "skips outputs when blob storage fails" do
+      Sykli.Cache.init()
+      blobs_dir = Path.join(Sykli.Cache.get_cache_dir(), "blobs")
+      on_exit(fn -> File.rm_rf!(blobs_dir) end)
+
+      File.rm_rf!(blobs_dir)
+      File.write!(blobs_dir, "not a directory")
+      File.write!(Path.join(@test_workdir, "app"), "content")
+
+      task = make_task("build", "echo build", outputs: ["app"])
+      key = Sykli.Cache.cache_key(task, @test_workdir)
+
+      assert :ok = Sykli.Cache.store(key, task, ["app"], 100, @test_workdir)
+      assert {:ok, entry} = Sykli.Cache.get_entry(key)
+      assert entry.outputs == []
+    end
+
     test "does not store symlink outputs" do
       Sykli.Cache.init()
 

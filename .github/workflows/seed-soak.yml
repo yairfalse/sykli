@@ -1,0 +1,40 @@
+name: Seed Soak
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: seed-soak-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ERL_COMPILER_OPTIONS: "[deterministic]"
+
+jobs:
+  seed-soak:
+    name: Seed Soak
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          version-file: .tool-versions
+
+      - name: Cache deps
+        uses: actions/cache@v4
+        with:
+          path: core/deps
+          key: ${{ runner.os }}-mix-${{ hashFiles('core/mix.lock') }}
+
+      - name: Fresh-seed tests
+        working-directory: core
+        run: |
+          mix deps.get --check-locked
+          mix test
