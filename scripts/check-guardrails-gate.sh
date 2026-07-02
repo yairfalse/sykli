@@ -20,7 +20,7 @@ do
   }
 done
 
-grep -F "ERL_COMPILER_OPTIONS=+deterministic" docs/guardrails-conformance.md >/dev/null || {
+grep -F "ERL_COMPILER_OPTIONS=[deterministic]" docs/guardrails-conformance.md >/dev/null || {
   echo "guardrails declaration missing deterministic compiler option" >&2
   exit 1
 }

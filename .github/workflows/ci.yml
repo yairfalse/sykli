@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  ERL_COMPILER_OPTIONS: "+deterministic"
+  ERL_COMPILER_OPTIONS: "[deterministic]"
 
 jobs:
   changes:

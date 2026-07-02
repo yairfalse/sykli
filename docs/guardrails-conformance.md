@@ -1,7 +1,7 @@
 # Guardrails Conformance
 
 Tree anchor: exact commit OID until Toimija consistency tokens are wired.
-Gate environment: `ERL_COMPILER_OPTIONS=+deterministic`; CI pins the same BEAM versions as `.tool-versions`.
+Gate environment: `ERL_COMPILER_OPTIONS=[deterministic]`; CI pins the same BEAM versions as `.tool-versions`.
 Gate alias commands: `deps.get --check-locked`, `deps.unlock --check-unused`,
 `format --check-formatted`, `credo --strict`,
 `compile --warnings-as-errors --force`, `deps.audit`, `test --seed 0`.

@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 env:
-  ERL_COMPILER_OPTIONS: "+deterministic"
+  ERL_COMPILER_OPTIONS: "[deterministic]"
 
 jobs:
   build:
