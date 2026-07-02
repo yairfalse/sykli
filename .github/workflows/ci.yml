@@ -99,6 +99,7 @@ jobs:
         uses: erlef/setup-beam@v1
         with:
           version-file: .tool-versions
+          version-type: strict
 
       - name: Cache deps
         uses: actions/cache@v4
@@ -129,6 +130,7 @@ jobs:
         uses: erlef/setup-beam@v1
         with:
           version-file: .tool-versions
+          version-type: strict
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -176,6 +178,7 @@ jobs:
         uses: erlef/setup-beam@v1
         with:
           version-file: .tool-versions
+          version-type: strict
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -220,6 +223,7 @@ jobs:
         uses: erlef/setup-beam@v1
         with:
           version-file: .tool-versions
+          version-type: strict
 
       - name: Install dependencies
         working-directory: core
@@ -282,6 +286,7 @@ jobs:
         uses: erlef/setup-beam@v1
         with:
           version-file: .tool-versions
+          version-type: strict
 
       - name: Cache deps
         uses: actions/cache@v4
@@ -361,6 +366,7 @@ jobs:
         uses: erlef/setup-beam@v1
         with:
           version-file: .tool-versions
+          version-type: strict
 
       - name: Setup Go
         uses: actions/setup-go@v5
