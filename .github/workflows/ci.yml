@@ -33,6 +33,7 @@ jobs:
       sdk_typescript: ${{ steps.filter.outputs.sdk_typescript }}
       sdk_python: ${{ steps.filter.outputs.sdk_python }}
       integration: ${{ steps.filter.outputs.integration }}
+      oracle: ${{ steps.filter.outputs.oracle }}
     steps:
       - uses: actions/checkout@v4
 
@@ -86,6 +87,11 @@ jobs:
               - 'core/**'
               - 'sdk/go/**'
               - 'examples/**'
+            oracle:
+              - '.github/workflows/ci.yml'
+              - 'core/**'
+              - 'schemas/**'
+              - 'eval/oracle/**'
 
   core:
     name: Core Tests
@@ -215,7 +221,10 @@ jobs:
   oracle:
     name: Oracle Eval
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: changes
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      needs.changes.outputs.oracle == 'true'
     steps:
       - uses: actions/checkout@v4
 
