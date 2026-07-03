@@ -10,7 +10,7 @@ defmodule Sykli.CLI do
   alias Sykli.Work.Store, as: WorkStore
 
   @version Mix.Project.config()[:version]
-  @subcommands ~w(cache graph delta watch report history daemon coordinator work gates gate init lock validate verify plan explain context fix query mcp run)
+  @subcommands ~w(cache graph delta watch report history daemon coordinator work gates gate init lock contract validate verify plan explain context fix query mcp run)
 
   def main(args \\ []) do
     args = normalize_global_json(args)
@@ -73,6 +73,11 @@ defmodule Sykli.CLI do
       ["lock" | lock_args] ->
         lock_args
         |> Sykli.CLI.Lock.run()
+        |> halt()
+
+      ["contract" | contract_args] ->
+        contract_args
+        |> Sykli.CLI.Contract.run()
         |> halt()
 
       ["validate" | validate_args] ->
@@ -156,6 +161,7 @@ defmodule Sykli.CLI do
       sykli run [path] Run pipeline (explicit form)
       sykli init       Create a new sykli file (auto-detects language)
       sykli lock       Write sykli.lock for the current contract
+      sykli contract   Render or diff the current contract
       sykli validate   Check sykli file for errors without running
       sykli explain    Show last run occurrence (AI-readable report)
       sykli explain --pipeline  Show pipeline structure (for AI)

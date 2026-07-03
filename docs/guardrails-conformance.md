@@ -40,7 +40,7 @@ Gate alias commands: `deps.get --check-locked`, `deps.unlock --check-unused`,
 | B-G.6 | n-a | No deterministic performance gate declared. |
 | B-C.1 | gap | Coverage ratchet against main not implemented. Issue: pending guardrails rollout ticket. |
 | B-E.1 | met | `.github/CODEOWNERS` protects guardrail-sensitive paths. |
-| B-E.2 | gap | Test-weakening diff checks not implemented. Issue: pending guardrails rollout ticket. |
+| B-E.2 | partial | sykli contract --diff classifies weakening changes; CI gating pending. |
 | B-E.3 | gap | Scope conformance check not implemented. Issue: pending guardrails rollout ticket. |
 | B-E.4 | gap | Diff budget check not implemented. Issue: pending guardrails rollout ticket. |
 | B-R.1 | met | `mix gate` is committed in `core/mix.exs`. |

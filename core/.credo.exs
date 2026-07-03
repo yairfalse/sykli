@@ -24,6 +24,7 @@
           "lib/sykli/contract_schema_version.ex",
           "lib/sykli/contract_hash.ex",
           "lib/sykli/contract_lock.ex",
+          "lib/sykli/contract_diff.ex",
           "lib/sykli/contract_slice.ex",
           "lib/sykli/failure_semantics.ex",
           "lib/sykli/occurrence/serializer.ex",
