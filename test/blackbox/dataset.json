@@ -1134,6 +1134,31 @@
       "validated_by": "Injected bug: generic validation message; offending task assertion fails."
     },
     {
+      "id": "NEG-022",
+      "name": "run rejects stale sykli.lock",
+      "fixture": "locked_contract",
+      "command": "sykli lock >/dev/null && perl -0pi -e 's/echo hi/echo bye/' sykli.exs && sykli run",
+      "shell": true,
+      "expect_exit": 1,
+      "expect_stdout_contains": [
+        "contract.lock_mismatch",
+        "sykli lock"
+      ],
+      "source": "docs/codex-brief-notation-core.md PR 1",
+      "validated_by": "Injected bug: skip lock enforcement before run; command exits 0."
+    },
+    {
+      "id": "NEG-023",
+      "name": "validate rejects corrupt sykli.lock",
+      "fixture": "locked_contract",
+      "command": "printf '{' > sykli.lock && sykli validate",
+      "shell": true,
+      "expect_exit": 1,
+      "expect_stdout": "contract.lock_corrupt",
+      "source": "docs/codex-brief-notation-core.md PR 1",
+      "validated_by": "Injected bug: ignore corrupt lockfile; validate exits 0."
+    },
+    {
       "id": "ABN-015",
       "name": "Task timeout is errored, not failed",
       "fixture": "task_timeout",
@@ -1281,6 +1306,39 @@
       "validated_by": "Injected bug: drop contract_slice from cli run --json; jq assertion fails."
     },
     {
+      "id": "JSON-010",
+      "name": "lock --json returns shared envelope",
+      "fixture": "locked_contract",
+      "command": "sykli lock --json",
+      "expect_exit": 0,
+      "expect_json_jq": [
+        ".ok == true",
+        ".data.hash | startswith(\"sha256:\")",
+        ".data.schema_version == \"4\"",
+        ".data.sdk_file == \"sykli.exs\"",
+        ".data.changed == true"
+      ],
+      "source": "docs/codex-brief-notation-core.md PR 1",
+      "validated_by": "Injected bug: bypass JsonResponse or omit lock metadata; jq assertions fail."
+    },
+    {
+      "id": "JSON-011",
+      "name": "validate --json lock mismatch returns hashes",
+      "fixture": "locked_contract",
+      "command": "sykli lock >/dev/null && perl -0pi -e 's/echo hi/echo bye/' sykli.exs && sykli validate --json",
+      "shell": true,
+      "expect_exit": 1,
+      "expect_json_jq": [
+        ".ok == false",
+        ".error == null",
+        ".data.error.code == \"contract.lock_mismatch\"",
+        ".data.hashes.locked_hash | startswith(\"sha256:\")",
+        ".data.hashes.emitted_hash | startswith(\"sha256:\")"
+      ],
+      "source": "docs/codex-brief-notation-core.md PR 1",
+      "validated_by": "Injected bug: return a plain JsonResponse.error for mismatch; .data hash assertions fail."
+    },
+    {
       "id": "DET-001",
       "name": "Two identical validate JSON outputs are byte-identical",
       "fixture": "dependency_chain",
@@ -1342,6 +1400,26 @@
       "source": "CLAUDE.md \u00a7No wall-clock or global RNG",
       "validated_by": "Injected bug: remove NoWallClock check; credo would pass and status assertion fails.",
       "findings": "NoWallClock now covers pure contract & output-shaping transforms (graph/, validate, vocab, contract hashing, occurrence serialization); a planted violation under lib/sykli/graph/ is rejected."
+    },
+    {
+      "id": "DET-007",
+      "name": "lock is byte-identical across repeated writes",
+      "fixture": "locked_contract",
+      "command": "sykli lock >/dev/null && cp sykli.lock first.lock && sykli lock >/dev/null && cmp -s first.lock sykli.lock && sykli validate >/dev/null",
+      "shell": true,
+      "expect_exit": 0,
+      "source": "docs/codex-brief-notation-core.md PR 1",
+      "validated_by": "Injected bug: add timestamp or unsorted encoding to sykli.lock; cmp assertion fails."
+    },
+    {
+      "id": "DET-008",
+      "name": "lock rejects nondeterministic emission",
+      "fixture": "nondeterministic_contract",
+      "command": "sykli lock",
+      "expect_exit": 1,
+      "expect_stdout": "contract.nondeterministic",
+      "source": "docs/codex-brief-notation-core.md PR 1",
+      "validated_by": "Injected bug: emit only once during lock; nondeterministic fixture locks successfully."
     },
     {
       "id": "SDK-001",

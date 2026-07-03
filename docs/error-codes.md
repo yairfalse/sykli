@@ -20,6 +20,17 @@ To rename or deprecate a public code, add the replacement first, keep the old co
 
 No cache-prefixed `Sykli.Error` codes are emitted today. Cache failures currently surface through execution/runtime errors or internal wrapping.
 
+### contract
+
+Contract codes are public-stable because they are emitted by `sykli lock`,
+`sykli validate`, and `sykli run` JSON surfaces.
+
+| Code | Description | Tier | Emitted from |
+|------|-------------|------|--------------|
+| `contract.lock_mismatch` | The emitted contract hash does not match `sykli.lock`. | public-stable | `core/lib/sykli/contract_lock.ex` |
+| `contract.lock_corrupt` | `sykli.lock` is unreadable, malformed, missing required fields, or has an invalid internal hash. | public-stable | `core/lib/sykli/contract_lock.ex` |
+| `contract.nondeterministic` | Two emissions of the same pipeline produced different canonical hashes. | public-stable | `core/lib/sykli/contract_lock.ex` |
+
 ### coordinator
 
 Coordinator codes are public-unstable while the self-hosted Team Mode API
