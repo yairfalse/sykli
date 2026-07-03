@@ -97,10 +97,11 @@ defmodule Sykli.ContractLock do
          {:ok, second} <- decode_contract(second_json),
          first_hash <- ContractHash.from_contract(first),
          second_hash <- ContractHash.from_contract(second),
-         true <- first_hash == second_hash || {:error, {first_hash, second_hash}} do
+         true <-
+           first_hash == second_hash || {:error, {:nondeterministic, first_hash, second_hash}} do
       {:ok, %{contract: first, hash: first_hash}}
     else
-      {:error, {first_hash, second_hash}} ->
+      {:error, {:nondeterministic, first_hash, second_hash}} ->
         {:error, Error.contract_nondeterministic(first_hash, second_hash)}
 
       {:error, %Error{} = error} ->
@@ -126,6 +127,8 @@ defmodule Sykli.ContractLock do
       else
         :ok
       end
+    else
+      {:error, reason} -> {:error, Error.wrap(reason)}
     end
   end
 

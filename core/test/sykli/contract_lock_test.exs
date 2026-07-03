@@ -65,6 +65,20 @@ defmodule Sykli.ContractLockTest do
     assert error.code == "contract.nondeterministic"
   end
 
+  test "double_emit preserves sdk emission failures" do
+    assert {:error, error} =
+             ContractLock.double_emit(fn -> {:error, {:elixir_failed, "compile error"}} end)
+
+    assert error.code == "sdk_failed"
+  end
+
+  test "verify_project preserves detector failures" do
+    assert {:error, error} =
+             ContractLock.verify_project(".", detector: __MODULE__.MissingDetector)
+
+    assert error.code == "sdk_not_found"
+  end
+
   test "verify_project uses injected detector and emit source" do
     tmp = Path.join(System.tmp_dir!(), "sykli-lock-#{System.unique_integer([:positive])}")
     File.mkdir_p!(tmp)
@@ -87,5 +101,9 @@ defmodule Sykli.ContractLockTest do
 
   defmodule FakeDetector do
     def find(path), do: {:ok, {Path.join(path, "sykli.exs"), fn _ -> :unused end}}
+  end
+
+  defmodule MissingDetector do
+    def find(_path), do: {:error, :no_sdk_file}
   end
 end

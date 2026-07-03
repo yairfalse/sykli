@@ -1159,6 +1159,21 @@
       "validated_by": "Injected bug: ignore corrupt lockfile; validate exits 0."
     },
     {
+      "id": "NEG-024",
+      "name": "run without SDK file returns JSON error",
+      "fixture": "empty_dir",
+      "command": "sykli run --json",
+      "expect_exit": 1,
+      "expect_json_contains": {
+        "ok": false
+      },
+      "expect_stdout_contains": [
+        "sdk_not_found"
+      ],
+      "source": "docs/codex-brief-notation-core.md PR 1 follow-up",
+      "validated_by": "Regression: lock enforcement returned {:error, :no_sdk_file}; run crashed with CaseClauseError."
+    },
+    {
       "id": "ABN-015",
       "name": "Task timeout is errored, not failed",
       "fixture": "task_timeout",
