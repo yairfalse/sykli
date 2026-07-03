@@ -113,22 +113,22 @@ defmodule Sykli.ContractLock do
   end
 
   def verify_project(path, opts \\ []) do
-    with {:ok, {sdk_file, _runner} = sdk} <- detector(opts).find(path) do
-      lock_path = lock_path_for_sdk(sdk_file)
+    case detector(opts).find(path) do
+      {:ok, {sdk_file, _runner} = sdk} ->
+        lock_path = lock_path_for_sdk(sdk_file)
 
-      if File.exists?(lock_path) do
-        with {:ok, lock} <- read(lock_path),
-             {:ok, current} <- double_emit(fn -> emit(opts, sdk) end),
-             :ok <- verify_contract(current.contract, lock) do
-          {:ok, %{hash: current.hash, lock_path: lock_path}}
+        if File.exists?(lock_path) do
+          with {:ok, lock} <- read(lock_path),
+               {:ok, current} <- double_emit(fn -> emit(opts, sdk) end),
+               :ok <- verify_contract(current.contract, lock) do
+            {:ok, %{hash: current.hash, lock_path: lock_path}}
+          end
         else
-          {:error, %Error{} = error} -> {:error, error}
+          :ok
         end
-      else
+
+      {:error, _reason} ->
         :ok
-      end
-    else
-      {:error, reason} -> {:error, Error.wrap(reason)}
     end
   end
 

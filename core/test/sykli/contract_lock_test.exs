@@ -72,11 +72,8 @@ defmodule Sykli.ContractLockTest do
     assert error.code == "sdk_failed"
   end
 
-  test "verify_project preserves detector failures" do
-    assert {:error, error} =
-             ContractLock.verify_project(".", detector: __MODULE__.MissingDetector)
-
-    assert error.code == "sdk_not_found"
+  test "verify_project ignores detector failures" do
+    assert :ok = ContractLock.verify_project(".", detector: __MODULE__.MissingDetector)
   end
 
   test "verify_project uses injected detector and emit source" do
