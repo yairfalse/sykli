@@ -673,11 +673,16 @@ if begin_case "031" "Semantics: blocked task skipped when dependency fails"; the
   make_pipeline "$dir" "blocked_downstream.exs"
   LAST_OUTPUT=$(run_sykli "$dir" 2>&1) && exit_code=0 || exit_code=$?
   if [[ "$exit_code" -ne 0 ]]; then
-    # "deploy" should NOT have run
-    if ! echo "$LAST_OUTPUT" | grep -q "echo deploy"; then
+    # Non-execution is proven by the side effect: deploy's command creates a
+    # sentinel file, which must not exist after the run. The rendered status
+    # is asserted too. (Grepping for the command string can't be used here —
+    # the renderer prints every task's command in its summary line.)
+    if [[ -f "$dir/deploy_ran.sentinel" ]]; then
+      fail "blocked task 'deploy' should not have executed"
+    elif echo "$LAST_OUTPUT" | grep -E "deploy" | grep -q "blocked"; then
       pass 0
     else
-      fail "blocked task 'deploy' should not have executed"
+      fail "blocked task 'deploy' should be reported as blocked"
     fi
   else
     fail "pipeline should fail when build fails"
