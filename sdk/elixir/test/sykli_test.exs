@@ -134,6 +134,39 @@ defmodule SykliTest do
       assert task["mandate"]["scope"] == ["sdk/elixir/**"]
     end
 
+    test "actor and mandate are rejected on gate tasks" do
+      use Sykli
+
+      assert_raise RuntimeError, ~r/actor is not supported on gate tasks/, fn ->
+        pipeline do
+          gate "approve" do
+            actor(:human, "maintainer")
+          end
+        end
+      end
+
+      assert_raise RuntimeError, ~r/mandate is not supported on gate tasks/, fn ->
+        pipeline do
+          gate "approve" do
+            mandate(["docs/**"])
+          end
+        end
+      end
+    end
+
+    test "mandate rejects unknown options" do
+      use Sykli
+
+      assert_raise ArgumentError, ~r/unknown mandate option.*wallclock_ms/, fn ->
+        pipeline do
+          task "implement" do
+            run("mix test")
+            mandate(["lib/**"], wallclock_ms: 900_000)
+          end
+        end
+      end
+    end
+
     test "agent actor requires mandate at emit time" do
       use Sykli
 

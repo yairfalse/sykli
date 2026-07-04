@@ -65,6 +65,7 @@ defmodule Sykli.Emitter do
 
         task.kind != :review and agent_missing_field(task) ->
           missing = agent_missing_field(task)
+          Logger.error("agent actor missing #{missing}", task: task.name)
 
           raise "task #{inspect(task.name)} declares actor.kind \"agent\" but does not declare #{missing}"
 

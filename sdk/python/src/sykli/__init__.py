@@ -246,11 +246,14 @@ def _validate_evidence_required(
             raise ValueError(f"task {task_name!r}: evidence_required.predicate is only supported for file")
 
 
-def actor(kind: ActorKind, id: str = "") -> Actor:
+def actor(kind: ActorKind, id: str | None = None) -> Actor:
     """Create an actor declaration."""
-    _validate_enum(kind, ACTOR_KINDS, "actor.kind", "")
-    if id == "":
+    if kind not in ACTOR_KINDS:
+        raise ValueError(f"invalid actor.kind {kind!r}, must be one of: {', '.join(ACTOR_KINDS)}")
+    if id is None:
         return {"kind": kind}
+    if not isinstance(id, str) or not id:
+        raise ValueError("actor.id cannot be empty")
     return {"kind": kind, "id": id}
 
 
@@ -262,7 +265,19 @@ def mandate(
     network: bool | None = None,
 ) -> Mandate:
     """Create a mandate declaration."""
-    result: Mandate = {"scope": list(scope)}
+    scope_list = list(scope)
+    if not scope_list:
+        raise ValueError("mandate.scope cannot be empty")
+    if any(not isinstance(entry, str) or not entry for entry in scope_list):
+        raise ValueError("mandate.scope entries cannot be empty")
+    if diff_lines is not None and (not isinstance(diff_lines, int) or diff_lines <= 0):
+        raise ValueError("mandate.budget.diff_lines must be positive")
+    if wall_clock_ms is not None and (not isinstance(wall_clock_ms, int) or wall_clock_ms <= 0):
+        raise ValueError("mandate.budget.wall_clock_ms must be positive")
+    if network is not None and not isinstance(network, bool):
+        raise ValueError("mandate.capabilities.network must be boolean")
+
+    result: Mandate = {"scope": scope_list}
     budget: dict[str, int] = {}
     if diff_lines is not None:
         budget["diff_lines"] = diff_lines
@@ -272,7 +287,6 @@ def mandate(
         result["budget"] = budget
     if network is not None:
         result["capabilities"] = {"network": network}
-    _validate_mandate("", result)
     return result
 
 

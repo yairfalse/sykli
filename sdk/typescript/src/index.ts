@@ -148,6 +148,7 @@ export type Mandate = {
 };
 
 function validateActor(taskName: string, actor: Actor): void {
+  rejectUnknownKeys(taskName, 'actor', actor, ['kind', 'id']);
   if (!ACTOR_KINDS.includes(actor.kind)) {
     throw new Error(`task '${taskName}': invalid actor.kind '${(actor as any).kind}'`);
   }
@@ -156,7 +157,15 @@ function validateActor(taskName: string, actor: Actor): void {
   }
 }
 
+function rejectUnknownKeys(taskName: string, label: string, value: object, known: string[]): void {
+  const unknown = Object.keys(value).filter((key) => !known.includes(key));
+  if (unknown.length > 0) {
+    throw new Error(`task '${taskName}': unknown ${label} key(s): ${unknown.join(', ')}`);
+  }
+}
+
 function validateMandate(taskName: string, mandate: Mandate): void {
+  rejectUnknownKeys(taskName, 'mandate', mandate, ['scope', 'budget', 'capabilities']);
   if (!Array.isArray(mandate.scope) || mandate.scope.length === 0) {
     throw new Error(`task '${taskName}': mandate.scope cannot be empty`);
   }
@@ -164,12 +173,23 @@ function validateMandate(taskName: string, mandate: Mandate): void {
     throw new Error(`task '${taskName}': mandate.scope entries cannot be empty`);
   }
   const budget = mandate.budget;
-  if (budget) {
+  if (budget !== undefined) {
+    rejectUnknownKeys(taskName, 'mandate.budget', budget, ['diff_lines', 'wall_clock_ms']);
+    if (Object.keys(budget).length === 0) {
+      throw new Error(`task '${taskName}': mandate.budget cannot be empty`);
+    }
     if (budget.diff_lines !== undefined && (!Number.isInteger(budget.diff_lines) || budget.diff_lines <= 0)) {
       throw new Error(`task '${taskName}': mandate.budget.diff_lines must be a positive integer`);
     }
     if (budget.wall_clock_ms !== undefined && (!Number.isInteger(budget.wall_clock_ms) || budget.wall_clock_ms <= 0)) {
       throw new Error(`task '${taskName}': mandate.budget.wall_clock_ms must be a positive integer`);
+    }
+  }
+  const capabilities = mandate.capabilities;
+  if (capabilities !== undefined) {
+    rejectUnknownKeys(taskName, 'mandate.capabilities', capabilities, ['network']);
+    if (capabilities.network !== undefined && typeof capabilities.network !== 'boolean') {
+      throw new Error(`task '${taskName}': mandate.capabilities.network must be a boolean`);
     }
   }
 }
@@ -590,10 +610,9 @@ export class Task {
     }
     validateMandate(this.name, mandate);
     this._mandate = {
-      ...mandate,
       scope: [...mandate.scope],
-      budget: mandate.budget ? { ...mandate.budget } : undefined,
-      capabilities: mandate.capabilities ? { ...mandate.capabilities } : undefined,
+      ...(mandate.budget !== undefined ? { budget: { ...mandate.budget } } : {}),
+      ...(mandate.capabilities !== undefined ? { capabilities: { ...mandate.capabilities } } : {}),
     };
     return this;
   }

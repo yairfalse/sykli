@@ -131,11 +131,13 @@ type Actor struct {
 
 // Mandate declares the bounded work scope for a task.
 type Mandate struct {
-	scope        []string
-	diffLines    int
-	wallClockMS  int
-	networkSet   bool
-	networkAllow bool
+	scope          []string
+	diffLines      int
+	diffLinesSet   bool
+	wallClockMS    int
+	wallClockMSSet bool
+	networkSet     bool
+	networkAllow   bool
 }
 
 // MandateOption configures a mandate.
@@ -143,12 +145,18 @@ type MandateOption func(*Mandate)
 
 // DiffLines limits added plus deleted lines.
 func DiffLines(limit int) MandateOption {
-	return func(m *Mandate) { m.diffLines = limit }
+	return func(m *Mandate) {
+		m.diffLines = limit
+		m.diffLinesSet = true
+	}
 }
 
 // WallClockMS limits task wall-clock duration in milliseconds.
 func WallClockMS(limit int) MandateOption {
-	return func(m *Mandate) { m.wallClockMS = limit }
+	return func(m *Mandate) {
+		m.wallClockMS = limit
+		m.wallClockMSSet = true
+	}
 }
 
 // Network controls whether the task may use network access.
@@ -1073,7 +1081,7 @@ func (t *Task) Mandate(m Mandate) *Task {
 			log.Panic().Str("task", t.name).Msg("mandate.scope entries cannot be empty")
 		}
 	}
-	if m.diffLines < 0 || m.wallClockMS < 0 {
+	if (m.diffLinesSet && m.diffLines <= 0) || (m.wallClockMSSet && m.wallClockMS <= 0) {
 		log.Panic().Str("task", t.name).Msg("mandate budget values must be positive")
 	}
 	copy := m
@@ -2589,7 +2597,7 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 		var mandate *jsonMandate
 		if t.mandate != nil {
 			mandate = &jsonMandate{Scope: t.mandate.scope}
-			if t.mandate.diffLines > 0 || t.mandate.wallClockMS > 0 {
+			if t.mandate.diffLinesSet || t.mandate.wallClockMSSet {
 				mandate.Budget = &jsonMandateBudget{
 					DiffLines:   t.mandate.diffLines,
 					WallClockMS: t.mandate.wallClockMS,

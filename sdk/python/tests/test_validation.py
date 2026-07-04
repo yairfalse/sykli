@@ -11,6 +11,7 @@ from sykli import (
     file_exists,
     file_non_empty,
     file_evidence_non_empty,
+    mandate,
 )
 from sykli import _jaro_similarity, _jaro_winkler, _best_match
 
@@ -181,6 +182,19 @@ class TestDeferredValidation:
 
         with pytest.raises(ValidationError, match="does not declare mandate"):
             p.validate()
+
+    def test_actor_helper_rejects_empty_id(self):
+        with pytest.raises(ValueError, match="actor.id cannot be empty"):
+            actor("agent", "")
+
+    def test_actor_helper_omits_id_when_none(self):
+        assert actor("agent") == {"kind": "agent"}
+
+    def test_mandate_helper_rejects_nonpositive_budget(self):
+        with pytest.raises(ValueError, match="diff_lines must be positive"):
+            mandate(["src/**"], diff_lines=0)
+        with pytest.raises(ValueError, match="wall_clock_ms must be positive"):
+            mandate(["src/**"], wall_clock_ms=0)
 
     def test_empty_review_name(self):
         p = Pipeline()

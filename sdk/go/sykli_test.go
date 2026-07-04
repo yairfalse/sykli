@@ -243,6 +243,32 @@ func TestActorMandateSerialization(t *testing.T) {
 	}
 }
 
+func TestMandateZeroBudgetPanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for zero mandate budget")
+		}
+	}()
+
+	p := New()
+	p.Task("implement").
+		Run("go test ./...").
+		Mandate(NewMandate([]string{"sdk/go/**"}, DiffLines(0)))
+}
+
+func TestMandateZeroWallClockPanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for zero mandate wall-clock budget")
+		}
+	}()
+
+	p := New()
+	p.Task("implement").
+		Run("go test ./...").
+		Mandate(NewMandate([]string{"sdk/go/**"}, WallClockMS(0)))
+}
+
 func TestAgentActorRequiresMandateAtEmit(t *testing.T) {
 	p := New()
 	p.Task("implement").

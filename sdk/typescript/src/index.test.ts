@@ -176,6 +176,39 @@ describe('Pipeline', () => {
       expect(task.mandate.scope).toEqual(['sdk/typescript/**']);
     });
 
+    it('rejects an empty mandate budget object', () => {
+      const p = new Pipeline();
+      expect(() =>
+        p.task('implement').run('go test ./...').mandate({ scope: ['src/**'], budget: {} }),
+      ).toThrow('mandate.budget cannot be empty');
+    });
+
+    it('rejects unknown mandate keys from untyped callers', () => {
+      const p = new Pipeline();
+      expect(() =>
+        p
+          .task('implement')
+          .run('go test ./...')
+          .mandate({ scope: ['src/**'], budgets: { diff_lines: 200 } } as any),
+      ).toThrow("unknown mandate key(s): budgets");
+    });
+
+    it('rejects unknown mandate budget keys and non-boolean network', () => {
+      const p = new Pipeline();
+      expect(() =>
+        p
+          .task('a')
+          .run('true')
+          .mandate({ scope: ['src/**'], budget: { diffLines: 200 } } as any),
+      ).toThrow('unknown mandate.budget key(s): diffLines');
+      expect(() =>
+        p
+          .task('b')
+          .run('true')
+          .mandate({ scope: ['src/**'], capabilities: { network: 'no' } } as any),
+      ).toThrow('mandate.capabilities.network must be a boolean');
+    });
+
     it('rejects agent actor without mandate at emit time', () => {
       const p = new Pipeline();
       p.task('implement')

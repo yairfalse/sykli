@@ -160,6 +160,7 @@ defmodule Sykli.DSL do
   def actor(kind, id \\ nil) do
     update_current_task(fn t ->
       reject_review_option!(t, "actor")
+      reject_gate_option!(t, "actor")
 
       if not Sykli.Task.valid_actor_kind?(kind) do
         raise ArgumentError, "invalid actor.kind #{inspect(kind)}"
@@ -178,6 +179,17 @@ defmodule Sykli.DSL do
   def mandate(scope, opts \\ []) when is_list(scope) and is_list(opts) do
     update_current_task(fn t ->
       reject_review_option!(t, "mandate")
+      reject_gate_option!(t, "mandate")
+
+      case Keyword.split(opts, [:diff_lines, :wall_clock_ms, :network]) do
+        {_known, []} ->
+          :ok
+
+        {_known, unknown} ->
+          raise ArgumentError,
+                "unknown mandate option(s) #{inspect(Keyword.keys(unknown))}; " <>
+                  "supported: :diff_lines, :wall_clock_ms, :network"
+      end
 
       if scope == [] or Enum.any?(scope, &(&1 == "")) do
         raise ArgumentError, "mandate.scope cannot be empty"
@@ -1226,6 +1238,12 @@ defmodule Sykli.DSL do
   end
 
   defp reject_review_option!(%Sykli.Task{}, _option), do: :ok
+
+  defp reject_gate_option!(%Sykli.Task{gate: gate}, option) when not is_nil(gate) do
+    raise "#{option} is not supported on gate tasks"
+  end
+
+  defp reject_gate_option!(%Sykli.Task{}, _option), do: :ok
 
   defp validate_success_criteria!(criteria) do
     exit_code_count =
