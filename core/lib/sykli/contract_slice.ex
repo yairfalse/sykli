@@ -235,11 +235,10 @@ defmodule Sykli.ContractSlice do
   defp parse_status(value) when value in [:passed, :failed, :unsupported], do: value
   defp parse_status(_), do: :unknown
 
-  defp parse_evidence_status(value)
-       when value in ["satisfied", "missing", "unsupported", "not_evaluated"] do
-    String.to_existing_atom(value)
-  end
-
+  defp parse_evidence_status("satisfied"), do: :satisfied
+  defp parse_evidence_status("missing"), do: :missing
+  defp parse_evidence_status("unsupported"), do: :unsupported
+  defp parse_evidence_status("not_evaluated"), do: :not_evaluated
   defp parse_evidence_status(value) when is_atom(value), do: value
   defp parse_evidence_status(_), do: :missing
 

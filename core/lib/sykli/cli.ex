@@ -10,7 +10,7 @@ defmodule Sykli.CLI do
   alias Sykli.Work.Store, as: WorkStore
 
   @version Mix.Project.config()[:version]
-  @subcommands ~w(cache graph delta watch report history daemon coordinator work gates gate init lock contract validate verify plan explain context fix query mcp run)
+  @subcommands ~w(cache graph delta watch report history daemon coordinator work gates gate init lock contract audit validate verify plan explain context fix query mcp run)
 
   def main(args \\ []) do
     args = normalize_global_json(args)
@@ -78,6 +78,11 @@ defmodule Sykli.CLI do
       ["contract" | contract_args] ->
         contract_args
         |> Sykli.CLI.Contract.run()
+        |> halt()
+
+      ["audit" | audit_args] ->
+        audit_args
+        |> Sykli.CLI.Audit.run()
         |> halt()
 
       ["validate" | validate_args] ->
@@ -162,6 +167,7 @@ defmodule Sykli.CLI do
       sykli init       Create a new sykli file (auto-detects language)
       sykli lock       Write sykli.lock for the current contract
       sykli contract   Render or diff the current contract
+      sykli audit      Audit a recorded run manifest
       sykli validate   Check sykli file for errors without running
       sykli explain    Show last run occurrence (AI-readable report)
       sykli explain --pipeline  Show pipeline structure (for AI)
@@ -473,6 +479,7 @@ defmodule Sykli.CLI do
       |> maybe_add_evidence_results(r.evidence_results)
       |> maybe_add_review_result(r.review_result)
       |> maybe_add_failure_semantics(r.failure_semantics)
+      |> maybe_add_mandate_outcome(r.mandate_outcome)
       |> maybe_add_agent_hints(r.failure_semantics)
       |> maybe_add_contract_slice(Map.get(graph, r.name))
 
@@ -522,6 +529,12 @@ defmodule Sykli.CLI do
 
   defp maybe_add_failure_semantics(base, semantics) do
     Map.put(base, :failure_semantics, Sykli.FailureSemantics.to_map(semantics))
+  end
+
+  defp maybe_add_mandate_outcome(base, nil), do: base
+
+  defp maybe_add_mandate_outcome(base, outcome) do
+    Map.put(base, :mandate_outcome, outcome)
   end
 
   defp maybe_add_agent_hints(base, nil), do: base

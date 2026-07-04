@@ -20,6 +20,15 @@ To rename or deprecate a public code, add the replacement first, keep the old co
 
 No cache-prefixed `Sykli.Error` codes are emitted today. Cache failures currently surface through execution/runtime errors or internal wrapping.
 
+### audit
+
+Audit codes are public-unstable while `sykli audit` is new.
+
+| Code | Description | Tier | Emitted from |
+|------|-------------|------|--------------|
+| `audit.run_not_found` | `sykli audit` was called without a run id, or the requested run id is not present in local run history. | public-unstable | `core/lib/sykli/cli/audit.ex` |
+| `audit.invalid_args` | `sykli audit` received an unsupported argument shape. | public-unstable | `core/lib/sykli/cli/audit.ex` |
+
 ### contract
 
 Contract codes are public-stable because they are emitted by `sykli lock`,

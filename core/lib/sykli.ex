@@ -296,6 +296,7 @@ defmodule Sykli do
             cached: t.cached,
             error: t.error,
             failure_semantics: t.failure_semantics,
+            mandate_outcome: t.mandate_outcome,
             contract_slice: t.contract_slice,
             success_criteria_results: t.success_criteria_results,
             evidence_results: t.evidence_results
@@ -476,6 +477,7 @@ defmodule Sykli do
         failure_semantics:
           result.failure_semantics ||
             Sykli.FailureSemantics.for_result(result.status, result.error),
+        mandate_outcome: result.mandate_outcome,
         contract_slice: Sykli.ContractSlice.from_task(task),
         success_criteria_results:
           Enum.map(result.success_criteria_results || [], &success_criteria_for_history/1),

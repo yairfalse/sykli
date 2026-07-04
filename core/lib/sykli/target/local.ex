@@ -145,6 +145,11 @@ defmodule Sykli.Target.Local do
     :ok
   end
 
+  def network_isolation?(task, state) do
+    runtime = runtime_for_task(task, state)
+    function_exported?(runtime, :network_isolation?, 0) and runtime.network_isolation?()
+  end
+
   # ─────────────────────────────────────────────────────────────────────────────
   # SECRETS
   # ─────────────────────────────────────────────────────────────────────────────
@@ -268,12 +273,16 @@ defmodule Sykli.Target.Local do
     base_workdir = Keyword.get(opts, :workdir, state.workdir)
     network = Keyword.get(opts, :network)
     # Per-task timeout: task.timeout (seconds) > global --timeout > 5 min default
-    timeout_ms =
+    base_timeout_ms =
       cond do
         task.timeout -> task.timeout * 1000
         state.timeout_ms -> state.timeout_ms
         true -> 300_000
       end
+
+    mandate_timeout_ms = Keyword.get(opts, :mandate_timeout_ms)
+    timeout_ms = min_timeout(base_timeout_ms, mandate_timeout_ms)
+    mandate_timeout? = is_integer(mandate_timeout_ms) and timeout_ms == mandate_timeout_ms
 
     # For shell execution (no container), combine base workdir with task workdir.
     # For container execution, task.workdir is the container workdir (passed separately).
@@ -318,7 +327,11 @@ defmodule Sykli.Target.Local do
         {:error, error}
 
       {:error, :timeout} ->
-        {:error, Sykli.Error.task_timeout(task.name, display_cmd, timeout_ms)}
+        if mandate_timeout? do
+          {:error, {:mandate_budget_exceeded, "wall_clock_ms", timeout_ms, mandate_timeout_ms}}
+        else
+          {:error, Sykli.Error.task_timeout(task.name, display_cmd, timeout_ms)}
+        end
 
       {:error, reason} ->
         error =
@@ -328,6 +341,9 @@ defmodule Sykli.Target.Local do
         {:error, error}
     end
   end
+
+  defp min_timeout(timeout_ms, nil), do: timeout_ms
+  defp min_timeout(timeout_ms, mandate_timeout_ms), do: min(timeout_ms, mandate_timeout_ms)
 
   @impl true
   def evaluate_success_criteria(task, criteria, state, opts) do
@@ -407,6 +423,9 @@ defmodule Sykli.Target.Local do
   # ─────────────────────────────────────────────────────────────────────────────
   # EXECUTION PARAMS
   # ─────────────────────────────────────────────────────────────────────────────
+
+  defp runtime_for_task(%{container: nil}, state), do: state.containerless_runtime
+  defp runtime_for_task(_task, state), do: state.runtime
 
   defp build_execution_params(%{container: nil, command: command}, _workdir, state) do
     # No container image — run via the containerless runtime (composed at
