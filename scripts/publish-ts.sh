@@ -35,4 +35,10 @@ trap 'rm -f "$npmrc"' EXIT
 # shellcheck disable=SC2016
 echo '//registry.npmjs.org/:_authToken=${NPM_TOKEN}' > "$npmrc"
 
-NPM_CONFIG_USERCONFIG="$npmrc" npm publish
+# Prerelease versions (anything with a '-', e.g. 0.9.0-rc.1) go to the "rc"
+# dist-tag so `npm install sykli` keeps serving the latest stable.
+if [[ "$VERSION" == *-* ]]; then
+  NPM_CONFIG_USERCONFIG="$npmrc" npm publish --tag rc
+else
+  NPM_CONFIG_USERCONFIG="$npmrc" npm publish
+fi
