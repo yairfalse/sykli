@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`sykli lock`.** Writes `sykli.lock` with the canonical contract and
   enforces matching locked contracts in `sykli validate` and `sykli run`.
+- **`sykli contract`.** Renders the current emitted contract and supports
+  `--diff` against `sykli.lock` or another lockfile with weakening
+  classification.
 - **Daemon heartbeat loop (Monster Phase D, PR 1).** New
   `Sykli.Daemon.Heartbeat` GenServer implements the runtime side of
   `docs/daemon-join-protocol.md`: coordinator-owned cadence

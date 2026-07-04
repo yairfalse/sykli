@@ -1174,6 +1174,20 @@
       "validated_by": "Regression: lock enforcement returned {:error, :no_sdk_file}; run crashed with CaseClauseError."
     },
     {
+      "id": "NEG-025",
+      "name": "contract diff exits one on weakening",
+      "fixture": "locked_contract",
+      "command": "sykli lock >/dev/null && perl -0pi -e 's/\"success_criteria\":\\[\\{\"type\":\"exit_code\",\"equals\":0\\}\\],//' sykli.exs && sykli contract --diff",
+      "shell": true,
+      "expect_exit": 1,
+      "expect_stdout_contains": [
+        "Weakening",
+        "Verdict: weakening present"
+      ],
+      "source": "docs/codex-brief-notation-core.md PR 2",
+      "validated_by": "Injected bug: weakening diff exits 0; exit assertion fails."
+    },
+    {
       "id": "ABN-015",
       "name": "Task timeout is errored, not failed",
       "fixture": "task_timeout",
@@ -1352,6 +1366,37 @@
       ],
       "source": "docs/codex-brief-notation-core.md PR 1",
       "validated_by": "Injected bug: return a plain JsonResponse.error for mismatch; .data hash assertions fail."
+    },
+    {
+      "id": "JSON-012",
+      "name": "contract --json returns canonical contract envelope",
+      "fixture": "locked_contract",
+      "command": "sykli contract --json",
+      "expect_exit": 0,
+      "expect_json_jq": [
+        ".ok == true",
+        ".data.version == \"4\"",
+        ".data.tasks[0].success_criteria | type == \"array\""
+      ],
+      "source": "docs/codex-brief-notation-core.md PR 2",
+      "validated_by": "Injected bug: render human text for contract --json; jq assertions fail."
+    },
+    {
+      "id": "JSON-013",
+      "name": "contract --diff --json reports weakening",
+      "fixture": "locked_contract",
+      "command": "sykli lock >/dev/null && perl -0pi -e 's/\"success_criteria\":\\[\\{\"type\":\"exit_code\",\"equals\":0\\}\\],//' sykli.exs && sykli contract --diff --json",
+      "shell": true,
+      "expect_exit": 1,
+      "expect_json_jq": [
+        ".ok == true",
+        ".data.weakening == true",
+        ".data.from_hash | startswith(\"sha256:\")",
+        ".data.to_hash | startswith(\"sha256:\")",
+        ".data.changes[] | select(.direction == \"weakening\")"
+      ],
+      "source": "docs/codex-brief-notation-core.md PR 2",
+      "validated_by": "Injected bug: classify removed success_criteria as neutral; weakening assertion fails."
     },
     {
       "id": "DET-001",
