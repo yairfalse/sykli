@@ -210,6 +210,7 @@ Local-first is binding: anything new must work in mode 1 with no network. The co
 | `Daemon.Join` / `Daemon.SessionStore` | `daemon/join.ex`, `daemon/session_store.ex` | Outbound daemon join + heartbeat protocol (see `docs/daemon-join-protocol.md`). Session token persisted under `.sykli/`. |
 | `ReviewPrimitive` | `review_primitive.ex` | Deterministic dispatch for `kind: "review"` nodes. Canonical names only (e.g. `api_breakage`); hyphenated aliases are rejected. Returns `Result{review_type, status, severity, message, tool, findings, evidence}`. Unsupported primitives fail explicitly — never silently skipped. |
 | `ContractHash` | `contract_hash.ex` | `sha256:` hashes for emitted SDK JSON. Canonicalizes by re-encoding parsed JSON so formatting and SDK-side comments don't perturb the hash. Used as Team Mode contract identity. |
+| `ContractLock` | `contract_lock.ex` | `sykli.lock` build/encode/decode/verify logic. Stores the full canonical contract and enforces locked contract hashes for `validate`/`run`. |
 | `CLI.{Coordinator,Gate,Work}` | `cli/{coordinator,gate,work}.ex` | Subcommand modules for the Team Mode CLI surface. All `--json` output flows through `CLI.JsonResponse`. |
 | `FailureSemantics` | `failure_semantics.ex` | Normalized terminal-result classification (`class`, `retryable`, `source`, `reason`, `message`). Independent of the pipeline contract schema. Produced by the executor; `to_map/1` ↔ `from_map/1` round-trip for history/occurrences. Unknown classes degrade to `:unknown`. |
 | `ContractSlice` | `contract_slice.ex` | Reference-sized post-parse snapshot of a task's declared semantics (`from_task/1`), stored with result evidence to explain *which contract governed* a result. Never carries logs/source/artifacts/raw output. |
@@ -287,7 +288,7 @@ The project dogfoods itself via `sykli.exs` (root-level pipeline) and `.github/w
 
 ## CLI Commands
 
-`run`, `validate`, `init`, `explain`, `fix`, `plan`, `context`, `query`, `graph`, `report`, `history`, `verify`, `delta`, `watch`, `daemon`, `mcp`, `cache`, `work`, `gate`, `coordinator`
+`run`, `validate`, `init`, `lock`, `explain`, `fix`, `plan`, `context`, `query`, `graph`, `report`, `history`, `verify`, `delta`, `watch`, `daemon`, `mcp`, `cache`, `work`, `gate`, `coordinator`
 
 ## Environment Variables
 

@@ -715,6 +715,39 @@ defmodule Sykli.Error do
     }
   end
 
+  def contract_lock_mismatch(locked_hash, actual_hash) do
+    %__MODULE__{
+      code: "contract.lock_mismatch",
+      type: :validation,
+      message: "emitted contract hash does not match sykli.lock",
+      step: :validate,
+      hints: ["run `sykli lock` to accept the new contract edition"],
+      notes: ["locked: #{locked_hash}", "emitted: #{actual_hash}"]
+    }
+  end
+
+  def contract_lock_corrupt(path, reason) do
+    %__MODULE__{
+      code: "contract.lock_corrupt",
+      type: :validation,
+      message: "sykli.lock is unreadable or internally inconsistent",
+      step: :validate,
+      hints: ["inspect #{path} or regenerate it with `sykli lock`"],
+      notes: ["reason: #{inspect(reason)}"]
+    }
+  end
+
+  def contract_nondeterministic(first_hash, second_hash) do
+    %__MODULE__{
+      code: "contract.nondeterministic",
+      type: :validation,
+      message: "pipeline emission is not deterministic",
+      step: :validate,
+      hints: ["remove random, clock, or ambient inputs from the sykli file before retrying"],
+      notes: ["first: #{first_hash}", "second: #{second_hash}"]
+    }
+  end
+
   # ─────────────────────────────────────────────────────────────────────────────
   # GATE DECISION ERRORS
   # ─────────────────────────────────────────────────────────────────────────────
@@ -1030,6 +1063,7 @@ defmodule Sykli.Error do
   def wrap({:invalid_note, reason}), do: invalid_work_item({:invalid_note, reason})
   def wrap({:invalid_note_author, reason}), do: invalid_work_item({:invalid_note_author, reason})
   def wrap({:contract_hash_failed, path, reason}), do: contract_hash_failed(path, reason)
+  def wrap({:contract_lock_corrupt, path, reason}), do: contract_lock_corrupt(path, reason)
 
   # Gate decision errors
   def wrap({:gate_not_found, id}), do: gate_not_found(id)

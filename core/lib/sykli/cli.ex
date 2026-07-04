@@ -10,7 +10,7 @@ defmodule Sykli.CLI do
   alias Sykli.Work.Store, as: WorkStore
 
   @version Mix.Project.config()[:version]
-  @subcommands ~w(cache graph delta watch report history daemon coordinator work gates gate init validate verify plan explain context fix query mcp run)
+  @subcommands ~w(cache graph delta watch report history daemon coordinator work gates gate init lock validate verify plan explain context fix query mcp run)
 
   def main(args \\ []) do
     args = normalize_global_json(args)
@@ -69,6 +69,11 @@ defmodule Sykli.CLI do
 
       ["init" | init_args] ->
         handle_init(init_args)
+
+      ["lock" | lock_args] ->
+        lock_args
+        |> Sykli.CLI.Lock.run()
+        |> halt()
 
       ["validate" | validate_args] ->
         handle_validate(validate_args)
@@ -150,6 +155,7 @@ defmodule Sykli.CLI do
       sykli [path]     Run pipeline (default: current directory)
       sykli run [path] Run pipeline (explicit form)
       sykli init       Create a new sykli file (auto-detects language)
+      sykli lock       Write sykli.lock for the current contract
       sykli validate   Check sykli file for errors without running
       sykli explain    Show last run occurrence (AI-readable report)
       sykli explain --pipeline  Show pipeline structure (for AI)
@@ -271,6 +277,27 @@ defmodule Sykli.CLI do
         run_opts
       end
 
+    case enforce_contract_lock(path) do
+      :ok ->
+        do_run_after_lock(path, opts, run_opts, start_time, json_output, original_gl)
+
+      {:ok, _meta} ->
+        do_run_after_lock(path, opts, run_opts, start_time, json_output, original_gl)
+
+      {:error, %Error{} = error} ->
+        if original_gl, do: restore_stdout(original_gl)
+
+        if json_output do
+          IO.puts(lock_error_json(error))
+        else
+          display_error(error)
+        end
+
+        halt(1)
+    end
+  end
+
+  defp do_run_after_lock(path, opts, run_opts, start_time, json_output, original_gl) do
     case prepare_work_run_context(path, opts) do
       {:ok, work_meta, work_run_opts} ->
         # return_graph: true lets the --json surface project each task's
@@ -296,6 +323,26 @@ defmodule Sykli.CLI do
         halt(1)
     end
   end
+
+  defp enforce_contract_lock(path), do: Sykli.ContractLock.verify_project(path)
+
+  defp lock_error_json(%Error{code: "contract.lock_mismatch", notes: notes} = error) do
+    hashes =
+      notes
+      |> Enum.map(fn note -> String.split(note, ": ", parts: 2) end)
+      |> Enum.reduce(%{}, fn
+        ["locked", hash], acc -> Map.put(acc, :locked_hash, hash)
+        ["emitted", hash], acc -> Map.put(acc, :emitted_hash, hash)
+        _, acc -> acc
+      end)
+
+    JsonResponse.error_with_data(%{
+      error: %{code: error.code, message: error.message, hints: error.hints},
+      hashes: hashes
+    })
+  end
+
+  defp lock_error_json(error), do: JsonResponse.error(error)
 
   defp output_run_result(result, duration, path, opts, json_output, work_meta) do
     case result do
@@ -1081,6 +1128,20 @@ defmodule Sykli.CLI do
     {opts, path} = parse_validate_args(args)
     path = path || "."
     json_output = Keyword.get(opts, :json, false)
+
+    case enforce_contract_lock(path) do
+      {:error, %Error{} = error} ->
+        if json_output do
+          IO.puts(lock_error_json(error))
+        else
+          display_error(error)
+        end
+
+        halt(1)
+
+      _ ->
+        :ok
+    end
 
     case Sykli.Validate.validate(path) do
       {:ok, result} ->

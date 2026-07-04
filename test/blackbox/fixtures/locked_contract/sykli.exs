@@ -1,0 +1,1 @@
+IO.puts(~s|{"version":"4","tasks":[{"name":"hello","command":"echo hi","task_type":"test","success_criteria":[{"type":"exit_code","equals":0}],"evidence_required":[{"type":"file","name":"pipeline","ref_pattern":"sykli.exs"}]}]}|)

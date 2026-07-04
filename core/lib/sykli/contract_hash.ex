@@ -10,10 +10,24 @@ defmodule Sykli.ContractHash do
   @doc "Computes a sha256-prefixed hash for emitted contract JSON."
   def from_json(json) when is_binary(json) do
     with {:ok, decoded} <- Jason.decode(json) do
-      {:ok, from_bytes(Jason.encode!(canonicalize(decoded)))}
+      {:ok, from_contract(decoded)}
     else
       {:error, reason} -> {:error, {:contract_hash_failed, :emitted_json, reason}}
     end
+  end
+
+  @doc "Computes a sha256-prefixed hash for a parsed contract."
+  def from_contract(contract) when is_map(contract) do
+    contract
+    |> canonical_json()
+    |> from_bytes()
+  end
+
+  @doc "Encodes a parsed contract in Sykli's canonical key order."
+  def canonical_json(contract) when is_map(contract) do
+    contract
+    |> canonicalize()
+    |> Jason.encode!()
   end
 
   # Canonicalize by recursively sorting object keys so the hash is independent of
