@@ -29,6 +29,8 @@ defmodule Sykli.ContractSlice do
     |> maybe_put("needs", capability_field(task, "needs"))
     |> maybe_put("success_criteria", non_empty(Task.success_criteria(task)))
     |> maybe_put("evidence_required", non_empty(Task.evidence_required(task)))
+    |> maybe_put("actor", normalized_map(Task.actor(task)))
+    |> maybe_put("mandate", mandate_map(Task.mandate(task)))
     |> maybe_put("target", target_map(task))
     |> maybe_put("review", review_map(task))
     |> maybe_put("gate", gate_map(task))
@@ -54,6 +56,8 @@ defmodule Sykli.ContractSlice do
       "evidence_required",
       normalized_value(non_empty(task[:evidence_required] || task["evidence_required"]))
     )
+    |> maybe_put("actor", normalized_map(task[:actor] || task["actor"]))
+    |> maybe_put("mandate", mandate_map(task[:mandate] || task["mandate"]))
     |> maybe_put("target", map_target(task))
     |> maybe_put("review", normalized_map(task[:review] || task["review"]))
     |> maybe_put("gate", normalized_map(task[:gate] || task["gate"]))
@@ -203,6 +207,26 @@ defmodule Sykli.ContractSlice do
 
   defp gate_map(%Task{gate: %Gate{} = gate}), do: Gate.to_map(gate)
   defp gate_map(_), do: nil
+
+  defp mandate_map(nil), do: nil
+
+  defp mandate_map(%{} = mandate) do
+    mandate
+    |> normalized_map()
+    |> truncate_mandate_scope()
+  end
+
+  defp truncate_mandate_scope(%{"scope" => scope} = mandate) when is_list(scope) do
+    if length(scope) > 20 do
+      mandate
+      |> Map.put("scope", Enum.take(scope, 20))
+      |> Map.put("scope_count", length(scope))
+    else
+      mandate
+    end
+  end
+
+  defp truncate_mandate_scope(mandate), do: mandate
 
   defp parse_status(value) when value in ["passed", "failed", "unsupported"] do
     String.to_existing_atom(value)

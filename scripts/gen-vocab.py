@@ -74,6 +74,10 @@ def schema_evidence_required() -> set[str]:
     return set(schema()["$defs"]["evidenceRequirement"]["properties"]["type"]["enum"])
 
 
+def schema_actor_kind() -> set[str]:
+    return set(schema()["$defs"]["actor"]["properties"]["kind"]["enum"])
+
+
 def conformance_task_types() -> set[str]:
     with (ROOT / "tests/conformance/cases/23-task-type.json").open() as handle:
         data = json.load(handle)
@@ -92,6 +96,7 @@ def check() -> int:
     task_types = set(vocab["task_type"])
     success_criteria = set(vocab["success_criteria"])
     evidence_required = set(vocab["evidence_required"])
+    actor_kind = set(vocab["actor_kind"])
     errors: list[str] = []
 
     check_equal("schema task_type", task_types, schema_task_types(), errors)
@@ -248,6 +253,21 @@ def check() -> int:
         errors,
     )
 
+    check_equal("schema actor_kind", actor_kind, schema_actor_kind(), errors)
+    check_equal(
+        "engine actor_kind",
+        actor_kind,
+        set(
+            re.search(
+                r"@kinds\s+~w\(([^)]+)\)",
+                read_text("core/lib/sykli/actor.ex"),
+            )
+            .group(1)
+            .split()
+        ),
+        errors,
+    )
+
     if errors:
         print("Vocabulary drift detected:", file=sys.stderr)
         for error in errors:
@@ -268,6 +288,9 @@ def emit() -> None:
         print(value)
     print("\n# evidence_required")
     for value in vocab["evidence_required"]:
+        print(value)
+    print("\n# actor_kind")
+    for value in vocab["actor_kind"]:
         print(value)
 
 

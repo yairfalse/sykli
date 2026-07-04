@@ -62,7 +62,7 @@ defmodule SykliTest do
              "Error: empty contract schema version"
 
     assert Sykli.Graph.format_error({:unsupported_contract_schema_version, "0.2"}) ==
-             "Error: unsupported contract schema version: 0.2; supported versions: 1, 2, 3, 4"
+             "Error: unsupported contract schema version: 0.2; supported versions: 1, 2, 3, 4, 5"
   end
 
   test "parses task_type on version 3 executable tasks" do

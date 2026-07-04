@@ -1,0 +1,24 @@
+{
+  "version": "5",
+  "tasks": [
+    {
+      "name": "implement",
+      "command": "mix test",
+      "actor": {
+        "kind": "agent"
+      },
+      "mandate": {
+        "scope": [
+          "core/lib/**"
+        ]
+      },
+      "success_criteria": [
+        {
+          "type": "exit_code",
+          "equals": 0
+        }
+      ],
+      "evidence_required": []
+    }
+  ]
+}

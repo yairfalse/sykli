@@ -27,5 +27,10 @@
     "test_report",
     "artifact_ref",
     "custom"
+  ],
+  "actor_kind": [
+    "human",
+    "agent",
+    "service"
   ]
 }

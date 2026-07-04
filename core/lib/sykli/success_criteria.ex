@@ -50,19 +50,19 @@ defmodule Sykli.SuccessCriteria do
     {:error, {:success_criteria_on_review, task_name}}
   end
 
-  def validate(_criteria, _kind, version, task_name) when version not in ["3", "4"] do
+  def validate(_criteria, _kind, version, task_name) when version not in ["3", "4", "5"] do
     {:error, {:success_criteria_requires_v3_or_newer, task_name, version}}
   end
 
   def validate(criteria, _kind, version, task_name)
-      when is_list(criteria) and version in ["3", "4"] do
+      when is_list(criteria) and version in ["3", "4", "5"] do
     with :ok <- validate_items(criteria, task_name),
          :ok <- validate_single_exit_code(criteria, task_name) do
       :ok
     end
   end
 
-  def validate(_criteria, _kind, version, task_name) when version in ["3", "4"] do
+  def validate(_criteria, _kind, version, task_name) when version in ["3", "4", "5"] do
     {:error, {:invalid_success_criteria, task_name, "must be an array"}}
   end
 

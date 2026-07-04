@@ -33,6 +33,18 @@ defmodule Sykli.EvidenceRequirementTest do
              )
   end
 
+  test "accepts evidence_required in version 5" do
+    assert {:ok, [%{"type" => "file", "name" => "coverage"} = requirement]} =
+             EvidenceRequirement.parse(
+               [%{"type" => "file", "name" => "coverage", "ref_pattern" => "coverage.out"}],
+               :task,
+               "5",
+               "test"
+             )
+
+    assert requirement["ref_pattern"] == "coverage.out"
+  end
+
   test "rejects invalid file evidence shape" do
     assert {:error, {:invalid_evidence_required, "test", "requires ref_pattern"}} =
              EvidenceRequirement.parse(

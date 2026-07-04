@@ -1,0 +1,15 @@
+{
+  "version": "5",
+  "tasks": [
+    {
+      "name": "implement",
+      "command": "mix test",
+      "mandate": {
+        "scope": [
+          "core/lib/**"
+        ],
+        "instructions": "please do the thing"
+      }
+    }
+  ]
+}

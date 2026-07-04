@@ -18,7 +18,8 @@
             "not": {
               "enum": [
                 "3",
-                "4"
+                "4",
+                "5"
               ]
             }
           }
@@ -51,12 +52,15 @@
       }
     },
     {
-      "description": "Evidence requirements require pipeline version 4.",
+      "description": "Evidence requirements require pipeline version 4 or newer.",
       "if": {
         "properties": {
           "version": {
             "not": {
-              "const": "4"
+              "enum": [
+                "4",
+                "5"
+              ]
             }
           }
         },
@@ -77,6 +81,43 @@
           }
         }
       }
+    },
+    {
+      "description": "Actor and mandate declarations require pipeline version 5.",
+      "if": {
+        "properties": {
+          "version": {
+            "not": {
+              "const": "5"
+            }
+          }
+        },
+        "required": [
+          "version"
+        ]
+      },
+      "then": {
+        "properties": {
+          "tasks": {
+            "items": {
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "actor"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "mandate"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
     }
   ],
   "properties": {
@@ -86,7 +127,8 @@
         "1",
         "2",
         "3",
-        "4"
+        "4",
+        "5"
       ]
     },
     "tasks": {
@@ -280,6 +322,69 @@
         }
       ]
     },
+    "actor": {
+      "description": "V5 executable task actor declaration.",
+      "type": "object",
+      "required": [
+        "kind"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "human",
+            "agent",
+            "service"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "mandate": {
+      "description": "V5 task mandate constraining delegated actor work.",
+      "type": "object",
+      "required": [
+        "scope"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "scope": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "budget": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": false,
+          "properties": {
+            "diff_lines": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "wall_clock_ms": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "capabilities": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "network": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
     "task": {
       "description": "A pipeline task (or review node when `kind == \"review\"`). The engine validates that non-gate, non-review tasks have a non-empty `command`; that rule is encoded in description rather than schema-level conditionals because gates and reviews compose with several other fields. SDKs validate cycles, duplicate names, and unknown dependencies; the schema does not.",
       "type": "object",
@@ -412,8 +517,53 @@
                   "required": [
                     "evidence_required"
                   ]
+                },
+                {
+                  "required": [
+                    "actor"
+                  ]
+                },
+                {
+                  "required": [
+                    "mandate"
+                  ]
                 }
               ]
+            }
+          }
+        },
+        {
+          "description": "Agent actors must declare a mandate, non-empty success criteria, and non-empty evidence requirements.",
+          "if": {
+            "properties": {
+              "actor": {
+                "properties": {
+                  "kind": {
+                    "const": "agent"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            },
+            "required": [
+              "actor"
+            ]
+          },
+          "then": {
+            "required": [
+              "mandate",
+              "success_criteria",
+              "evidence_required"
+            ],
+            "properties": {
+              "success_criteria": {
+                "minItems": 1
+              },
+              "evidence_required": {
+                "minItems": 1
+              }
             }
           }
         }
@@ -483,6 +633,14 @@
           "items": {
             "$ref": "#/$defs/evidenceRequirement"
           }
+        },
+        "actor": {
+          "$ref": "#/$defs/actor",
+          "description": "V5 actor declaration for executable tasks. Rejected on review nodes."
+        },
+        "mandate": {
+          "$ref": "#/$defs/mandate",
+          "description": "V5 mandate for delegated actor work. Rejected on review nodes."
         },
         "container": {
           "description": "Container image (e.g., `golang:1.21`). Triggers v2 emission.",

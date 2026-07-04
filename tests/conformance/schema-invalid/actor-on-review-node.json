@@ -1,0 +1,13 @@
+{
+  "version": "5",
+  "tasks": [
+    {
+      "name": "review-code",
+      "kind": "review",
+      "primitive": "lint",
+      "actor": {
+        "kind": "human"
+      }
+    }
+  ]
+}

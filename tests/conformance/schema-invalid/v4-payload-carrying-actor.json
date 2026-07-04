@@ -1,0 +1,12 @@
+{
+  "version": "4",
+  "tasks": [
+    {
+      "name": "implement",
+      "command": "mix test",
+      "actor": {
+        "kind": "human"
+      }
+    }
+  ]
+}

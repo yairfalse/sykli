@@ -75,6 +75,8 @@ defmodule Sykli.Graph do
       :task_type,
       :success_criteria,
       :evidence_required,
+      :actor,
+      :mandate,
       :command,
       :inputs,
       :outputs,
@@ -158,6 +160,14 @@ defmodule Sykli.Graph do
     @doc "Returns declared task evidence requirements."
     @spec evidence_required(t()) :: [map()]
     def evidence_required(%__MODULE__{evidence_required: requirements}), do: requirements || []
+
+    @doc "Returns the task actor declaration."
+    @spec actor(t()) :: map() | nil
+    def actor(%__MODULE__{actor: actor}), do: actor
+
+    @doc "Returns the task mandate declaration."
+    @spec mandate(t()) :: map() | nil
+    def mandate(%__MODULE__{mandate: mandate}), do: mandate
 
     @doc "Returns the task command."
     @spec command(t()) :: String.t()
@@ -442,6 +452,35 @@ defmodule Sykli.Graph do
     Sykli.SuccessCriteria.format_error(reason)
   end
 
+  def format_error({:actor_on_review, _task_name} = reason), do: Sykli.Actor.format_error(reason)
+
+  def format_error({:actor_requires_version_5, _task_name, _version} = reason),
+    do: Sykli.Actor.format_error(reason)
+
+  def format_error({:invalid_actor, _task_name, _reason} = reason),
+    do: Sykli.Actor.format_error(reason)
+
+  def format_error({:unknown_actor_kind, _task_name, _kind} = reason),
+    do: Sykli.Actor.format_error(reason)
+
+  def format_error({:mandate_on_review, _task_name} = reason),
+    do: Sykli.Mandate.format_error(reason)
+
+  def format_error({:mandate_requires_version_5, _task_name, _version} = reason),
+    do: Sykli.Mandate.format_error(reason)
+
+  def format_error({:invalid_mandate, _task_name, _reason} = reason),
+    do: Sykli.Mandate.format_error(reason)
+
+  def format_error({:agent_requires_mandate, _task_name} = reason),
+    do: Sykli.Mandate.format_error(reason)
+
+  def format_error({:agent_requires_success_criteria, _task_name} = reason),
+    do: Sykli.Mandate.format_error(reason)
+
+  def format_error({:agent_requires_evidence_required, _task_name} = reason),
+    do: Sykli.Mandate.format_error(reason)
+
   def format_error(reason), do: inspect(reason)
 
   defp parse_task(map, version) do
@@ -453,6 +492,16 @@ defmodule Sykli.Graph do
            Sykli.SuccessCriteria.parse(map["success_criteria"], kind, version, task_name),
          {:ok, evidence_required} <-
            Sykli.EvidenceRequirement.parse(map["evidence_required"], kind, version, task_name),
+         {:ok, actor} <- Sykli.Actor.parse(map["actor"], kind, version, task_name),
+         {:ok, mandate} <- Sykli.Mandate.parse(map["mandate"], kind, version, task_name),
+         :ok <-
+           Sykli.Mandate.validate_agent_contract(
+             actor,
+             mandate,
+             success_criteria,
+             evidence_required,
+             task_name
+           ),
          {:ok, services} <- parse_services(map["services"], task_name),
          {:ok, mounts} <- parse_mounts(map["mounts"], task_name) do
       {:ok,
@@ -462,6 +511,8 @@ defmodule Sykli.Graph do
          task_type: task_type,
          success_criteria: success_criteria,
          evidence_required: evidence_required,
+         actor: actor,
+         mandate: mandate,
          command: map["command"],
          inputs: map["inputs"] || [],
          outputs: normalize_outputs(map["outputs"], kind),
@@ -510,11 +561,12 @@ defmodule Sykli.Graph do
     {:error, {:task_type_on_review, task_name}}
   end
 
-  defp parse_task_type(task_type, _kind, version, task_name) when version not in ["3", "4"] do
+  defp parse_task_type(task_type, _kind, version, task_name)
+       when version not in ["3", "4", "5"] do
     {:error, {:task_type_requires_v3_or_newer, task_name, version, task_type}}
   end
 
-  defp parse_task_type(task_type, _kind, version, task_name) when version in ["3", "4"] do
+  defp parse_task_type(task_type, _kind, version, task_name) when version in ["3", "4", "5"] do
     if Sykli.TaskType.valid?(task_type) do
       {:ok, task_type}
     else
