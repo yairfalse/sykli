@@ -134,6 +134,9 @@ defmodule Sykli.Validate do
     |> check_task_types(tasks, version)
     |> check_success_criteria(tasks, version)
     |> check_evidence_required(tasks, version)
+    |> check_actors(tasks, version)
+    |> check_mandates(tasks, version)
+    |> check_agent_contracts(tasks, version)
   end
 
   defp check_empty_names(errors, tasks) do
@@ -294,7 +297,7 @@ defmodule Sykli.Validate do
             | acc
           ]
 
-        version not in ["3", "4"] ->
+        version not in ["3", "4", "5"] ->
           [
             %{
               type: :task_type_requires_v3_or_newer,
@@ -380,6 +383,67 @@ defmodule Sykli.Validate do
   defp evidence_required_error_task({_type, task_name}), do: task_name
   defp evidence_required_error_task({_type, task_name, _detail}), do: task_name
 
+  defp check_actors(errors, tasks, version) do
+    tasks
+    |> Enum.filter(fn t -> valid_name?(t["name"]) and Map.has_key?(t, "actor") end)
+    |> Enum.reduce(errors, fn t, acc ->
+      name = t["name"]
+      kind = if t["kind"] == "review", do: :review, else: :task
+
+      case Sykli.Actor.validate(t["actor"], kind, version, name) do
+        :ok -> acc
+        {:error, reason} -> [Sykli.Actor.to_error_map(reason) | acc]
+      end
+    end)
+  end
+
+  defp check_mandates(errors, tasks, version) do
+    tasks
+    |> Enum.filter(fn t -> valid_name?(t["name"]) and Map.has_key?(t, "mandate") end)
+    |> Enum.reduce(errors, fn t, acc ->
+      name = t["name"]
+      kind = if t["kind"] == "review", do: :review, else: :task
+
+      case Sykli.Mandate.validate(t["mandate"], kind, version, name) do
+        :ok -> acc
+        {:error, reason} -> [Sykli.Mandate.to_error_map(reason) | acc]
+      end
+    end)
+  end
+
+  defp check_agent_contracts(errors, _tasks, version) when version != "5", do: errors
+
+  defp check_agent_contracts(errors, tasks, "5") do
+    tasks
+    |> Enum.filter(&valid_name?(&1["name"]))
+    |> Enum.reduce(errors, fn t, acc ->
+      with {:ok, actor} <- Sykli.Actor.parse(t["actor"], :task, "5", t["name"]),
+           {:ok, mandate} <- Sykli.Mandate.parse(t["mandate"], :task, "5", t["name"]),
+           :ok <-
+             Sykli.Mandate.validate_agent_contract(
+               actor,
+               mandate,
+               t["success_criteria"] || [],
+               t["evidence_required"] || [],
+               t["name"]
+             ) do
+        acc
+      else
+        {:error, {:agent_requires_mandate, _} = reason} ->
+          [Sykli.Mandate.to_error_map(reason) | acc]
+
+        {:error, {:agent_requires_success_criteria, _} = reason} ->
+          [Sykli.Mandate.to_error_map(reason) | acc]
+
+        {:error, {:agent_requires_evidence_required, _} = reason} ->
+          [Sykli.Mandate.to_error_map(reason) | acc]
+
+        {:error, _reason} ->
+          acc
+      end
+    end)
+  end
+
   defp format_error(%{type: :missing_command, message: msg}), do: "Error: #{msg}"
   defp format_error(%{type: :task_type_on_review, message: msg}), do: "Error: #{msg}"
   defp format_error(%{type: :task_type_requires_v3_or_newer, message: msg}), do: "Error: #{msg}"
@@ -404,6 +468,17 @@ defmodule Sykli.Validate do
 
   defp format_error(%{type: :unknown_evidence_required_type, message: msg}),
     do: "Error: #{msg}"
+
+  defp format_error(%{type: :actor_on_review, message: msg}), do: "Error: #{msg}"
+  defp format_error(%{type: :actor_requires_version_5, message: msg}), do: "Error: #{msg}"
+  defp format_error(%{type: :invalid_actor, message: msg}), do: "Error: #{msg}"
+  defp format_error(%{type: :unknown_actor_kind, message: msg}), do: "Error: #{msg}"
+  defp format_error(%{type: :mandate_on_review, message: msg}), do: "Error: #{msg}"
+  defp format_error(%{type: :mandate_requires_version_5, message: msg}), do: "Error: #{msg}"
+  defp format_error(%{type: :invalid_mandate, message: msg}), do: "Error: #{msg}"
+  defp format_error(%{type: :agent_requires_mandate, message: msg}), do: "Error: #{msg}"
+  defp format_error(%{type: :agent_requires_success_criteria, message: msg}), do: "Error: #{msg}"
+  defp format_error(%{type: :agent_requires_evidence_required, message: msg}), do: "Error: #{msg}"
 
   defp format_error(%{type: :cycle, message: msg}), do: "Error: #{msg}"
   defp format_error(%{type: :missing_dependency, message: msg}), do: "Error: #{msg}"

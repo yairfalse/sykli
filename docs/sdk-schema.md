@@ -35,7 +35,7 @@ parsing.
 
 ```jsonc
 {
-  "version": "1" | "2" | "3" | "4",
+  "version": "1" | "2" | "3" | "4" | "5",
   "tasks":   [ ... task objects ... ],
   "resources": { ... }   // optional
 }
@@ -43,15 +43,17 @@ parsing.
 
 ### `version`
 
-- **Type:** string enum `"1"` | `"2"` | `"3"` | `"4"`.
+- **Type:** string enum `"1"` | `"2"` | `"3"` | `"4"` | `"5"`.
 - **Required by canonical schema.**
 - **Meaning:** pipeline wire-format/schema version. It is not an execution capability selector and not an SDK, engine, runtime, or JSON Schema draft version.
 - `"1"` is the baseline task graph format.
 - `"2"` is the resource-aware format: resources, mounts, caches, containers, and related execution-environment metadata.
 - `"3"` is the semantic contract format, beginning with `task_type` and `success_criteria`.
 - `"4"` is the evidence contract format, adding `evidence_required`.
+- `"5"` is the actor mandate format, adding executable-task `actor` and `mandate`.
 - SDKs auto-detect: `"4"` if any executable task has `evidence_required`; otherwise `"3"` if any executable task has semantic fields such as `task_type` or `success_criteria`; otherwise `"2"` if any task has `container` set, or any task has non-empty `mounts`, or the pipeline has any directory or cache resources; `"1"` otherwise.
-- **Current behavior:** explicit and strict. The schema and engine accept only the supported versions above. Missing, empty, malformed, or unknown future versions are rejected. `task_type` and `success_criteria` require `version == "3"` or newer; `evidence_required` requires `version == "4"`.
+- **Current behavior:** explicit and strict. The schema and engine accept only the supported versions above. Missing, empty, malformed, or unknown future versions are rejected. `task_type` and `success_criteria` require `version == "3"` or newer; `evidence_required` requires `version == "4"` or newer; `actor` and `mandate` require `version == "5"`.
+- **SDK emission status:** SDKs still emit through `"4"` in the current release. Version `"5"` is accepted by the schema and engine parser/validator for forward-compatible engine work.
 - **Future behavior:** new pipeline wire-format versions require explicit schema and engine support. The engine must never silently reinterpret a newer document as an older version.
 
 ### `tasks`
@@ -80,7 +82,9 @@ The full canonical field list, with stability labels:
 | `command` | stable | conditional | required unless `gate` is set or `kind == "review"` |
 | `task_type` | stable, v3-only | no | executable-task semantic class |
 | `success_criteria` | experimental, v3-only | no | declared executable-task success checks; enforced by targets that support them |
-| `evidence_required` | experimental, v4-only | no | declared evidence references required for executable-task success |
+| `evidence_required` | experimental, v4+ | no | declared evidence references required for executable-task success |
+| `actor` | experimental, v5-only | no | executable-task actor declaration |
+| `mandate` | experimental, v5-only | no | bounded work scope for delegated actor execution |
 | `container` | stable | no | triggers v2 |
 | `workdir` | stable | no | |
 | `env` | stable | no | object of string values |
@@ -204,7 +208,7 @@ prompts, or artifact bytes into the contract or coordinator.
 
 Rules:
 
-- Requires top-level `version: "4"`.
+- Requires top-level `version: "4"` or newer.
 - Applies only to executable tasks (`kind` omitted or `kind == "task"`).
 - Rejected on `kind == "review"` nodes.
 - Optional.
@@ -242,6 +246,43 @@ permission to upload evidence bytes.
 
 Non-file evidence entries may include `ref_pattern` as a reserved
 producer-side reference hint. V1 preserves it but does not evaluate it.
+
+### `actor`
+
+Executable-task actor declaration. This is a v5 parser and validation field; it
+does not change runtime behavior until the runtime enforcement PRs land.
+
+Rules:
+
+- Requires top-level `version: "5"`.
+- Applies only to executable tasks (`kind` omitted or `kind == "task"`).
+- Rejected on `kind == "review"` nodes.
+- Optional unless `actor.kind == "agent"` requirements below apply.
+- Shape: `{ "kind": "human" | "agent" | "service", "id"?: string }`.
+- `id`, when present, must be a non-empty string.
+
+When `actor.kind == "agent"`, the task must also declare non-empty
+`success_criteria`, non-empty `evidence_required`, and a `mandate`.
+
+### `mandate`
+
+Executable-task mandate constraining delegated actor work. A mandate may appear
+without an agent actor, but agent actors require one.
+
+Rules:
+
+- Requires top-level `version: "5"`.
+- Applies only to executable tasks (`kind` omitted or `kind == "task"`).
+- Rejected on `kind == "review"` nodes.
+- Required when `actor.kind == "agent"`.
+- `scope` is required and must be a non-empty array of non-empty strings.
+- Optional `budget` may contain positive integer `diff_lines` and
+  `wall_clock_ms`.
+- Optional `capabilities.network` is boolean.
+- Unknown keys are rejected.
+
+`mandate.scope` entries are repo-relative glob-style path patterns. Runtime
+enforcement is not part of this parser/schema PR.
 
 ### `container`, `workdir`, `env`
 
@@ -378,7 +419,7 @@ Review nodes do not have canonical `outputs` behavior yet. SDKs should not emit
 left out of the current experimental contract. The schema rejects task execution
 fields on review nodes: `command`, `outputs`, `gate`, `container`, `services`,
 `k8s`, `mounts`, `retry`, `timeout`, `task_type`, `success_criteria`, and
-`evidence_required`.
+`evidence_required`, `actor`, and `mandate`.
 
 At execution time, review nodes invoke deterministic review primitives rather
 than shell commands. The first primitive boundary is `api_breakage`; it returns
@@ -424,9 +465,10 @@ version of a particular SDK package, engine release, runtime, or JSON Schema
 draft.
 
 Current behavior is version-aware: SDKs emit `version`, the canonical schema and
-engine accept only `"1"`, `"2"`, `"3"`, or `"4"`, and the engine rejects
+engine accept only `"1"`, `"2"`, `"3"`, `"4"`, or `"5"`, and the engine rejects
 `task_type`/`success_criteria` unless the top-level version is `"3"` or newer
-and rejects `evidence_required` unless the top-level version is `"4"`. See the
+and rejects `evidence_required` unless the top-level version is `"4"` or newer.
+It rejects `actor`/`mandate` unless the top-level version is `"5"`. See the
 [`version` field](#version) above for the per-value definitions.
 
 Unknown future versions are rejected by default. If a compatibility mode is ever
@@ -478,7 +520,7 @@ introduce a replacement field.
 
 These are **descriptive, not prescriptive**. The schema documents current behavior; resolving these is Phase 2C / future work.
 
-1. **Version-aware behavior is enforced for supported versions.** SDKs emit `"1"`, `"2"`, `"3"`, or `"4"`; the engine rejects missing, malformed, and unsupported versions, checks `task_type` and `success_criteria` compatibility with `version: "3"` or newer, and checks `evidence_required` compatibility with `version: "4"`.
+1. **Version-aware behavior is enforced for supported versions.** SDKs emit through `"4"` today; the engine rejects missing, malformed, and unsupported versions, checks `task_type` and `success_criteria` compatibility with `version: "3"` or newer, checks `evidence_required` compatibility with `version: "4"` or newer, and checks `actor`/`mandate` compatibility with `version: "5"`.
 2. **Review nodes are experimental.** Engine supports `kind: "review"` and the four review-only fields, and SDKs expose minimal review builders. Review outputs are not canonical.
 3. **`verify` and `oidc` are reserved with no SDK emit.** Engine reads them; SDKs have no API. Either implement SDK support or drop from the schema once a decision lands.
 4. **`history_hint` is engine-internal.** SDKs MUST NOT emit. Schema marks `readOnly` for clarity.

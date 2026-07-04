@@ -41,8 +41,10 @@ defmodule Sykli.VocabularySyncTest do
   test "success_criteria and evidence_required type sets match schema-owned engine vocabularies" do
     assert MapSet.new(Sykli.SuccessCriteria.types()) == manifest_values("success_criteria")
     assert MapSet.new(Sykli.EvidenceRequirement.types()) == manifest_values("evidence_required")
+    assert MapSet.new(Sykli.Actor.kinds()) == manifest_values("actor_kind")
     assert MapSet.new(Sykli.SuccessCriteria.types()) == schema_success_criteria_types()
     assert MapSet.new(Sykli.EvidenceRequirement.types()) == schema_evidence_required_types()
+    assert MapSet.new(Sykli.Actor.kinds()) == schema_actor_kinds()
   end
 
   test "task_type conformance case exercises every task_type value" do
@@ -86,6 +88,12 @@ defmodule Sykli.VocabularySyncTest do
   defp schema_evidence_required_types do
     schema()
     |> get_in(["$defs", "evidenceRequirement", "properties", "type", "enum"])
+    |> MapSet.new()
+  end
+
+  defp schema_actor_kinds do
+    schema()
+    |> get_in(["$defs", "actor", "properties", "kind", "enum"])
     |> MapSet.new()
   end
 

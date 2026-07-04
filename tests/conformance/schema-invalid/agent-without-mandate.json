@@ -1,0 +1,25 @@
+{
+  "version": "5",
+  "tasks": [
+    {
+      "name": "implement",
+      "command": "mix test",
+      "actor": {
+        "kind": "agent"
+      },
+      "success_criteria": [
+        {
+          "type": "exit_code",
+          "equals": 0
+        }
+      ],
+      "evidence_required": [
+        {
+          "type": "file",
+          "name": "junit",
+          "ref_pattern": "junit.xml"
+        }
+      ]
+    }
+  ]
+}

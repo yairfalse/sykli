@@ -75,6 +75,33 @@ defmodule Sykli.ContractSliceTest do
     assert slice["target"]["requires"] == ["linux"]
   end
 
+  test "projects actor and truncated mandate scope" do
+    scope = Enum.map(1..25, &"lib/#{&1}.ex")
+
+    task =
+      parse_task(%{
+        "version" => "5",
+        "tasks" => [
+          %{
+            "name" => "implement",
+            "command" => "mix test",
+            "actor" => %{"kind" => "agent", "id" => "codex"},
+            "mandate" => %{"scope" => scope},
+            "success_criteria" => [%{"type" => "exit_code", "equals" => 0}],
+            "evidence_required" => [
+              %{"type" => "file", "name" => "junit", "ref_pattern" => "junit.xml"}
+            ]
+          }
+        ]
+      })
+
+    slice = ContractSlice.from_task(task)
+
+    assert slice["actor"] == %{"kind" => "agent", "id" => "codex"}
+    assert slice["mandate"]["scope"] == Enum.take(scope, 20)
+    assert slice["mandate"]["scope_count"] == 25
+  end
+
   test "projects review and gate metadata when declared" do
     review =
       parse_task(%{

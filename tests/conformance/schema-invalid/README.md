@@ -12,6 +12,11 @@ while still being schema-valid.
 
 | Fixture | Rule asserted |
 |---------|---------------|
+| `actor-bad-kind.json` | `actor.kind` is a closed enum. |
+| `actor-on-review-node.json` | Review nodes must not carry executable-task `actor`. |
+| `agent-without-criteria.json` | Agent actors must declare non-empty `success_criteria`. |
+| `agent-without-evidence.json` | Agent actors must declare non-empty `evidence_required`. |
+| `agent-without-mandate.json` | Agent actors must declare `mandate`. |
 | `depends-on-wrong-type.json` | `depends_on` must be an array of strings. |
 | `evidence-required-file-missing-ref-pattern.json` | File evidence requirements must declare `ref_pattern`. |
 | `evidence-required-unknown-type.json` | Evidence requirement `type` is a closed enum. |
@@ -19,6 +24,8 @@ while still being schema-valid.
 | `gate-invalid-strategy.json` | `gate.strategy` must be one of the schema enum values (`prompt`, `env`, `file`, `webhook`). |
 | `gate-missing-strategy.json` | `gate.strategy` is required when a gate object is present. |
 | `k8s-extra-field.json` | `k8s` rejects fields outside the canonical `{memory,cpu,gpu,raw}` shape. |
+| `mandate-empty-scope.json` | `mandate.scope` must be a non-empty array. |
+| `mandate-unknown-key.json` | `mandate` rejects unknown fields. |
 | `review-with-command.json` | Review nodes must not carry executable task fields such as `command`. |
 | `review-with-task-type.json` | Review nodes must not carry executable-task `task_type`. |
 | `service-extra-field.json` | Service objects reject unknown fields. |
@@ -34,5 +41,6 @@ while still being schema-valid.
 | `task-type-version-2.json` | `task_type` is rejected under version `"2"`. |
 | `task-type-wrong-type.json` | `task_type` must be a string enum value. |
 | `task-with-review-primitive.json` | Normal executable tasks must not carry review-node `primitive`. |
+| `v4-payload-carrying-actor.json` | `actor` is rejected before version `"5"`. |
 | `version-*.json` | Top-level `version` is required, string-typed, non-empty, and explicitly supported. |
 | `when-and-condition.json` | `when` and `condition` are mutually exclusive aliases. |

@@ -1,0 +1,12 @@
+{
+  "version": "5",
+  "tasks": [
+    {
+      "name": "implement",
+      "command": "mix test",
+      "mandate": {
+        "scope": []
+      }
+    }
+  ]
+}

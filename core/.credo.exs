@@ -18,6 +18,8 @@
           "lib/sykli/graph.ex",
           "lib/sykli/graph/",
           "lib/sykli/validate.ex",
+          "lib/sykli/actor.ex",
+          "lib/sykli/mandate.ex",
           "lib/sykli/task_type.ex",
           "lib/sykli/success_criteria.ex",
           "lib/sykli/evidence_requirement.ex",

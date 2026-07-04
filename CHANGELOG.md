@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Pipeline schema v5 parser/validator support.** The engine and canonical
+  schema now accept `version: "5"` payloads with executable-task `actor` and
+  `mandate` declarations. Agent actors require a mandate, non-empty
+  `success_criteria`, and non-empty `evidence_required`; review nodes reject
+  the new executable-task fields. SDK emission remains on the existing v4 path.
 - **`sykli lock`.** Writes `sykli.lock` with the canonical contract and
   enforces matching locked contracts in `sykli validate` and `sykli run`.
 - **`sykli contract`.** Renders the current emitted contract and supports

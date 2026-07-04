@@ -84,13 +84,13 @@ defmodule Sykli.ValidateTest do
          "invalid contract schema version: expected string, got object"},
         {~s({"version":"0.2","tasks":[{"name":"test","command":"echo test"}]}),
          :unsupported_contract_schema_version,
-         "unsupported contract schema version: 0.2; supported versions: 1, 2, 3, 4"},
+         "unsupported contract schema version: 0.2; supported versions: 1, 2, 3, 4, 5"},
         {~s({"version":"1.0","tasks":[{"name":"test","command":"echo test"}]}),
          :unsupported_contract_schema_version,
-         "unsupported contract schema version: 1.0; supported versions: 1, 2, 3, 4"},
+         "unsupported contract schema version: 1.0; supported versions: 1, 2, 3, 4, 5"},
         {~s({"version":"banana","tasks":[{"name":"test","command":"echo test"}]}),
          :unsupported_contract_schema_version,
-         "unsupported contract schema version: banana; supported versions: 1, 2, 3, 4"}
+         "unsupported contract schema version: banana; supported versions: 1, 2, 3, 4, 5"}
       ]
 
       for {json, type, message} <- cases do

@@ -54,15 +54,16 @@ defmodule Sykli.EvidenceRequirement do
     {:error, {:evidence_required_on_review, task_name}}
   end
 
-  def validate(_requirements, _kind, version, task_name) when version != "4" do
+  def validate(_requirements, _kind, version, task_name) when version not in ["4", "5"] do
     {:error, {:evidence_required_requires_version_4, task_name, version}}
   end
 
-  def validate(requirements, _kind, "4", task_name) when is_list(requirements) do
+  def validate(requirements, _kind, version, task_name)
+      when is_list(requirements) and version in ["4", "5"] do
     validate_items(requirements, task_name)
   end
 
-  def validate(_requirements, _kind, "4", task_name) do
+  def validate(_requirements, _kind, version, task_name) when version in ["4", "5"] do
     {:error, {:invalid_evidence_required, task_name, "must be an array"}}
   end
 
@@ -100,7 +101,7 @@ defmodule Sykli.EvidenceRequirement do
   end
 
   def message({:evidence_required_requires_version_4, task_name, version}) do
-    "Task '#{task_name}' declares evidence_required but pipeline version is #{inspect(version)}, not \"4\""
+    "Task '#{task_name}' declares evidence_required but pipeline version is #{inspect(version)}, not \"4\" or newer"
   end
 
   def message({:invalid_evidence_required, task_name, reason}) do

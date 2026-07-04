@@ -6,6 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Most recent first. Older shipped features (Phase 3B `task_type`, Phase 3C `success_criteria`, schema-as-canonical-contract, `target` removed, review nodes) are now load-bearing architecture — see §"SDKs", §"Patterns & Conventions" ("Engine vocabulary modules"), and the `ReviewPrimitive` row in §"Key Modules".
 
+- **Pipeline schema v5 parser/validator support** adds executable-task
+  `actor` and `mandate` declarations to the engine and canonical schema.
+  `Sykli.Actor` and `Sykli.Mandate` mirror the existing vocabulary-module
+  pattern so graph parsing and `sykli validate` render identical errors.
+  `Sykli.ContractSchemaVersion` accepts `"5"` but `current_version/0` remains
+  `"4"` until SDK emitters move in a separate PR.
 - **Monster Phases B/C/E hardening** (audit remediation, `docs/audit-2026-05-22.md`):
   determinism — `ContractHash` now recursively sorts object keys before hashing,
   and the NoWallClock Credo guard covers all pure contract/output-shaping
@@ -36,7 +42,7 @@ Most recent first. Older shipped features (Phase 3B `task_type`, Phase 3C `succe
 - **Team Mode run summary sync** added Phase 7 coordinator projection: joined daemons publish metadata-only run summaries to `POST /v1/runs`, the coordinator stores idempotent run records plus node/criteria/review/gate/evidence refs, and `.sykli/outbox/runs/` replays deferred publishes. No logs, source, artifacts, contract bytes, or tokens cross this boundary.
 - **Evidence requirements are versioned contract fields.** Pipeline `version: "4"` adds executable-task `evidence_required` declarations. V1 evaluates local file evidence refs on the local shell target, persists `evidence_results`, and fails missing required proof with `missing_evidence`; unsupported requirement/target combinations fail explicitly. See `docs/evidence-requirements.md`.
 - **Team Mode foundation** shipped — local work-item and gate-decision stores, `sykli run --work` association with deterministic `contract_hash`, daemon join + heartbeat protocol, self-hosted coordinator skeleton (in-memory store, bearer-token auth), work-item sync via `sykli work ... --team <team>`, deterministic review primitive dispatch (`api_breakage`), and canonical contract hashing. CLI surface: `sykli work`, `sykli gate`, `sykli coordinator`, `sykli daemon join`. The four coordination modes (Local-only / Trusted LAN mesh / Self-hosted coordinator / Hybrid) are normative — see `docs/coordination-modes.md` and the design index under §"Other docs". Phases 0–8 of `docs/team-mode-roadmap.md` are implemented; Phase 9 (Kubernetes deployment) is next.
-- **Engine now enforces `version` strictly.** `Sykli.ContractSchemaVersion` (`core/lib/sykli/contract_schema_version.ex`) is the central policy module — it pins supported versions (`"1"`, `"2"`, `"3"`, `"4"`), the current version (`"4"`), and rejects missing/empty/wrong-type/unsupported versions. `Sykli.Graph.parse/1` and `Sykli.Validate.validate_data/1` both call `ContractSchemaVersion.fetch/1`. The previous silent default-to-`"1"` behavior is gone — payloads without a valid version are rejected. Negative coverage lives in `tests/conformance/schema-invalid/`.
+- **Engine now enforces `version` strictly.** `Sykli.ContractSchemaVersion` (`core/lib/sykli/contract_schema_version.ex`) is the central policy module — it pins supported versions (`"1"`, `"2"`, `"3"`, `"4"`, `"5"`), the current version (`"4"`), and rejects missing/empty/wrong-type/unsupported versions. `Sykli.Graph.parse/1` and `Sykli.Validate.validate_data/1` both call `ContractSchemaVersion.fetch/1`. The previous silent default-to-`"1"` behavior is gone — payloads without a valid version are rejected. Negative coverage lives in `tests/conformance/schema-invalid/`.
 - **GitHub-native foundation** shipped — GitHub App auth, webhook receiver (Plug + Bandit), Checks API client, `Sykli.Mesh.Roles`. See `docs/github-native.md`.
 - **CLI visual reset** shipped — Nordic-minimal renderer (`Sykli.CLI.Renderer/Theme/Live/FixRenderer`). The output rules are testable; banned vocabulary in §"CLI output rules" below.
 
@@ -181,6 +187,7 @@ Local-first is binding: anything new must work in mode 1 with no network. The co
 | `CLI` | `cli.ex` | Command dispatch (see CLI Commands section for the list) |
 | `Graph` | `graph.ex` | JSON → Task DAG, validation, matrix expansion |
 | `Graph.Task` | `graph.ex` + `graph/task/*.ex` | Task struct with semantic/ai_hooks/history fields |
+| `Actor` / `Mandate` | `actor.ex`, `mandate.ex` | V5 executable-task actor/mandate validation. Agent actors require mandate, success criteria, and evidence; review nodes reject these fields. |
 | `Executor` | `executor.ex` | DAG execution with `Executor.Config` struct, AI hooks, concurrency limiting |
 | `Target.Local` | `target/local.ex` | Local execution via Runtime (Docker or Shell) |
 | `Runtime.*` | `runtime/*.ex` | HOW commands execute — Shell, Docker, Podman (distinct from Target = WHERE) |
@@ -355,6 +362,8 @@ Some cases carry `expected_failure: true`, which marks them as known-broken cont
   - `Sykli.TaskType` — the 12-value `task_type` enum (Phase 3B).
   - `Sykli.SuccessCriteria` — `success_criteria` shape, constraints, and target-level result helpers (Phase 3C).
   - `Sykli.EvidenceRequirement` — `evidence_required` shape, constraints, result helpers, and missing/unsupported proof semantics.
+  - `Sykli.Actor` — v5 actor kind enum and actor shape validation.
+  - `Sykli.Mandate` — v5 mandate shape validation and agent-contract checks.
   - `Sykli.ContractSchemaVersion` — supported `version` values + missing/empty/wrong-type/unsupported error policy.
 
   When adding a new closed-enum field or shared-policy concept, follow this pattern. SDKs must carry their own copies (separate Mix projects — engine modules are unreachable from `sdk/<lang>/`).
