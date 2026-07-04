@@ -112,7 +112,10 @@ jobs:
         with:
           files: release/*
           body_path: docs/releases/${{ github.ref_name }}.md
-          make_latest: true
+          # A tag containing '-' (v0.9.0-rc.1) is a prerelease: marked as such
+          # on GitHub and never promoted to "latest".
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: ${{ !contains(github.ref_name, '-') }}
 
   # ── Registry publishing ──────────────────────────────────────────────
   # Tokenless where the registry supports OIDC trusted publishing.
@@ -209,4 +212,9 @@ jobs:
   #       working-directory: sdk/typescript
   #       run: |
   #         npm install -g npm@latest
-  #         npm publish
+  #         version="${GITHUB_REF_NAME#v}"
+  #         if [[ "$version" == *-* ]]; then
+  #           npm publish --tag rc   # prerelease must never become npm "latest"
+  #         else
+  #           npm publish
+  #         fi
