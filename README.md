@@ -20,6 +20,17 @@ evidence instead of terminal soup.
 Agents should not regex CI logs. Sykli gives them typed failures, contract
 slices, retry hints, and evidence.
 
+Think of it the way musical notation changed music. Before notation, music
+was oral tradition — it drifted with every retelling and died with its
+performers. Notation separated the work from the performance: the same score,
+played by anyone, and every performance verifiable against the page. Software
+work in the agent era has the same problem — everyone is shipping better
+performers; almost nobody is writing better scores. Sykli is the score: the
+contract is written before execution, pinned and hashed, and it decides —
+mechanically — whether a performance counts. The performer can be Claude,
+Codex, a human, or a shell script. The contract does not care. That is the
+point.
+
 ## About
 
 Sykli is an agent-readable execution layer for software work. It lets projects
@@ -113,6 +124,45 @@ sykli · pipeline.go                                local · 0.7.0
 That program is not the product. The emitted contract is. Sykli validates it,
 runs it, and records evidence about what happened.
 
+## The Contract Is Pinned
+
+`sykli lock` writes `sykli.lock`: the canonical contract plus its
+`sha256:` hash, committed next to your pipeline. From then on, every
+`sykli validate` and `sykli run` checks the emitted contract against the
+lock — changing what "done" means is a visible, reviewable act, never a
+silent one.
+
+```bash
+sykli lock                # pin the current contract edition
+sykli run                 # refuses if the contract drifted from sykli.lock
+sykli contract            # render the contract for human review
+sykli contract --diff     # classify changes against the lock
+```
+
+Two properties fall out of the lock that YAML pipelines cannot offer:
+
+- **Nondeterministic pipelines are rejected.** `sykli lock` and
+  `sykli validate` emit the pipeline twice; if the two emissions hash
+  differently (a timestamp, a random value, unsorted map iteration), the
+  contract is refused with `contract.nondeterministic`. A contract you
+  cannot reproduce is not a contract.
+- **Weakening is detected, not just change.** `sykli contract --diff`
+  classifies every change by direction — *neutral* (command changed, task
+  added), *strengthening* (criterion added, gate added), or *weakening*
+  (success criterion removed, evidence requirement dropped, criticality
+  lowered, gate deleted) — and exits non-zero when weakening is present.
+  "This diff makes the checks weaker" becomes something CI can gate on and
+  a reviewer can see in one line.
+
+```text
+Contract diff sha256:2f41… -> sha256:9c07…
+
+Weakening
+  - test: success_criteria entry removed (success_criteria)
+
+Verdict: weakening present
+```
+
 ## When It Fails, Agents Read Facts — Not Logs
 
 Every terminal result carries a typed classification. An agent consuming
@@ -192,6 +242,47 @@ MCP is the transport. Sykli's value is the contract and evidence behind the
 tools: typed graph data, coded errors, failure semantics, agent hints, and
 contract slices.
 
+## Mandates: Bounded Authority for Agents
+
+Wire-format version `"5"` adds two fields that make agent tasks first-class
+contract citizens: `actor` (who performs the work — `human`, `agent`, or
+`service`) and `mandate` (the authority granted to that actor, in advance,
+with explicit limits).
+
+```json
+{
+  "name": "fix-flaky-test",
+  "command": "claude -p 'fix the flaky test'",
+  "task_type": "test",
+  "actor": { "kind": "agent", "id": "claude" },
+  "mandate": {
+    "scope": ["core/test/**"],
+    "budget": { "diff_lines": 200, "wall_clock_ms": 900000 },
+    "capabilities": { "network": false }
+  },
+  "success_criteria": [ ... ],
+  "evidence_required": [ ... ]
+}
+```
+
+The rule is hard, not advisory: **an agent task without a mandate,
+success criteria, and required evidence is a schema error** — every SDK
+refuses to emit it and the engine refuses to parse it. Freedom must be
+declared. Where a performer may improvise, the contract says so, says
+within what limits, and says what proof is due when the freedom ends.
+
+Violations are typed like everything else: work outside `scope` or beyond
+`budget` fails with `policy_block` semantics naming the exceeded dimension;
+a mandate the target cannot enforce fails explicitly with
+`unsupported_target` rather than pretending. An agent's own claim of success
+is never the record — the engine classifies the outcome against the declared
+contract.
+
+This is deliberately *not* a behavioral policy engine: a mandate is a
+per-run, deterministic contract field. Cross-run behavioral judgment about
+actors belongs to a separate layer (see
+[`docs/vartio-integration.md`](docs/vartio-integration.md)).
+
 ## Evidence That Survives The Session
 
 Every run writes structured evidence under `.sykli/`:
@@ -224,6 +315,9 @@ The detailed on-disk schema is documented in
    `timeout`, `dependency_failure`, `policy_block`, and other typed classes.
 4. **Evidence.** Every run leaves structured facts that downstream tools can
    inspect.
+5. **Authority.** Agent tasks carry mandates — scope, budget, and
+   capabilities granted in advance. Freedom is declared in the contract,
+   never assumed.
 
 ## Sykli Is Not CI
 
@@ -263,12 +357,13 @@ Wire-format versions are explicit, not advisory:
 | `"2"` | Resources, containers, mounts, and cache metadata |
 | `"3"` | Agent-native semantic fields such as `task_type` and `success_criteria` |
 | `"4"` | Required evidence references via `evidence_required` |
+| `"5"` | Performer identity and bounded authority via `actor` and `mandate` |
 
 SDKs auto-detect the minimum version from the features used. The engine rejects
 missing, empty, malformed, and unsupported versions. `task_type` and
 `success_criteria` require version `"3"` or newer; `evidence_required` requires
-version `"4"`. See [`docs/sdk-schema.md`](docs/sdk-schema.md) for the field
-contract.
+version `"4"`; `actor` and `mandate` require version `"5"`. See
+[`docs/sdk-schema.md`](docs/sdk-schema.md) for the field contract.
 
 ## Why BEAM Matters
 
@@ -383,7 +478,7 @@ regression, test coverage gaps, and architecture boundary checks.
 
 | Use case | What Sykli gives you |
 |----------|----------------------|
-| Agentic workflows | Agents are executors; the graph defines what runs, what it depends on, and what evidence it produces |
+| Agentic workflows | Agents are executors under mandates; the graph defines what runs, what the agent may touch, and what evidence proves it |
 | PR reviews | Experimental review nodes with constrained context and explicit primitive semantics |
 | Release checks | SLSA v1.0 provenance attestations and structured run evidence |
 | Security validation | Secret-scoped tasks, OIDC token exchange, and webhook hardening in the core engine |
@@ -493,6 +588,9 @@ sykli --target=k8s        # run through the Kubernetes target
 sykli --runtime=podman    # select runtime
 
 sykli init                # generate SDK file
+sykli lock                # pin the contract edition to sykli.lock
+sykli contract            # render the contract for review
+sykli contract --diff     # classify contract changes; exit 1 on weakening
 sykli validate            # validate graph without running
 sykli plan                # dry-run execution plan
 sykli delta               # run tasks affected by git changes
@@ -548,15 +646,20 @@ Selection priority and runtime extension notes are in
 | Component | Status |
 |-----------|--------|
 | Core engine, all 5 SDKs, local execution, Docker/Podman/Shell/Fake runtimes, FALSE Protocol output, canonical schema, opt-in GitHub-native receiver | **Stable** |
-| Mesh distribution, Kubernetes target, gates, SLSA attestations, remote cache via S3, review-node graph support, `task_type` / `success_criteria` v3 fields, `evidence_required` v4 fields | **Beta** |
+| Contract lock (`sykli lock`, drift refusal, nondeterminism rejection), contract surface (`sykli contract`, `--diff` weakening classifier) | **Beta** |
+| Mesh distribution, Kubernetes target, gates, SLSA attestations, remote cache via S3, review-node graph support, `task_type` / `success_criteria` v3 fields, `evidence_required` v4 fields, `actor` / `mandate` v5 fields | **Beta** |
 | Team Mode: self-hosted coordinator, daemon join/heartbeat/leave, work-item sync, metadata-only run summaries, remote gate approvals (round-trip CI-proven) | **Beta** |
-| Review primitive adapters, broader review primitive implementations, multi-agent execution, LLM/provider review runners | **In development** |
+| Mandate enforcement in the executor (scope, budget, capabilities), `sykli audit` run verification, review primitive adapters, multi-agent execution, LLM/provider review runners | **In development** |
 
 The status table is part of the contract: beta and in-development features are
 usable surfaces, not production-readiness claims.
 
 ## Roadmap
 
+- **0.9.0-rc.1 — the mandate release.** Executor enforcement for `mandate`
+  scope, budget, and capabilities; `sykli audit <run-id>` to verify a
+  recorded run against its contract, evidence, and mandate outcomes;
+  registry packages for all five SDKs.
 - **Agent Contract Release.** Tighten MCP response envelopes, coded tool
   errors, stable agent-readable failure output, `.sykli/` evidence docs, and a
   focused Codex/Claude repair demo.
