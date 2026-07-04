@@ -106,6 +106,107 @@ defmodule Sykli.ContractDiffTest do
     assert Enum.any?(changes, &match?(%{direction: :neutral, field: "env"}, &1))
   end
 
+  describe "mandate changes" do
+    @mandate %{
+      "scope" => ["lib/**"],
+      "budget" => %{"diff_lines" => 200, "wall_clock_ms" => 900_000},
+      "capabilities" => %{"network" => false}
+    }
+
+    defp with_mandate(contract, mandate) do
+      Map.update!(contract, "tasks", fn tasks ->
+        Enum.map(tasks, fn
+          %{"name" => "test"} = task -> Map.put(task, "mandate", mandate)
+          task -> task
+        end)
+      end)
+    end
+
+    test "mandate removed is weakening and added is strengthening" do
+      mandated = with_mandate(@base, @mandate)
+
+      assert [%{kind: :mandate_removed, direction: :weakening}] =
+               ContractDiff.classify(mandated, @base)
+
+      assert [%{kind: :mandate_added, direction: :strengthening}] =
+               ContractDiff.classify(@base, mandated)
+    end
+
+    test "scope widening is weakening, narrowing is strengthening" do
+      narrow = with_mandate(@base, @mandate)
+      wide = with_mandate(@base, %{@mandate | "scope" => ["lib/**", "docs/**"]})
+
+      assert [%{kind: :scope_widened, direction: :weakening, field: "mandate.scope"}] =
+               ContractDiff.classify(narrow, wide)
+
+      assert [%{kind: :scope_narrowed, direction: :strengthening}] =
+               ContractDiff.classify(wide, narrow)
+    end
+
+    test "scope replacement counts as widening" do
+      before_ = with_mandate(@base, @mandate)
+      replaced = with_mandate(@base, %{@mandate | "scope" => ["everything/**"]})
+
+      assert [%{kind: :scope_widened, direction: :weakening}] =
+               ContractDiff.classify(before_, replaced)
+    end
+
+    test "budget raised or removed is weakening, lowered or added is strengthening" do
+      base = with_mandate(@base, @mandate)
+
+      raised =
+        with_mandate(@base, put_in(@mandate, ["budget", "diff_lines"], 500))
+
+      removed =
+        with_mandate(@base, Map.update!(@mandate, "budget", &Map.delete(&1, "diff_lines")))
+
+      assert [%{kind: :budget_raised, direction: :weakening}] =
+               ContractDiff.classify(base, raised)
+
+      assert [%{kind: :budget_lowered, direction: :strengthening}] =
+               ContractDiff.classify(raised, base)
+
+      assert [%{kind: :budget_removed, direction: :weakening}] =
+               ContractDiff.classify(base, removed)
+
+      assert [%{kind: :budget_added, direction: :strengthening}] =
+               ContractDiff.classify(removed, base)
+    end
+
+    test "flipping network denial is directional; true vs absent is not" do
+      denied = with_mandate(@base, @mandate)
+      allowed = with_mandate(@base, %{@mandate | "capabilities" => %{"network" => true}})
+      unconstrained = with_mandate(@base, Map.delete(@mandate, "capabilities"))
+
+      assert [%{kind: :network_allowed, direction: :weakening}] =
+               ContractDiff.classify(denied, allowed)
+
+      assert [%{kind: :network_denied, direction: :strengthening}] =
+               ContractDiff.classify(allowed, denied)
+
+      assert [%{kind: :network_allowed, direction: :weakening}] =
+               ContractDiff.classify(denied, unconstrained)
+
+      assert ContractDiff.classify(allowed, unconstrained) == []
+    end
+
+    test "actor change is neutral" do
+      with_actor =
+        Map.update!(@base, "tasks", fn tasks ->
+          Enum.map(tasks, fn
+            %{"name" => "test"} = task ->
+              Map.put(task, "actor", %{"kind" => "agent", "id" => "claude"})
+
+            task ->
+              task
+          end)
+        end)
+
+      assert [%{direction: :neutral, field: "actor"}] =
+               ContractDiff.classify(@base, with_actor)
+    end
+  end
+
   test "classify fixture against itself is empty" do
     for path <- Path.wildcard("../tests/conformance/cases/*.json") do
       assert {:ok, contract} = path |> File.read!() |> Jason.decode()

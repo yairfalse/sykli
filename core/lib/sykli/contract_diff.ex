@@ -42,6 +42,7 @@ defmodule Sykli.ContractDiff do
         evidence_changes(name, before, after_) ++
         criticality_changes(name, before, after_) ++
         condition_changes(name, before, after_) ++
+        mandate_changes(name, before, after_) ++
         neutral_changes(name, before, after_)
     end)
   end
@@ -120,11 +121,114 @@ defmodule Sykli.ContractDiff do
     end
   end
 
+  defp mandate_changes(name, before, after_) do
+    case {before["mandate"], after_["mandate"]} do
+      {same, same} ->
+        []
+
+      {nil, %{}} ->
+        [change(:mandate_added, name, "mandate", "mandate added", :strengthening)]
+
+      {%{}, nil} ->
+        [change(:mandate_removed, name, "mandate", "mandate removed", :weakening)]
+
+      {from, to} ->
+        scope_changes(name, from["scope"], to["scope"]) ++
+          budget_changes(name, from["budget"], to["budget"]) ++
+          network_changes(name, from["capabilities"], to["capabilities"])
+    end
+  end
+
+  defp scope_changes(name, before, after_) do
+    before_set = MapSet.new(before || [])
+    after_set = MapSet.new(after_ || [])
+
+    cond do
+      MapSet.equal?(before_set, after_set) ->
+        []
+
+      MapSet.subset?(after_set, before_set) ->
+        [change(:scope_narrowed, name, "mandate.scope", "mandate scope narrowed", :strengthening)]
+
+      true ->
+        # New patterns grant territory the old scope did not; without glob
+        # semantics we cannot prove containment, so any addition is widening.
+        [change(:scope_widened, name, "mandate.scope", "mandate scope widened", :weakening)]
+    end
+  end
+
+  defp budget_changes(name, before, after_) do
+    Enum.flat_map(["diff_lines", "wall_clock_ms"], fn key ->
+      budget_key_change(name, key, (before || %{})[key], (after_ || %{})[key])
+    end)
+  end
+
+  defp budget_key_change(_name, _key, value, value), do: []
+
+  defp budget_key_change(name, key, nil, _added) do
+    [change(:budget_added, name, "mandate.budget.#{key}", "#{key} budget added", :strengthening)]
+  end
+
+  defp budget_key_change(name, key, _removed, nil) do
+    [change(:budget_removed, name, "mandate.budget.#{key}", "#{key} budget removed", :weakening)]
+  end
+
+  defp budget_key_change(name, key, before, after_) when after_ > before do
+    [change(:budget_raised, name, "mandate.budget.#{key}", "#{key} budget raised", :weakening)]
+  end
+
+  defp budget_key_change(name, key, _before, _after) do
+    [
+      change(
+        :budget_lowered,
+        name,
+        "mandate.budget.#{key}",
+        "#{key} budget lowered",
+        :strengthening
+      )
+    ]
+  end
+
+  # Absent network capability means unconstrained (allowed), so only
+  # transitions across `network: false` change enforcement.
+  defp network_changes(name, before, after_) do
+    before_denied = (before || %{})["network"] == false
+    after_denied = (after_ || %{})["network"] == false
+
+    cond do
+      before_denied and not after_denied ->
+        [
+          change(
+            :network_allowed,
+            name,
+            "mandate.capabilities.network",
+            "network access allowed",
+            :weakening
+          )
+        ]
+
+      after_denied and not before_denied ->
+        [
+          change(
+            :network_denied,
+            name,
+            "mandate.capabilities.network",
+            "network access denied",
+            :strengthening
+          )
+        ]
+
+      true ->
+        []
+    end
+  end
+
   defp neutral_changes(name, before, after_) do
     [
       neutral_if_changed(name, "command", before["command"], after_["command"]),
       neutral_if_changed(name, "depends_on", before["depends_on"], after_["depends_on"]),
-      neutral_if_changed(name, "env", before["env"], after_["env"])
+      neutral_if_changed(name, "env", before["env"], after_["env"]),
+      neutral_if_changed(name, "actor", before["actor"], after_["actor"])
     ]
     |> Enum.reject(&is_nil/1)
   end

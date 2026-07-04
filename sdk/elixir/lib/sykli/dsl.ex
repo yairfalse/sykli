@@ -156,6 +156,66 @@ defmodule Sykli.DSL do
     end)
   end
 
+  @doc "Declares the actor expected to perform this executable task."
+  def actor(kind, id \\ nil) do
+    update_current_task(fn t ->
+      reject_review_option!(t, "actor")
+      reject_gate_option!(t, "actor")
+
+      if not Sykli.Task.valid_actor_kind?(kind) do
+        raise ArgumentError, "invalid actor.kind #{inspect(kind)}"
+      end
+
+      if id == "" do
+        raise ArgumentError, "actor.id cannot be empty"
+      end
+
+      value = if is_nil(id), do: %{kind: kind}, else: %{kind: kind, id: id}
+      %{t | actor: value}
+    end)
+  end
+
+  @doc "Declares bounded work scope for this executable task."
+  def mandate(scope, opts \\ []) when is_list(scope) and is_list(opts) do
+    update_current_task(fn t ->
+      reject_review_option!(t, "mandate")
+      reject_gate_option!(t, "mandate")
+
+      case Keyword.split(opts, [:diff_lines, :wall_clock_ms, :network]) do
+        {_known, []} ->
+          :ok
+
+        {_known, unknown} ->
+          raise ArgumentError,
+                "unknown mandate option(s) #{inspect(Keyword.keys(unknown))}; " <>
+                  "supported: :diff_lines, :wall_clock_ms, :network"
+      end
+
+      if scope == [] or Enum.any?(scope, &(&1 == "")) do
+        raise ArgumentError, "mandate.scope cannot be empty"
+      end
+
+      budget =
+        %{}
+        |> maybe_put_budget(:diff_lines, Keyword.get(opts, :diff_lines))
+        |> maybe_put_budget(:wall_clock_ms, Keyword.get(opts, :wall_clock_ms))
+
+      capabilities =
+        case Keyword.fetch(opts, :network) do
+          {:ok, value} when is_boolean(value) -> %{network: value}
+          {:ok, _} -> raise ArgumentError, "mandate.capabilities.network must be boolean"
+          :error -> %{}
+        end
+
+      value =
+        %{scope: scope}
+        |> maybe_put_non_empty(:budget, budget)
+        |> maybe_put_non_empty(:capabilities, capabilities)
+
+      %{t | mandate: value}
+    end)
+  end
+
   @doc "Builds an exit_code success criterion."
   def exit_code(code) when is_integer(code) and code in 0..255,
     do: %{type: "exit_code", equals: code}
@@ -1179,6 +1239,12 @@ defmodule Sykli.DSL do
 
   defp reject_review_option!(%Sykli.Task{}, _option), do: :ok
 
+  defp reject_gate_option!(%Sykli.Task{gate: gate}, option) when not is_nil(gate) do
+    raise "#{option} is not supported on gate tasks"
+  end
+
+  defp reject_gate_option!(%Sykli.Task{}, _option), do: :ok
+
   defp validate_success_criteria!(criteria) do
     exit_code_count =
       Enum.count(criteria, &(&1[:type] == "exit_code" or &1["type"] == "exit_code"))
@@ -1294,6 +1360,17 @@ defmodule Sykli.DSL do
   defp validate_file_evidence_predicate!(predicate) do
     raise ArgumentError, "invalid file evidence_required predicate #{inspect(predicate)}"
   end
+
+  defp maybe_put_budget(map, _key, nil), do: map
+
+  defp maybe_put_budget(_map, key, value) when not is_integer(value) or value <= 0 do
+    raise ArgumentError, "mandate.budget.#{key} must be a positive integer"
+  end
+
+  defp maybe_put_budget(map, key, value), do: Map.put(map, key, value)
+
+  defp maybe_put_non_empty(map, _key, value) when map_size(value) == 0, do: map
+  defp maybe_put_non_empty(map, key, value), do: Map.put(map, key, value)
 
   defp normalize_evidence_requirement(req) do
     req

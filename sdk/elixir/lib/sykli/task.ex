@@ -18,11 +18,15 @@ defmodule Sykli.Task do
     :cleanup
   ]
 
+  @actor_kinds [:human, :agent, :service]
+
   defstruct name: nil,
             kind: :task,
             task_type: nil,
             success_criteria: [],
             evidence_required: [],
+            actor: nil,
+            mandate: nil,
             command: nil,
             primitive: nil,
             agent: nil,
@@ -109,6 +113,8 @@ defmodule Sykli.Task do
           task_type: task_type() | nil,
           success_criteria: [map()],
           evidence_required: [map()],
+          actor: map() | nil,
+          mandate: map() | nil,
           command: String.t() | nil,
           primitive: String.t() | nil,
           agent: String.t() | nil,
@@ -149,4 +155,10 @@ defmodule Sykli.Task do
 
   @doc "Returns true when the value is an allowed task_type."
   def valid_task_type?(type), do: type in @task_types
+
+  @doc "Returns the allowed actor.kind values."
+  def actor_kinds, do: @actor_kinds
+
+  @doc "Returns true when the value is an allowed actor.kind."
+  def valid_actor_kind?(kind), do: kind in @actor_kinds
 end

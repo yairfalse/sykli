@@ -155,6 +155,71 @@ describe('Pipeline', () => {
       ]);
     });
 
+    it('serializes actor and mandate and emits version 5', () => {
+      const p = new Pipeline();
+      p.task('implement')
+        .run('go test ./...')
+        .actor({ kind: 'agent', id: 'claude' })
+        .mandate({
+          scope: ['sdk/typescript/**'],
+          budget: { diff_lines: 200, wall_clock_ms: 900000 },
+          capabilities: { network: false },
+        })
+        .successCriteria([{ type: 'exit_code', equals: 0 }])
+        .evidenceRequired([fileEvidenceNonEmpty('coverage', 'coverage.out')]);
+
+      const json = p.toJSON();
+      const task = (json.tasks as any[])[0];
+
+      expect(json.version).toBe('5');
+      expect(task.actor).toEqual({ kind: 'agent', id: 'claude' });
+      expect(task.mandate.scope).toEqual(['sdk/typescript/**']);
+    });
+
+    it('rejects an empty mandate budget object', () => {
+      const p = new Pipeline();
+      expect(() =>
+        p.task('implement').run('go test ./...').mandate({ scope: ['src/**'], budget: {} }),
+      ).toThrow('mandate.budget cannot be empty');
+    });
+
+    it('rejects unknown mandate keys from untyped callers', () => {
+      const p = new Pipeline();
+      expect(() =>
+        p
+          .task('implement')
+          .run('go test ./...')
+          .mandate({ scope: ['src/**'], budgets: { diff_lines: 200 } } as any),
+      ).toThrow("unknown mandate key(s): budgets");
+    });
+
+    it('rejects unknown mandate budget keys and non-boolean network', () => {
+      const p = new Pipeline();
+      expect(() =>
+        p
+          .task('a')
+          .run('true')
+          .mandate({ scope: ['src/**'], budget: { diffLines: 200 } } as any),
+      ).toThrow('unknown mandate.budget key(s): diffLines');
+      expect(() =>
+        p
+          .task('b')
+          .run('true')
+          .mandate({ scope: ['src/**'], capabilities: { network: 'no' } } as any),
+      ).toThrow('mandate.capabilities.network must be a boolean');
+    });
+
+    it('rejects agent actor without mandate at emit time', () => {
+      const p = new Pipeline();
+      p.task('implement')
+        .run('go test ./...')
+        .actor({ kind: 'agent' })
+        .successCriteria([{ type: 'exit_code', equals: 0 }])
+        .evidenceRequired([fileEvidenceNonEmpty('coverage', 'coverage.out')]);
+
+      expect(() => p.toJSON()).toThrow('does not declare mandate');
+    });
+
     it('creates an experimental review node', () => {
       const p = new Pipeline();
       p.task('test').run('go test ./...');
