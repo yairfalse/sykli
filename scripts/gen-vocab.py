@@ -267,6 +267,45 @@ def check() -> int:
         ),
         errors,
     )
+    check_equal(
+        "go actor_kind",
+        actor_kind,
+        regex_values("sdk/go/sykli.go", r'ActorKind\w+\s+ActorKind\s+=\s+"([^"]+)"'),
+        errors,
+    )
+    check_equal(
+        "rust actor_kind",
+        actor_kind,
+        regex_values("sdk/rust/src/lib.rs", r'ActorKind::\w+\s+=>\s+"([^"]+)"'),
+        errors,
+    )
+    check_equal(
+        "typescript actor_kind",
+        actor_kind,
+        string_literals_in_block(
+            "sdk/typescript/src/index.ts",
+            r"const ACTOR_KINDS = \[([^\]]+)\] as const;",
+        ),
+        errors,
+    )
+    check_equal(
+        "python actor_kind",
+        actor_kind,
+        string_literals_in_block(
+            "sdk/python/src/sykli/__init__.py",
+            r"ActorKind = Literal\[([^\]]+)\]",
+        ),
+        errors,
+    )
+    check_equal(
+        "elixir actor_kind",
+        actor_kind,
+        atoms_in_block(
+            "sdk/elixir/lib/sykli/task.ex",
+            r"@actor_kinds \[([^\]]+)\]",
+        ),
+        errors,
+    )
 
     if errors:
         print("Vocabulary drift detected:", file=sys.stderr)

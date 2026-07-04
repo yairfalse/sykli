@@ -155,6 +155,38 @@ describe('Pipeline', () => {
       ]);
     });
 
+    it('serializes actor and mandate and emits version 5', () => {
+      const p = new Pipeline();
+      p.task('implement')
+        .run('go test ./...')
+        .actor({ kind: 'agent', id: 'claude' })
+        .mandate({
+          scope: ['sdk/typescript/**'],
+          budget: { diff_lines: 200, wall_clock_ms: 900000 },
+          capabilities: { network: false },
+        })
+        .successCriteria([{ type: 'exit_code', equals: 0 }])
+        .evidenceRequired([fileEvidenceNonEmpty('coverage', 'coverage.out')]);
+
+      const json = p.toJSON();
+      const task = (json.tasks as any[])[0];
+
+      expect(json.version).toBe('5');
+      expect(task.actor).toEqual({ kind: 'agent', id: 'claude' });
+      expect(task.mandate.scope).toEqual(['sdk/typescript/**']);
+    });
+
+    it('rejects agent actor without mandate at emit time', () => {
+      const p = new Pipeline();
+      p.task('implement')
+        .run('go test ./...')
+        .actor({ kind: 'agent' })
+        .successCriteria([{ type: 'exit_code', equals: 0 }])
+        .evidenceRequired([fileEvidenceNonEmpty('coverage', 'coverage.out')]);
+
+      expect(() => p.toJSON()).toThrow('does not declare mandate');
+    });
+
     it('creates an experimental review node', () => {
       const p = new Pipeline();
       p.task('test').run('go test ./...');

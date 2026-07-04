@@ -93,6 +93,21 @@ const (
 	TaskTypeCleanup  TaskType = "cleanup"
 )
 
+// ActorKind identifies who is expected to perform a task.
+type ActorKind string
+
+const (
+	ActorKindHuman   ActorKind = "human"
+	ActorKindAgent   ActorKind = "agent"
+	ActorKindService ActorKind = "service"
+)
+
+var actorKinds = map[ActorKind]struct{}{
+	ActorKindHuman:   {},
+	ActorKindAgent:   {},
+	ActorKindService: {},
+}
+
 var taskTypes = map[TaskType]struct{}{
 	TaskTypeBuild:    {},
 	TaskTypeTest:     {},
@@ -106,6 +121,51 @@ var taskTypes = map[TaskType]struct{}{
 	TaskTypeGenerate: {},
 	TaskTypeVerify:   {},
 	TaskTypeCleanup:  {},
+}
+
+// Actor declares the actor expected to perform a task.
+type Actor struct {
+	kind ActorKind
+	id   string
+}
+
+// Mandate declares the bounded work scope for a task.
+type Mandate struct {
+	scope        []string
+	diffLines    int
+	wallClockMS  int
+	networkSet   bool
+	networkAllow bool
+}
+
+// MandateOption configures a mandate.
+type MandateOption func(*Mandate)
+
+// DiffLines limits added plus deleted lines.
+func DiffLines(limit int) MandateOption {
+	return func(m *Mandate) { m.diffLines = limit }
+}
+
+// WallClockMS limits task wall-clock duration in milliseconds.
+func WallClockMS(limit int) MandateOption {
+	return func(m *Mandate) { m.wallClockMS = limit }
+}
+
+// Network controls whether the task may use network access.
+func Network(allowed bool) MandateOption {
+	return func(m *Mandate) {
+		m.networkSet = true
+		m.networkAllow = allowed
+	}
+}
+
+// NewMandate builds a mandate from scope patterns and options.
+func NewMandate(scope []string, opts ...MandateOption) Mandate {
+	m := Mandate{scope: append([]string{}, scope...)}
+	for _, opt := range opts {
+		opt(&m)
+	}
+	return m
 }
 
 // SuccessCriterion is declared verification metadata for executable task success.
@@ -268,6 +328,11 @@ func validateEvidenceRequirements(taskName string, requirements []EvidenceRequir
 
 func validTaskType(taskType TaskType) bool {
 	_, ok := taskTypes[taskType]
+	return ok
+}
+
+func validActorKind(kind ActorKind) bool {
+	_, ok := actorKinds[kind]
 	return ok
 }
 
@@ -722,6 +787,8 @@ type Task struct {
 	taskType         TaskType
 	successCriteria  []SuccessCriterion
 	evidenceRequired []EvidenceRequirement
+	actor            *Actor
+	mandate          *Mandate
 	command          string
 	container        string
 	workdir          string
@@ -971,6 +1038,47 @@ func (t *Task) SuccessCriteria(criteria ...SuccessCriterion) *Task {
 func (t *Task) EvidenceRequired(requirements ...EvidenceRequirement) *Task {
 	validateEvidenceRequirements(t.name, requirements)
 	t.evidenceRequired = append(t.evidenceRequired, requirements...)
+	return t
+}
+
+// Actor declares the actor expected to perform this task.
+func (t *Task) Actor(kind ActorKind, id ...string) *Task {
+	if t.gate != nil {
+		log.Panic().Str("task", t.name).Msg("actor is not supported on gate tasks")
+	}
+	if !validActorKind(kind) {
+		log.Panic().Str("task", t.name).Str("actor_kind", string(kind)).Msg("invalid actor.kind")
+	}
+	actor := &Actor{kind: kind}
+	if len(id) > 0 {
+		if id[0] == "" {
+			log.Panic().Str("task", t.name).Msg("actor.id cannot be empty")
+		}
+		actor.id = id[0]
+	}
+	t.actor = actor
+	return t
+}
+
+// Mandate declares the bounded work scope for this task.
+func (t *Task) Mandate(m Mandate) *Task {
+	if t.gate != nil {
+		log.Panic().Str("task", t.name).Msg("mandate is not supported on gate tasks")
+	}
+	if len(m.scope) == 0 {
+		log.Panic().Str("task", t.name).Msg("mandate.scope cannot be empty")
+	}
+	for _, pattern := range m.scope {
+		if pattern == "" {
+			log.Panic().Str("task", t.name).Msg("mandate.scope entries cannot be empty")
+		}
+	}
+	if m.diffLines < 0 || m.wallClockMS < 0 {
+		log.Panic().Str("task", t.name).Msg("mandate budget values must be positive")
+	}
+	copy := m
+	copy.scope = append([]string{}, m.scope...)
+	t.mandate = &copy
 	return t
 }
 
@@ -2094,6 +2202,17 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 			log.Error().Str("task", t.name).Msg("task has no command")
 			return fmt.Errorf("task %q has no command", t.name)
 		}
+		if t.actor != nil && t.actor.kind == ActorKindAgent {
+			if t.mandate == nil {
+				return fmt.Errorf("task %q declares actor.kind \"agent\" but does not declare mandate", t.name)
+			}
+			if len(t.successCriteria) == 0 {
+				return fmt.Errorf("task %q declares actor.kind \"agent\" but does not declare success_criteria", t.name)
+			}
+			if len(t.evidenceRequired) == 0 {
+				return fmt.Errorf("task %q declares actor.kind \"agent\" but does not declare evidence_required", t.name)
+			}
+		}
 		for _, dep := range t.dependsOn {
 			if !taskNames[dep] {
 				log.Error().Str("task", t.name).Str("dependency", dep).Msg("unknown dependency")
@@ -2145,6 +2264,7 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 	hasV2Features := len(p.dirs) > 0 || len(p.caches) > 0
 	hasV3Features := false
 	hasV4Features := false
+	hasV5Features := false
 	for _, t := range p.tasks {
 		if t.taskType != "" {
 			hasV3Features = true
@@ -2155,14 +2275,19 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 		if len(t.evidenceRequired) > 0 {
 			hasV4Features = true
 		}
+		if t.actor != nil || t.mandate != nil {
+			hasV5Features = true
+		}
 		if t.container != "" || len(t.mounts) > 0 {
 			hasV2Features = true
 		}
-		if hasV2Features && hasV3Features && hasV4Features {
+		if hasV2Features && hasV3Features && hasV4Features && hasV5Features {
 			break
 		}
 	}
-	if hasV4Features {
+	if hasV5Features {
+		version = "5"
+	} else if hasV4Features {
 		version = "4"
 	} else if hasV3Features {
 		version = "3"
@@ -2202,6 +2327,26 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 		Predicate   string `json:"predicate,omitempty"`
 		RefPattern  string `json:"ref_pattern,omitempty"`
 		Description string `json:"description,omitempty"`
+	}
+
+	type jsonActor struct {
+		Kind string `json:"kind"`
+		ID   string `json:"id,omitempty"`
+	}
+
+	type jsonMandateBudget struct {
+		DiffLines   int `json:"diff_lines,omitempty"`
+		WallClockMS int `json:"wall_clock_ms,omitempty"`
+	}
+
+	type jsonMandateCapabilities struct {
+		Network *bool `json:"network,omitempty"`
+	}
+
+	type jsonMandate struct {
+		Scope        []string                 `json:"scope"`
+		Budget       *jsonMandateBudget       `json:"budget,omitempty"`
+		Capabilities *jsonMandateCapabilities `json:"capabilities,omitempty"`
 	}
 
 	type jsonSecretRef struct {
@@ -2251,6 +2396,8 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 		TaskType         string                    `json:"task_type,omitempty"`
 		SuccessCriteria  []jsonSuccessCriterion    `json:"success_criteria,omitempty"`
 		EvidenceRequired []jsonEvidenceRequirement `json:"evidence_required,omitempty"`
+		Actor            *jsonActor                `json:"actor,omitempty"`
+		Mandate          *jsonMandate              `json:"mandate,omitempty"`
 		Command          string                    `json:"command,omitempty"`
 		Container        string                    `json:"container,omitempty"`
 		Workdir          string                    `json:"workdir,omitempty"`
@@ -2434,11 +2581,33 @@ func (p *Pipeline) EmitTo(w io.Writer) error {
 			}
 		}
 
+		var actor *jsonActor
+		if t.actor != nil {
+			actor = &jsonActor{Kind: string(t.actor.kind), ID: t.actor.id}
+		}
+
+		var mandate *jsonMandate
+		if t.mandate != nil {
+			mandate = &jsonMandate{Scope: t.mandate.scope}
+			if t.mandate.diffLines > 0 || t.mandate.wallClockMS > 0 {
+				mandate.Budget = &jsonMandateBudget{
+					DiffLines:   t.mandate.diffLines,
+					WallClockMS: t.mandate.wallClockMS,
+				}
+			}
+			if t.mandate.networkSet {
+				network := t.mandate.networkAllow
+				mandate.Capabilities = &jsonMandateCapabilities{Network: &network}
+			}
+		}
+
 		jt := jsonTask{
 			Name:             t.name,
 			TaskType:         string(t.taskType),
 			SuccessCriteria:  successCriteria,
 			EvidenceRequired: evidenceRequired,
+			Actor:            actor,
+			Mandate:          mandate,
 			Command:          t.command,
 			Container:        t.container,
 			Workdir:          t.workdir,

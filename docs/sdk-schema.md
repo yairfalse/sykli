@@ -7,7 +7,7 @@ This document describes the **current** Sykli pipeline JSON contract. It is grou
 - The engine parser (`core/lib/sykli/graph.ex`) and per-field modules (`core/lib/sykli/graph/task/*.ex`).
 - Engine validation (`core/lib/sykli/validate.ex`).
 - The five SDK emitters (`sdk/{go,rust,typescript,elixir,python}/`).
-- The 25 conformance fixtures (`tests/conformance/cases/*.json`).
+- The 27 conformance fixtures (`tests/conformance/cases/*.json`).
 
 The agent-native semantic model is defined in `docs/agent-contract-semantics.md`.
 This document describes only the current wire contract.
@@ -53,7 +53,7 @@ parsing.
 - `"5"` is the actor mandate format, adding executable-task `actor` and `mandate`.
 - SDKs auto-detect: `"4"` if any executable task has `evidence_required`; otherwise `"3"` if any executable task has semantic fields such as `task_type` or `success_criteria`; otherwise `"2"` if any task has `container` set, or any task has non-empty `mounts`, or the pipeline has any directory or cache resources; `"1"` otherwise.
 - **Current behavior:** explicit and strict. The schema and engine accept only the supported versions above. Missing, empty, malformed, or unknown future versions are rejected. `task_type` and `success_criteria` require `version == "3"` or newer; `evidence_required` requires `version == "4"` or newer; `actor` and `mandate` require `version == "5"`.
-- **SDK emission status:** SDKs still emit through `"4"` in the current release. Version `"5"` is accepted by the schema and engine parser/validator for forward-compatible engine work.
+- **SDK emission status:** SDKs emit through `"5"` when `actor` or `mandate` is present.
 - **Future behavior:** new pipeline wire-format versions require explicit schema and engine support. The engine must never silently reinterpret a newer document as an older version.
 
 ### `tasks`
@@ -520,7 +520,7 @@ introduce a replacement field.
 
 These are **descriptive, not prescriptive**. The schema documents current behavior; resolving these is Phase 2C / future work.
 
-1. **Version-aware behavior is enforced for supported versions.** SDKs emit through `"4"` today; the engine rejects missing, malformed, and unsupported versions, checks `task_type` and `success_criteria` compatibility with `version: "3"` or newer, checks `evidence_required` compatibility with `version: "4"` or newer, and checks `actor`/`mandate` compatibility with `version: "5"`.
+1. **Version-aware behavior is enforced for supported versions.** SDKs emit through `"5"` today; the engine rejects missing, malformed, and unsupported versions, checks `task_type` and `success_criteria` compatibility with `version: "3"` or newer, checks `evidence_required` compatibility with `version: "4"` or newer, and checks `actor`/`mandate` compatibility with `version: "5"`.
 2. **Review nodes are experimental.** Engine supports `kind: "review"` and the four review-only fields, and SDKs expose minimal review builders. Review outputs are not canonical.
 3. **`verify` and `oidc` are reserved with no SDK emit.** Engine reads them; SDKs have no API. Either implement SDK support or drop from the schema once a decision lands.
 4. **`history_hint` is engine-internal.** SDKs MUST NOT emit. Schema marks `readOnly` for clarity.

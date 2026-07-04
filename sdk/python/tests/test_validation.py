@@ -2,7 +2,16 @@
 
 import pytest
 
-from sykli import K8sOptions, Pipeline, ValidationError, exit_code, file_exists, file_non_empty
+from sykli import (
+    K8sOptions,
+    Pipeline,
+    ValidationError,
+    actor,
+    exit_code,
+    file_exists,
+    file_non_empty,
+    file_evidence_non_empty,
+)
 from sykli import _jaro_similarity, _jaro_winkler, _best_match
 
 
@@ -161,6 +170,17 @@ class TestDeferredValidation:
             p.validate()
         assert exc_info.value.code == "MISSING_COMMAND"
         assert exc_info.value.task == "review-code"
+
+    def test_agent_actor_requires_mandate(self):
+        p = Pipeline()
+        p.task("implement").run("pytest").actor(actor("agent")).success_criteria([
+            exit_code(0),
+        ]).evidence_required([
+            file_evidence_non_empty("coverage", "coverage.out"),
+        ])
+
+        with pytest.raises(ValidationError, match="does not declare mandate"):
+            p.validate()
 
     def test_empty_review_name(self):
         p = Pipeline()

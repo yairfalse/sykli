@@ -8,7 +8,7 @@ defmodule Sykli.ContractSchemaVersion do
   """
 
   @supported_versions ~w(1 2 3 4 5)
-  @current_version "4"
+  @current_version "5"
 
   @type validation_error ::
           :missing_contract_schema_version

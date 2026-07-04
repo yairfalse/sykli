@@ -489,6 +489,86 @@ pub enum TaskType {
     Cleanup,
 }
 
+/// Actor kind for executable tasks.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ActorKind {
+    Human,
+    Agent,
+    Service,
+}
+
+impl ActorKind {
+    fn as_str(&self) -> &'static str {
+        match self {
+            ActorKind::Human => "human",
+            ActorKind::Agent => "agent",
+            ActorKind::Service => "service",
+        }
+    }
+}
+
+/// Actor expected to perform a task.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Actor {
+    kind: ActorKind,
+    id: Option<String>,
+}
+
+impl Actor {
+    pub fn new(kind: ActorKind) -> Self {
+        Self { kind, id: None }
+    }
+
+    pub fn id(mut self, id: impl Into<String>) -> Self {
+        let id = id.into();
+        assert!(!id.is_empty(), "actor id cannot be empty");
+        self.id = Some(id);
+        self
+    }
+}
+
+/// Bounded work scope for a task.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Mandate {
+    scope: Vec<String>,
+    diff_lines: Option<u32>,
+    wall_clock_ms: Option<u32>,
+    network: Option<bool>,
+}
+
+impl Mandate {
+    pub fn new(scope: &[&str]) -> Self {
+        assert!(!scope.is_empty(), "mandate scope cannot be empty");
+        assert!(
+            scope.iter().all(|entry| !entry.is_empty()),
+            "mandate scope entries cannot be empty"
+        );
+        Self {
+            scope: scope.iter().map(|entry| (*entry).to_string()).collect(),
+            diff_lines: None,
+            wall_clock_ms: None,
+            network: None,
+        }
+    }
+
+    pub fn diff_lines(mut self, limit: u32) -> Self {
+        assert!(limit > 0, "mandate diff_lines must be positive");
+        self.diff_lines = Some(limit);
+        self
+    }
+
+    pub fn wall_clock_ms(mut self, limit: u32) -> Self {
+        assert!(limit > 0, "mandate wall_clock_ms must be positive");
+        self.wall_clock_ms = Some(limit);
+        self
+    }
+
+    pub fn network(mut self, allowed: bool) -> Self {
+        self.network = Some(allowed);
+        self
+    }
+}
+
 /// Declared verification checks for executable task success.
 #[derive(Clone, Debug, PartialEq)]
 pub enum SuccessCriterion {
@@ -1027,6 +1107,8 @@ struct TaskData {
     task_type: Option<TaskType>,
     success_criteria: Vec<SuccessCriterion>,
     evidence_required: Vec<EvidenceRequirement>,
+    actor: Option<Actor>,
+    mandate: Option<Mandate>,
     command: String,
     primitive: Option<String>,
     agent: Option<String>,
@@ -1173,6 +1255,28 @@ impl<'a> Task<'a> {
         self.pipeline.tasks[self.index]
             .evidence_required
             .extend(requirements.iter().cloned());
+        self
+    }
+
+    /// Declares the actor expected to perform this task.
+    #[must_use]
+    pub fn actor(self, actor: Actor) -> Self {
+        assert!(
+            self.pipeline.tasks[self.index].gate.is_none(),
+            "actor is not supported on gate tasks"
+        );
+        self.pipeline.tasks[self.index].actor = Some(actor);
+        self
+    }
+
+    /// Declares bounded work scope for this task.
+    #[must_use]
+    pub fn mandate(self, mandate: Mandate) -> Self {
+        assert!(
+            self.pipeline.tasks[self.index].gate.is_none(),
+            "mandate is not supported on gate tasks"
+        );
+        self.pipeline.tasks[self.index].mandate = Some(mandate);
         self
     }
 
@@ -2546,6 +2650,38 @@ impl Pipeline {
                     return Err(io::Error::new(io::ErrorKind::InvalidData, msg));
                 }
             }
+            if matches!(
+                t.actor.as_ref().map(|actor| &actor.kind),
+                Some(ActorKind::Agent)
+            ) {
+                if t.mandate.is_none() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!(
+                            "task {:?} declares actor.kind \"agent\" but does not declare mandate",
+                            t.name
+                        ),
+                    ));
+                }
+                if t.success_criteria.is_empty() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!(
+                            "task {:?} declares actor.kind \"agent\" but does not declare success_criteria",
+                            t.name
+                        ),
+                    ));
+                }
+                if t.evidence_required.is_empty() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!(
+                            "task {:?} declares actor.kind \"agent\" but does not declare evidence_required",
+                            t.name
+                        ),
+                    ));
+                }
+            }
         }
 
         // Cycle detection
@@ -2589,8 +2725,14 @@ impl Pipeline {
             .iter()
             .any(|t| t.task_type.is_some() || !t.success_criteria.is_empty());
         let has_v4_features = self.tasks.iter().any(|t| !t.evidence_required.is_empty());
+        let has_v5_features = self
+            .tasks
+            .iter()
+            .any(|t| t.actor.is_some() || t.mandate.is_some());
 
-        let version = if has_v4_features {
+        let version = if has_v5_features {
+            "5"
+        } else if has_v4_features {
             "4"
         } else if has_v3_features {
             "3"
@@ -2677,6 +2819,34 @@ impl Pipeline {
                                 .map(EvidenceRequirement::to_json)
                                 .collect(),
                         )
+                    },
+                    actor: if t.kind == NodeKind::Review {
+                        None
+                    } else {
+                        t.actor.as_ref().map(|actor| JsonActor {
+                            kind: actor.kind.as_str().to_string(),
+                            id: actor.id.clone(),
+                        })
+                    },
+                    mandate: if t.kind == NodeKind::Review {
+                        None
+                    } else {
+                        t.mandate.as_ref().map(|mandate| JsonMandate {
+                            scope: mandate.scope.clone(),
+                            budget: if mandate.diff_lines.is_some()
+                                || mandate.wall_clock_ms.is_some()
+                            {
+                                Some(JsonMandateBudget {
+                                    diff_lines: mandate.diff_lines,
+                                    wall_clock_ms: mandate.wall_clock_ms,
+                                })
+                            } else {
+                                None
+                            },
+                            capabilities: mandate.network.map(|network| JsonMandateCapabilities {
+                                network: Some(network),
+                            }),
+                        })
                     },
                     command: if t.kind == NodeKind::Review || t.command.is_empty() {
                         None
@@ -3098,6 +3268,36 @@ struct JsonEvidenceRequirement {
 }
 
 #[derive(Serialize)]
+struct JsonActor {
+    kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
+}
+
+#[derive(Serialize)]
+struct JsonMandateBudget {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    diff_lines: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    wall_clock_ms: Option<u32>,
+}
+
+#[derive(Serialize)]
+struct JsonMandateCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    network: Option<bool>,
+}
+
+#[derive(Serialize)]
+struct JsonMandate {
+    scope: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    budget: Option<JsonMandateBudget>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    capabilities: Option<JsonMandateCapabilities>,
+}
+
+#[derive(Serialize)]
 struct JsonSecretRef {
     name: String,
     source: String,
@@ -3140,6 +3340,10 @@ struct JsonTask {
     success_criteria: Option<Vec<JsonSuccessCriterion>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     evidence_required: Option<Vec<JsonEvidenceRequirement>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    actor: Option<JsonActor>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mandate: Option<JsonMandate>,
     #[serde(skip_serializing_if = "Option::is_none")]
     command: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -3385,6 +3589,48 @@ mod tests {
         );
         assert_eq!(json["tasks"][0]["evidence_required"][1]["type"], "custom");
         assert_eq!(json["tasks"][0]["evidence_required"][1]["required"], false);
+    }
+
+    #[test]
+    fn test_actor_mandate_serialization() {
+        let mut p = Pipeline::new();
+        let _ = p
+            .task("implement")
+            .run("go test ./...")
+            .actor(Actor::new(ActorKind::Agent).id("claude"))
+            .mandate(
+                Mandate::new(&["sdk/rust/**"])
+                    .diff_lines(200)
+                    .wall_clock_ms(900000)
+                    .network(false),
+            )
+            .success_criteria(&[SuccessCriterion::ExitCode(0)])
+            .evidence_required(&[EvidenceRequirement::file_non_empty(
+                "coverage",
+                "coverage.out",
+            )]);
+
+        let mut buf = Vec::new();
+        p.emit_to(&mut buf).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+
+        assert_eq!(json["version"], "5");
+        assert_eq!(json["tasks"][0]["actor"]["kind"], "agent");
+        assert_eq!(json["tasks"][0]["mandate"]["scope"][0], "sdk/rust/**");
+    }
+
+    #[test]
+    fn test_agent_actor_requires_mandate_at_emit() {
+        let mut p = Pipeline::new();
+        let _ = p
+            .task("implement")
+            .run("go test ./...")
+            .actor(Actor::new(ActorKind::Agent))
+            .success_criteria(&[SuccessCriterion::ExitCode(0)])
+            .evidence_required(&[EvidenceRequirement::file("coverage", "coverage.out")]);
+
+        let err = p.emit_to(&mut Vec::new()).unwrap_err();
+        assert!(err.to_string().contains("does not declare mandate"));
     }
 
     #[test]

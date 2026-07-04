@@ -22,7 +22,7 @@
 export class ValidationError extends Error {
   constructor(
     message: string,
-    public readonly code: 'EMPTY_NAME' | 'DUPLICATE_TASK' | 'UNKNOWN_DEPENDENCY' | 'CYCLE_DETECTED' | 'MISSING_COMMAND',
+    public readonly code: 'EMPTY_NAME' | 'DUPLICATE_TASK' | 'UNKNOWN_DEPENDENCY' | 'CYCLE_DETECTED' | 'MISSING_COMMAND' | 'CONTRACT_VIOLATION',
     public readonly suggestion?: string
   ) {
     super(suggestion ? `${message} (${suggestion})` : message);
@@ -126,6 +126,53 @@ export type EvidenceRequirement = {
   ref_pattern?: string;
   description?: string;
 };
+
+const ACTOR_KINDS = ['human', 'agent', 'service'] as const;
+
+export type ActorKind = (typeof ACTOR_KINDS)[number];
+
+export type Actor = {
+  kind: ActorKind;
+  id?: string;
+};
+
+export type Mandate = {
+  scope: string[];
+  budget?: {
+    diff_lines?: number;
+    wall_clock_ms?: number;
+  };
+  capabilities?: {
+    network?: boolean;
+  };
+};
+
+function validateActor(taskName: string, actor: Actor): void {
+  if (!ACTOR_KINDS.includes(actor.kind)) {
+    throw new Error(`task '${taskName}': invalid actor.kind '${(actor as any).kind}'`);
+  }
+  if (actor.id !== undefined && actor.id === '') {
+    throw new Error(`task '${taskName}': actor.id cannot be empty`);
+  }
+}
+
+function validateMandate(taskName: string, mandate: Mandate): void {
+  if (!Array.isArray(mandate.scope) || mandate.scope.length === 0) {
+    throw new Error(`task '${taskName}': mandate.scope cannot be empty`);
+  }
+  if (mandate.scope.some((entry) => entry === '')) {
+    throw new Error(`task '${taskName}': mandate.scope entries cannot be empty`);
+  }
+  const budget = mandate.budget;
+  if (budget) {
+    if (budget.diff_lines !== undefined && (!Number.isInteger(budget.diff_lines) || budget.diff_lines <= 0)) {
+      throw new Error(`task '${taskName}': mandate.budget.diff_lines must be a positive integer`);
+    }
+    if (budget.wall_clock_ms !== undefined && (!Number.isInteger(budget.wall_clock_ms) || budget.wall_clock_ms <= 0)) {
+      throw new Error(`task '${taskName}': mandate.budget.wall_clock_ms must be a positive integer`);
+    }
+  }
+}
 
 export function fileEvidence(name: string, refPattern: string): EvidenceRequirement {
   return {
@@ -455,6 +502,8 @@ export class Task {
   private _taskType?: TaskType;
   private _successCriteria: SuccessCriterion[] = [];
   private _evidenceRequired: EvidenceRequirement[] = [];
+  private _actor?: Actor;
+  private _mandate?: Mandate;
   private _container?: string;
   private _workdir?: string;
   private _env: Record<string, string> = {};
@@ -523,6 +572,29 @@ export class Task {
         ...requirement,
       })),
     );
+    return this;
+  }
+
+  actor(actor: Actor): this {
+    if (this._gate) {
+      throw new Error(`task '${this.name}': actor is not supported on gate tasks`);
+    }
+    validateActor(this.name, actor);
+    this._actor = { ...actor };
+    return this;
+  }
+
+  mandate(mandate: Mandate): this {
+    if (this._gate) {
+      throw new Error(`task '${this.name}': mandate is not supported on gate tasks`);
+    }
+    validateMandate(this.name, mandate);
+    this._mandate = {
+      ...mandate,
+      scope: [...mandate.scope],
+      budget: mandate.budget ? { ...mandate.budget } : undefined,
+      capabilities: mandate.capabilities ? { ...mandate.capabilities } : undefined,
+    };
     return this;
   }
 
@@ -913,6 +985,18 @@ export class Task {
     return this._evidenceRequired.length > 0;
   }
 
+  _hasV5Fields(): boolean {
+    return this._actor !== undefined || this._mandate !== undefined;
+  }
+
+  _agentMissingField(): string | undefined {
+    if (this._actor?.kind !== 'agent') return undefined;
+    if (!this._mandate) return 'mandate';
+    if (this._successCriteria.length === 0) return 'success_criteria';
+    if (this._evidenceRequired.length === 0) return 'evidence_required';
+    return undefined;
+  }
+
   // ─────────────────────────────────────────────────────────────────────────────
   // Internal accessors (for Template and Pipeline use)
   // ─────────────────────────────────────────────────────────────────────────────
@@ -981,6 +1065,8 @@ export class Task {
     if (this._taskType) json.task_type = this._taskType;
     if (this._successCriteria.length > 0) json.success_criteria = this._successCriteria;
     if (this._evidenceRequired.length > 0) json.evidence_required = this._evidenceRequired;
+    if (this._actor) json.actor = this._actor;
+    if (this._mandate) json.mandate = this._mandate;
 
     if (this._container) json.container = this._container;
     if (this._workdir) json.workdir = this._workdir;
@@ -1226,6 +1312,16 @@ export class Review {
   /** @internal Whether this review declares evidence_required */
   _hasEvidenceRequired(): boolean {
     return false;
+  }
+
+  /** @internal Whether this review declares actor/mandate */
+  _hasV5Fields(): boolean {
+    return false;
+  }
+
+  /** @internal Review nodes cannot declare agent actor contracts */
+  _agentMissingField(): string | undefined {
+    return undefined;
   }
 
   /** Convert to JSON representation (internal) */
@@ -1474,6 +1570,14 @@ export class Pipeline {
           'did you forget to call .run()?'
         );
       }
+
+      const missing = task._isReview() ? undefined : task._agentMissingField();
+      if (missing) {
+        throw new ValidationError(
+          `Task "${task.name}" declares actor.kind "agent" but does not declare ${missing}`,
+          'CONTRACT_VIOLATION'
+        );
+      }
     }
 
     // Pass 2: Check for unknown dependencies
@@ -1659,9 +1763,10 @@ export class Pipeline {
       this.tasks.some((t) => t._getContainer() || t._getMounts().length > 0);
     const hasV3Features = this.tasks.some((t) => t._hasTaskType() || t._hasSuccessCriteria());
     const hasV4Features = this.tasks.some((t) => t._hasEvidenceRequired());
+    const hasV5Features = this.tasks.some((t) => !t._isReview() && t._hasV5Fields());
 
     const json: Record<string, unknown> = {
-      version: hasV4Features ? '4' : hasV3Features ? '3' : hasV2Features ? '2' : '1',
+      version: hasV5Features ? '5' : hasV4Features ? '4' : hasV3Features ? '3' : hasV2Features ? '2' : '1',
       tasks: this.tasks.map((t) => t._toJSON()),
     };
 

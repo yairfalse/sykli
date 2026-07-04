@@ -83,11 +83,15 @@ __all__ = [
     "file_non_empty",
     "file_evidence",
     "file_evidence_non_empty",
+    "actor",
+    "mandate",
     # Types
     "K8sOptions",
     "TaskType",
     "SuccessCriterion",
     "EvidenceRequirement",
+    "Actor",
+    "Mandate",
     "ValidationError",
     "ExplainContext",
     # Presets
@@ -139,6 +143,10 @@ TASK_TYPES: tuple[str, ...] = get_args(TaskType)
 
 SuccessCriterion = dict[str, Any]
 EvidenceRequirement = dict[str, Any]
+ActorKind = Literal["human", "agent", "service"]
+Actor = dict[str, Any]
+Mandate = dict[str, Any]
+ACTOR_KINDS: tuple[str, ...] = get_args(ActorKind)
 
 
 def exit_code(equals: int) -> SuccessCriterion:
@@ -236,6 +244,69 @@ def _validate_evidence_required(
                 raise ValueError(f"task {task_name!r}: invalid file evidence_required predicate")
         elif "predicate" in requirement:
             raise ValueError(f"task {task_name!r}: evidence_required.predicate is only supported for file")
+
+
+def actor(kind: ActorKind, id: str = "") -> Actor:
+    """Create an actor declaration."""
+    _validate_enum(kind, ACTOR_KINDS, "actor.kind", "")
+    if id == "":
+        return {"kind": kind}
+    return {"kind": kind, "id": id}
+
+
+def mandate(
+    scope: Sequence[str],
+    *,
+    diff_lines: int | None = None,
+    wall_clock_ms: int | None = None,
+    network: bool | None = None,
+) -> Mandate:
+    """Create a mandate declaration."""
+    result: Mandate = {"scope": list(scope)}
+    budget: dict[str, int] = {}
+    if diff_lines is not None:
+        budget["diff_lines"] = diff_lines
+    if wall_clock_ms is not None:
+        budget["wall_clock_ms"] = wall_clock_ms
+    if budget:
+        result["budget"] = budget
+    if network is not None:
+        result["capabilities"] = {"network": network}
+    _validate_mandate("", result)
+    return result
+
+
+def _validate_actor(task_name: str, value: Actor) -> None:
+    kind = value.get("kind")
+    _validate_enum(kind, ACTOR_KINDS, "actor.kind", task_name)
+    if "id" in value and (not isinstance(value["id"], str) or not value["id"]):
+        raise ValueError(f"task {task_name!r}: actor.id cannot be empty")
+
+
+def _validate_mandate(task_name: str, value: Mandate) -> None:
+    scope = value.get("scope")
+    if not isinstance(scope, list) or not scope:
+        raise ValueError(f"task {task_name!r}: mandate.scope cannot be empty")
+    if any(not isinstance(entry, str) or not entry for entry in scope):
+        raise ValueError(f"task {task_name!r}: mandate.scope entries cannot be empty")
+    budget = value.get("budget")
+    if budget is not None:
+        if not isinstance(budget, dict) or not budget:
+            raise ValueError(f"task {task_name!r}: mandate.budget cannot be empty")
+        if "diff_lines" in budget and (
+            not isinstance(budget["diff_lines"], int) or budget["diff_lines"] <= 0
+        ):
+            raise ValueError(f"task {task_name!r}: mandate.budget.diff_lines must be positive")
+        if "wall_clock_ms" in budget and (
+            not isinstance(budget["wall_clock_ms"], int) or budget["wall_clock_ms"] <= 0
+        ):
+            raise ValueError(f"task {task_name!r}: mandate.budget.wall_clock_ms must be positive")
+    capabilities = value.get("capabilities")
+    if capabilities is not None and (
+        not isinstance(capabilities, dict)
+        or ("network" in capabilities and not isinstance(capabilities["network"], bool))
+    ):
+        raise ValueError(f"task {task_name!r}: mandate.capabilities.network must be boolean")
 
 
 @dataclass(frozen=True)
@@ -519,6 +590,8 @@ class Task:
         self._task_type: TaskType | None = None
         self._success_criteria: list[SuccessCriterion] = []
         self._evidence_required: list[EvidenceRequirement] = []
+        self._actor: Actor | None = None
+        self._mandate: Mandate | None = None
         self._command: str = ""
         self._container: str = ""
         self._workdir: str = ""
@@ -593,6 +666,27 @@ class Task:
             if normalized["type"] == "file":
                 normalized.setdefault("predicate", "exists")
             self._evidence_required.append(normalized)
+        return self
+
+    def actor(self, value: Actor) -> Self:
+        """Declare the actor expected to perform this task."""
+        if self._is_gate:
+            raise ValueError(f"task {self._name!r}: actor is not supported on gate tasks")
+        _validate_actor(self._name, value)
+        self._actor = dict(value)
+        return self
+
+    def mandate(self, value: Mandate) -> Self:
+        """Declare bounded work scope for this task."""
+        if self._is_gate:
+            raise ValueError(f"task {self._name!r}: mandate is not supported on gate tasks")
+        _validate_mandate(self._name, value)
+        self._mandate = dict(value)
+        self._mandate["scope"] = list(value["scope"])
+        if "budget" in value:
+            self._mandate["budget"] = dict(value["budget"])
+        if "capabilities" in value:
+            self._mandate["capabilities"] = dict(value["capabilities"])
         return self
 
     def after(self, *tasks: str) -> Self:
@@ -870,6 +964,10 @@ class Task:
             d["success_criteria"] = [dict(criterion) for criterion in self._success_criteria]
         if self._evidence_required:
             d["evidence_required"] = [dict(requirement) for requirement in self._evidence_required]
+        if self._actor:
+            d["actor"] = dict(self._actor)
+        if self._mandate:
+            d["mandate"] = dict(self._mandate)
         if self._container:
             d["container"] = self._container
         if self._workdir:
@@ -976,6 +1074,15 @@ class Task:
         if self._select:
             d["select"] = self._select
         return d
+
+    def _agent_missing_field(self) -> str | None:
+        if not self._mandate:
+            return "mandate"
+        if not self._success_criteria:
+            return "success_criteria"
+        if not self._evidence_required:
+            return "evidence_required"
+        return None
 
     def k8s_raw(self, raw: str) -> Self:
         """Set raw JSON for advanced K8s options (escape hatch)."""
@@ -1281,6 +1388,16 @@ class Pipeline:
                     message=f"task {t._name!r} has no command",
                     task=t._name,
                 )
+            elif (
+                t._actor
+                and t._actor.get("kind") == "agent"
+                and (missing := t._agent_missing_field())
+            ):
+                raise ValidationError(
+                    code="CONTRACT_VIOLATION",
+                    message=f"task {t._name!r} declares actor.kind \"agent\" but does not declare {missing}",
+                    task=t._name,
+                )
 
         # Check all dependencies exist
         for t in self._tasks:
@@ -1397,10 +1514,15 @@ class Pipeline:
     def _has_v4_features(self) -> bool:
         return any(isinstance(t, Task) and bool(t._evidence_required) for t in self._tasks)
 
+    def _has_v5_features(self) -> bool:
+        return any(isinstance(t, Task) and (t._actor is not None or t._mandate is not None) for t in self._tasks)
+
     def _build_output(self) -> dict[str, Any]:
         has_v2_features = self._has_v2_features()
         version = (
-            "4"
+            "5"
+            if self._has_v5_features()
+            else "4"
             if self._has_v4_features()
             else "3"
             if self._has_v3_features()
