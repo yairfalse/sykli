@@ -196,6 +196,22 @@ class TestDeferredValidation:
         with pytest.raises(ValueError, match="wall_clock_ms must be positive"):
             mandate(["src/**"], wall_clock_ms=0)
 
+    def test_actor_dict_rejects_unknown_keys(self):
+        p = Pipeline()
+        with pytest.raises(ValueError, match="unknown actor key\\(s\\): role"):
+            p.task("x").run("true").actor({"kind": "human", "role": "extra"})
+
+    def test_mandate_dict_rejects_unknown_keys(self):
+        p = Pipeline()
+        with pytest.raises(ValueError, match="unknown mandate key\\(s\\): budgets"):
+            p.task("a").run("true").mandate({"scope": ["src/**"], "budgets": {}})
+        with pytest.raises(ValueError, match="unknown mandate.budget key\\(s\\): diffLines"):
+            p.task("b").run("true").mandate({"scope": ["src/**"], "budget": {"diffLines": 1}})
+        with pytest.raises(ValueError, match="unknown mandate.capabilities key\\(s\\): shell"):
+            p.task("c").run("true").mandate(
+                {"scope": ["src/**"], "capabilities": {"network": False, "shell": True}}
+            )
+
     def test_empty_review_name(self):
         p = Pipeline()
         with pytest.raises(ValueError):

@@ -290,7 +290,14 @@ def mandate(
     return result
 
 
+def _reject_unknown_keys(task_name: str, label: str, value: dict, known: set[str]) -> None:
+    unknown = sorted(set(value) - known)
+    if unknown:
+        raise ValueError(f"task {task_name!r}: unknown {label} key(s): {', '.join(unknown)}")
+
+
 def _validate_actor(task_name: str, value: Actor) -> None:
+    _reject_unknown_keys(task_name, "actor", value, {"kind", "id"})
     kind = value.get("kind")
     _validate_enum(kind, ACTOR_KINDS, "actor.kind", task_name)
     if "id" in value and (not isinstance(value["id"], str) or not value["id"]):
@@ -298,6 +305,7 @@ def _validate_actor(task_name: str, value: Actor) -> None:
 
 
 def _validate_mandate(task_name: str, value: Mandate) -> None:
+    _reject_unknown_keys(task_name, "mandate", value, {"scope", "budget", "capabilities"})
     scope = value.get("scope")
     if not isinstance(scope, list) or not scope:
         raise ValueError(f"task {task_name!r}: mandate.scope cannot be empty")
@@ -307,6 +315,7 @@ def _validate_mandate(task_name: str, value: Mandate) -> None:
     if budget is not None:
         if not isinstance(budget, dict) or not budget:
             raise ValueError(f"task {task_name!r}: mandate.budget cannot be empty")
+        _reject_unknown_keys(task_name, "mandate.budget", budget, {"diff_lines", "wall_clock_ms"})
         if "diff_lines" in budget and (
             not isinstance(budget["diff_lines"], int) or budget["diff_lines"] <= 0
         ):
@@ -316,11 +325,12 @@ def _validate_mandate(task_name: str, value: Mandate) -> None:
         ):
             raise ValueError(f"task {task_name!r}: mandate.budget.wall_clock_ms must be positive")
     capabilities = value.get("capabilities")
-    if capabilities is not None and (
-        not isinstance(capabilities, dict)
-        or ("network" in capabilities and not isinstance(capabilities["network"], bool))
-    ):
-        raise ValueError(f"task {task_name!r}: mandate.capabilities.network must be boolean")
+    if capabilities is not None:
+        if not isinstance(capabilities, dict):
+            raise ValueError(f"task {task_name!r}: mandate.capabilities.network must be boolean")
+        _reject_unknown_keys(task_name, "mandate.capabilities", capabilities, {"network"})
+        if "network" in capabilities and not isinstance(capabilities["network"], bool):
+            raise ValueError(f"task {task_name!r}: mandate.capabilities.network must be boolean")
 
 
 @dataclass(frozen=True)
