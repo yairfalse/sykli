@@ -17,10 +17,16 @@ defmodule Sykli.Gui.Provider.Artifact do
       produces
     * activity — derived from the artifacts above
 
-  Local-only for now: the member list is the local git identity, `team` is
-  the local pseudo-team, and `agent_calls` is empty (no local artifact
-  records MCP tool calls yet). Coordinator-backed team state is a later
-  Team Mode phase.
+  Local-only for now: the member list is the local git identity plus any
+  v5 agent/service actors declared in the contract (with their mandates),
+  `team` is the local pseudo-team, and `agent_calls` is empty (no local
+  artifact records MCP tool calls yet). Coordinator-backed team state is a
+  later Team Mode phase.
+
+  v5 result fields: task `mandate_outcome` and per-run mandate summaries
+  are read shape-tolerantly from run manifests — they populate once
+  mandate enforcement (PR #276) starts persisting them; `audit_verdict`
+  stays nil until the audit core is a shared service the GUI can call.
   """
 
   @behaviour Sykli.Gui.Provider
@@ -51,7 +57,7 @@ defmodule Sykli.Gui.Provider.Artifact do
       current_actor: local_actor(path),
       latest_run: latest && run_row(latest),
       graph: graph(contract, latest),
-      members: members(path),
+      members: members(path) ++ actor_members(contract),
       work_items: Enum.map(items, &work_item_row(&1, runs)),
       gates: Enum.map(gates, &gate_row/1),
       evidence: runs |> Enum.take(@recent_runs) |> Enum.map(&evidence_row/1),
@@ -175,6 +181,33 @@ defmodule Sykli.Gui.Provider.Artifact do
     }
   end
 
+  # v5 actors declared in the contract are execution participants the
+  # Workbench must show — with their mandate — even before any run. They
+  # are declarations, not live presence, so status is "declared".
+  defp actor_members({:ok, %{"tasks" => tasks}, _version}) do
+    tasks
+    |> Enum.filter(&(get_in(&1, ["actor", "kind"]) in ["agent", "service"]))
+    |> Enum.group_by(&get_in(&1, ["actor", "id"]))
+    |> Enum.sort()
+    |> Enum.map(fn {actor_id, actor_tasks} ->
+      first = List.first(actor_tasks)
+      kind = get_in(first, ["actor", "kind"])
+
+      %Member{
+        id: actor_id || kind,
+        name: actor_id || kind,
+        identity_type: kind,
+        role: "executor",
+        status: "declared",
+        current_work: Enum.map_join(actor_tasks, " · ", & &1["name"]),
+        mandate: first["mandate"],
+        trust: "declared in contract"
+      }
+    end)
+  end
+
+  defp actor_members(_contract), do: []
+
   defp git(path, args) do
     case System.cmd("git", args, cd: path, stderr_to_stdout: true) do
       {out, 0} -> String.trim(out)
@@ -282,8 +315,39 @@ defmodule Sykli.Gui.Provider.Artifact do
       retry_hint: semantics && if(semantics.retryable, do: "yes", else: "no"),
       reason: result_reason(result),
       duration: format_duration(result),
-      evidence: task_evidence_label(result)
+      evidence: task_evidence_label(result),
+      mandate_outcome: mandate_outcome_label(result)
     }
+  end
+
+  # `mandate_outcome` is persisted by mandate enforcement (PR #276) as
+  # %{"status" => "kept" | "violated" | "unverified" | "unsupported", ...}.
+  # Read it shape-tolerantly: manifests written before enforcement (or by
+  # engines without it) simply have no outcome. Exposed for tests until
+  # the TaskResult struct carries the field on main.
+  @doc false
+  def mandate_outcome_label(result) do
+    case Map.get(result, :mandate_outcome) do
+      %{"status" => status} when is_binary(status) -> status
+      _ -> nil
+    end
+  end
+
+  @doc false
+  def mandate_summary(tasks) do
+    counts =
+      tasks
+      |> Enum.map(&mandate_outcome_label/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.frequencies()
+
+    if counts == %{} do
+      nil
+    else
+      counts
+      |> Enum.sort()
+      |> Enum.map_join(" · ", fn {status, n} -> "#{n} #{status}" end)
+    end
   end
 
   defp result_status(%{cached: true}), do: "cached"
@@ -357,7 +421,11 @@ defmodule Sykli.Gui.Provider.Artifact do
       tasks: length(run.tasks),
       failed: Enum.count(run.tasks, &(&1.status == :failed)),
       skipped: Enum.count(run.tasks, &(&1.status == :skipped)),
-      complete: run_evidence_status(run) == "complete"
+      complete: run_evidence_status(run) == "complete",
+      # audit_verdict stays nil until the audit core (`sykli audit`,
+      # PR #276) is extractable as a shared service — the GUI must not
+      # re-derive verdict logic.
+      mandates: mandate_summary(run.tasks)
     }
   end
 

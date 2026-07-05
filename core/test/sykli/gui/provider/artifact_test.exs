@@ -168,6 +168,70 @@ defmodule Sykli.Gui.Provider.ArtifactTest do
     end
   end
 
+  describe "state/1 v5 actors and mandates" do
+    test "contract agent actors appear as declared members with their mandate", %{tmp: tmp} do
+      contract = %{
+        "version" => "5",
+        "tasks" => [
+          %{"name" => "test", "command" => "make test"},
+          %{
+            "name" => "fix:flaky",
+            "command" => "claude fix",
+            "actor" => %{"kind" => "agent", "id" => "codex"},
+            "mandate" => %{
+              "scope" => ["core/test/**"],
+              "budget" => %{"diff_lines" => 200, "wall_clock_ms" => 900_000},
+              "capabilities" => %{"network" => false}
+            }
+          },
+          %{
+            "name" => "fix:docs",
+            "command" => "claude docs",
+            "actor" => %{"kind" => "agent", "id" => "codex"},
+            "mandate" => %{"scope" => ["docs/**"]}
+          }
+        ]
+      }
+
+      lock = Sykli.ContractLock.build(contract, "sykli.exs")
+      {:ok, _bytes} = Sykli.ContractLock.write(lock, Path.join(tmp, "sykli.lock"))
+
+      state = Artifact.state(repo_path: tmp)
+
+      assert [%State.Member{identity_type: "human"}, agent] = state.members
+      assert agent.id == "codex"
+      assert agent.identity_type == "agent"
+      assert agent.status == "declared"
+      assert agent.role == "executor"
+      assert agent.current_work == "fix:flaky · fix:docs"
+      assert agent.mandate["scope"] == ["core/test/**"]
+      assert agent.mandate["capabilities"] == %{"network" => false}
+    end
+
+    test "mandate outcome mapping tolerates pre-enforcement manifests" do
+      # Manifests written before mandate enforcement (PR #276) carry no
+      # mandate_outcome — including every TaskResult main can produce today.
+      assert Artifact.mandate_outcome_label(%RunHistory.TaskResult{
+               name: "t",
+               status: :passed,
+               duration_ms: 1
+             }) == nil
+
+      # Post-enforcement shape: %{"status" => ...} on the task result.
+      kept = %{name: "t", status: :passed, mandate_outcome: %{"status" => "kept"}}
+      violated = %{name: "u", status: :failed, mandate_outcome: %{"status" => "violated"}}
+      bare = %{name: "v", status: :passed}
+
+      assert Artifact.mandate_outcome_label(kept) == "kept"
+      assert Artifact.mandate_outcome_label(violated) == "violated"
+      assert Artifact.mandate_outcome_label(%{mandate_outcome: %{"reason" => "x"}}) == nil
+
+      assert Artifact.mandate_summary([kept, violated, bare]) == "1 kept · 1 violated"
+      assert Artifact.mandate_summary([bare]) == nil
+      assert Artifact.mandate_summary([]) == nil
+    end
+  end
+
   describe "state/1 with work items and gates" do
     test "work items list with associated run counts", %{tmp: tmp} do
       {:ok, item} =
