@@ -45,6 +45,12 @@ defmodule Sykli.Gui.Provider.Demo do
         gate_count: 1,
         review_node_count: 1
       },
+      current_actor: %{
+        "type" => "member",
+        "id" => "yair",
+        "name" => "Yair",
+        "ref" => "member:Yair"
+      },
       latest_run: %Run{
         id: "run-42",
         status: "failed",

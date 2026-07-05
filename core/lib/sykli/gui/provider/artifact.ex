@@ -48,6 +48,7 @@ defmodule Sykli.Gui.Provider.Artifact do
       repo: repo(path),
       team: %Team{id: "local", name: "local", mode: "local", online: 1, total: 1},
       contract: contract_summary(contract),
+      current_actor: local_actor(path),
       latest_run: latest && run_row(latest),
       graph: graph(contract, latest),
       members: members(path),
@@ -148,11 +149,12 @@ defmodule Sykli.Gui.Provider.Artifact do
   end
 
   defp members(path) do
-    name = git(path, ["config", "user.name"]) || "local"
+    actor = local_actor(path)
+    name = actor["name"]
 
     [
       %Member{
-        id: name |> String.downcase() |> String.replace(~r/\s+/, "-"),
+        id: actor["id"],
         name: name,
         identity_type: "human",
         role: "approver",
@@ -160,6 +162,17 @@ defmodule Sykli.Gui.Provider.Artifact do
         trust: "local repo owner"
       }
     ]
+  end
+
+  defp local_actor(path) do
+    name = git(path, ["config", "user.name"]) || "local"
+
+    %{
+      "type" => "member",
+      "id" => name |> String.downcase() |> String.replace(~r/\s+/, "-"),
+      "name" => name,
+      "ref" => "member:" <> name
+    }
   end
 
   defp git(path, args) do

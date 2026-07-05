@@ -55,8 +55,10 @@ defmodule Sykli.Gui.Provider.ArtifactTest do
       assert state.evidence == []
       assert state.activity == []
       assert state.agent_calls == []
+      assert state.current_actor["ref"] =~ ~r/^member:/
       assert [%State.Member{identity_type: "human"}] = state.members
-      assert %{} = State.to_wire(state)
+      assert %{"currentActor" => %{"ref" => actor_ref}} = State.to_wire(state)
+      assert actor_ref == state.current_actor["ref"]
     end
 
     test "repo falls back to directory name outside git", %{tmp: tmp} do
@@ -215,13 +217,15 @@ defmodule Sykli.Gui.Provider.ArtifactTest do
     test "approve writes through Gate.Store with qualified actor", %{tmp: tmp} do
       {:ok, gate} = Sykli.Gate.Store.create(path: tmp)
 
-      assert {:ok, wire} = Artifact.approve_gate(gate.id, "yair", repo_path: tmp)
+      actor = Artifact.state(repo_path: tmp).current_actor["ref"]
+
+      assert {:ok, wire} = Artifact.approve_gate(gate.id, actor, repo_path: tmp)
       assert wire["status"] == "approved"
-      assert wire["decidedBy"] == "member:yair"
+      assert wire["decidedBy"] == actor
 
       assert {:ok, stored} = Sykli.Gate.Store.get(gate.id, path: tmp)
       assert stored.status == "approved"
-      assert stored.decided_by == "member:yair"
+      assert stored.decided_by == actor
     end
 
     test "reject records the reason and keeps qualified actor refs intact", %{tmp: tmp} do

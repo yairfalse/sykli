@@ -94,6 +94,14 @@ function gateById(id) {
   return null;
 }
 
+function currentActor() {
+  var actor = (S.doc && S.doc.currentActor) || {};
+  return {
+    ref: actor.ref || 'member:local',
+    label: actor.name || actor.id || actor.ref || 'local'
+  };
+}
+
 /* effective node status (gate nodes follow local gate overrides) */
 function nodeStatus(n) {
   if (n.type === 'gate') {
@@ -982,11 +990,13 @@ function handleAction(el) {
   var id = el.getAttribute('data-id');
 
   if (act === 'approve') {
-    gatePost(id, 'approve', { actor: 'Yair' });
+    var approveActor = currentActor();
+    gatePost(id, 'approve', { actor: approveActor.ref, actorLabel: approveActor.label });
   } else if (act === 'reject') {
     var input = document.getElementById('gate-reason');
     var reason = input ? input.value : '';
-    gatePost(id, 'reject', { actor: 'Yair', reason: reason });
+    var rejectActor = currentActor();
+    gatePost(id, 'reject', { actor: rejectActor.ref, actorLabel: rejectActor.label, reason: reason });
   } else if (act === 'toggle-reason') {
     S.reasonOpen = !S.reasonOpen;
     render();
@@ -1040,11 +1050,11 @@ function applyGateDecision(id, action, body) {
     S.gateOverrides[id] = 'approved';
     S.log = [
       { time: t, text: 'run resumed', kind: 'ok' },
-      { time: t, text: body.actor + ' approved ' + id, kind: 'ok' }
+      { time: t, text: (body.actorLabel || body.actor) + ' approved ' + id, kind: 'ok' }
     ].concat(S.log);
   } else {
     S.gateOverrides[id] = 'rejected';
-    var text = body.actor + ' rejected ' + id +
+    var text = (body.actorLabel || body.actor) + ' rejected ' + id +
       (body.reason ? ' · ' + body.reason : '') + ' · run halted';
     S.log = [{ time: t, text: text, kind: 'fail' }].concat(S.log);
   }

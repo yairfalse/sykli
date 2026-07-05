@@ -233,6 +233,7 @@ defmodule Sykli.Gui.State do
     :repo,
     :team,
     :contract,
+    :current_actor,
     :latest_run,
     graph: %{nodes: [], edges: []},
     members: [],
