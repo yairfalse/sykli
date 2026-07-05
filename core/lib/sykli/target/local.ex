@@ -282,7 +282,12 @@ defmodule Sykli.Target.Local do
 
     mandate_timeout_ms = Keyword.get(opts, :mandate_timeout_ms)
     timeout_ms = min_timeout(base_timeout_ms, mandate_timeout_ms)
-    mandate_timeout? = is_integer(mandate_timeout_ms) and timeout_ms == mandate_timeout_ms
+
+    # Attribute a timeout to the mandate only when its budget is STRICTLY
+    # tighter than the task's own timeout. On a tie both limits elapsed;
+    # classify as an ordinary infrastructure timeout (:errored) rather
+    # than a mandate violation — the less severe reading.
+    mandate_timeout? = is_integer(mandate_timeout_ms) and mandate_timeout_ms < base_timeout_ms
 
     # For shell execution (no container), combine base workdir with task workdir.
     # For container execution, task.workdir is the container workdir (passed separately).

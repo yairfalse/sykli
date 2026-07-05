@@ -98,6 +98,214 @@ defmodule Sykli.Executor.MandateEnforcementTest do
              Executor.run([task], graph(task), target: Local, workdir: workdir)
   end
 
+  test "deleting an in-scope file keeps the mandate", %{workdir: workdir} do
+    init_repo!(workdir, %{"allowed/old.txt" => "bye\n"})
+
+    task =
+      task("deleter",
+        command: "rm allowed/old.txt",
+        mandate: %{"scope" => ["allowed/**"]}
+      )
+
+    assert {:ok, [%TaskResult{status: :passed, mandate_outcome: %{"status" => "kept"}}]} =
+             Executor.run([task], graph(task),
+               target: Local,
+               workdir: workdir,
+               containerless_runtime: Sykli.Runtime.Shell
+             )
+  end
+
+  test "renaming within scope keeps the mandate", %{workdir: workdir} do
+    init_repo!(workdir, %{"allowed/a.txt" => "content\n"})
+
+    task =
+      task("renamer",
+        command: "git mv allowed/a.txt allowed/b.txt",
+        mandate: %{"scope" => ["allowed/**"]}
+      )
+
+    assert {:ok, [%TaskResult{status: :passed, mandate_outcome: %{"status" => "kept"}}]} =
+             Executor.run([task], graph(task),
+               target: Local,
+               workdir: workdir,
+               containerless_runtime: Sykli.Runtime.Shell
+             )
+  end
+
+  test "pre-existing uncommitted changes are not charged to the diff budget", %{workdir: workdir} do
+    init_repo!(workdir, %{"lib/code.ex" => "line\n"})
+    # 50 dirty lines before the task ever runs
+    File.write!(Path.join(workdir, "lib/code.ex"), String.duplicate("changed\n", 50))
+
+    task =
+      task("frugal",
+        command: "true",
+        mandate: %{"budget" => %{"diff_lines" => 1}}
+      )
+
+    assert {:ok, [%TaskResult{status: :passed, mandate_outcome: %{"status" => "kept"}}]} =
+             Executor.run([task], graph(task),
+               target: Local,
+               workdir: workdir,
+               containerless_runtime: Sykli.Runtime.Shell
+             )
+  end
+
+  test "task's own changes still count against the diff budget", %{workdir: workdir} do
+    init_repo!(workdir, %{"lib/code.ex" => "line\n"})
+
+    task =
+      task("spender",
+        command: "printf 'a\\nb\\nc\\nd\\n' > lib/extra.txt",
+        mandate: %{"budget" => %{"diff_lines" => 2}}
+      )
+
+    assert {:error,
+            [
+              %TaskResult{
+                status: :failed,
+                failure_semantics: %Sykli.FailureSemantics{reason: "mandate_budget_exceeded"},
+                mandate_outcome: %{"status" => "violated"}
+              }
+            ]} =
+             Executor.run([task], graph(task),
+               target: Local,
+               workdir: workdir,
+               containerless_runtime: Sykli.Runtime.Shell
+             )
+  end
+
+  test "failing task still records a kept mandate outcome", %{workdir: workdir} do
+    init_repo!(workdir, %{"allowed/.keep" => ""})
+
+    task =
+      task("failing-kept",
+        command: "printf x > allowed/out.txt && exit 3",
+        mandate: %{"scope" => ["allowed/**"]}
+      )
+
+    assert {:error, [%TaskResult{status: :failed, mandate_outcome: %{"status" => "kept"}}]} =
+             Executor.run([task], graph(task),
+               target: Local,
+               workdir: workdir,
+               containerless_runtime: Sykli.Runtime.Shell
+             )
+  end
+
+  test "failing task that also violated scope records a violated outcome", %{workdir: workdir} do
+    init_repo!(workdir, %{"allowed/.keep" => ""})
+
+    task =
+      task("failing-violated",
+        command: "mkdir -p other && printf x > other/file.txt && exit 3",
+        mandate: %{"scope" => ["allowed/**"]}
+      )
+
+    assert {:error, [%TaskResult{status: :failed, mandate_outcome: %{"status" => "violated"}}]} =
+             Executor.run([task], graph(task),
+               target: Local,
+               workdir: workdir,
+               containerless_runtime: Sykli.Runtime.Shell
+             )
+  end
+
+  test "git breakage during the task fails closed as unverified", %{workdir: workdir} do
+    init_repo!(workdir, %{"allowed/.keep" => ""})
+
+    task =
+      task("git-breaker",
+        command: "rm -rf .git",
+        mandate: %{"scope" => ["allowed/**"]}
+      )
+
+    assert {:error,
+            [
+              %TaskResult{
+                status: :failed,
+                failure_semantics: %Sykli.FailureSemantics{
+                  reason: "mandate_verification_failed"
+                },
+                mandate_outcome: %{"status" => "unverified"}
+              }
+            ]} =
+             Executor.run([task], graph(task),
+               target: Local,
+               workdir: workdir,
+               containerless_runtime: Sykli.Runtime.Shell
+             )
+  end
+
+  test "scope mandate in a non-git workdir is unsupported", %{workdir: workdir} do
+    task =
+      task("no-git",
+        command: "true",
+        mandate: %{"scope" => ["allowed/**"]}
+      )
+
+    assert {:error,
+            [
+              %TaskResult{
+                status: :failed,
+                failure_semantics: %Sykli.FailureSemantics{reason: "mandate_requires_git"},
+                mandate_outcome: %{"status" => "unsupported"}
+              }
+            ]} =
+             Executor.run([task], graph(task),
+               target: Local,
+               workdir: workdir,
+               containerless_runtime: Sykli.Runtime.Shell
+             )
+  end
+
+  test "parallel sibling writes are not charged to a mandated task", %{workdir: workdir} do
+    init_repo!(workdir, %{"allowed/.keep" => ""})
+
+    mandated =
+      task("scoped-writer",
+        command: "printf x > allowed/mine.txt",
+        mandate: %{"scope" => ["allowed/**"]}
+      )
+
+    sibling =
+      struct!(Task,
+        name: "noisy-sibling",
+        command: "mkdir -p elsewhere && printf y > elsewhere/theirs.txt",
+        container: nil,
+        depends_on: [],
+        services: [],
+        outputs: %{},
+        task_inputs: [],
+        success_criteria: [],
+        evidence_required: []
+      )
+
+    graph = %{mandated.name => mandated, sibling.name => sibling}
+
+    assert {:ok, results} =
+             Executor.run([mandated, sibling], graph,
+               target: Local,
+               workdir: workdir,
+               containerless_runtime: Sykli.Runtime.Shell,
+               max_parallel: 2
+             )
+
+    mandated_result = Enum.find(results, &(&1.name == "scoped-writer"))
+    assert %TaskResult{status: :passed, mandate_outcome: %{"status" => "kept"}} = mandated_result
+  end
+
+  defp init_repo!(workdir, files) do
+    git!(workdir, ["init"])
+
+    Enum.each(files, fn {rel_path, content} ->
+      abs = Path.join(workdir, rel_path)
+      File.mkdir_p!(Path.dirname(abs))
+      File.write!(abs, content)
+    end)
+
+    git!(workdir, ["add", "."])
+    git!(workdir, ["commit", "-m", "init"])
+  end
+
   defp task(name, opts) do
     struct!(
       Task,
