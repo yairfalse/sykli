@@ -157,7 +157,16 @@ defmodule Sykli.Daemon.Heartbeat do
   def terminate(_reason, state) do
     if state.synced_once do
       payload = Join.heartbeat_payload(state.session, %{"status" => "offline"})
-      post_heartbeat(state, payload)
+
+      # The goodbye is a courtesy, and the transport may already be gone
+      # while we shut down (:inets stopped during VM drain, injected test
+      # transports torn down first) — a failed offline heartbeat must not
+      # turn a clean stop into a crash.
+      try do
+        post_heartbeat(state, payload)
+      catch
+        _kind, _reason -> :ok
+      end
     end
 
     :ok
