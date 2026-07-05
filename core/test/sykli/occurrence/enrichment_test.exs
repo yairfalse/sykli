@@ -552,6 +552,82 @@ defmodule Sykli.Occurrence.EnrichmentTest do
       assert step["error"]["failure_semantics"]["class"] == "unknown"
     end
 
+    test "task details and step error include mandate_outcome when present", %{workdir: workdir} do
+      occ = make_occurrence("run-mandate", "ci.run.failed", "failure")
+
+      graph = %{
+        "scoped" => %{command: "codex apply"},
+        "kept" => %{command: "echo ok"}
+      }
+
+      violated = %{
+        "status" => "violated",
+        "reason" => "mandate_scope_violation",
+        "details" => %{"changed_paths" => ["other/file.txt"]}
+      }
+
+      error = %Sykli.Error{
+        code: "internal",
+        type: :internal,
+        message: "task changed files outside mandate scope",
+        hints: [],
+        notes: [],
+        locations: []
+      }
+
+      results =
+        {:error,
+         [
+           %TaskResult{
+             name: "scoped",
+             status: :failed,
+             duration_ms: 40,
+             error: error,
+             mandate_outcome: violated
+           },
+           %TaskResult{
+             name: "kept",
+             status: :passed,
+             duration_ms: 10,
+             mandate_outcome: %{"status" => "kept", "wall_clock_ms" => 10}
+           }
+         ]}
+
+      enriched = Enrichment.enrich(occ, graph, results, workdir)
+
+      tasks_by_name = Map.new(enriched.data["tasks"], &{&1["name"], &1})
+      assert get_in(tasks_by_name, ["scoped", "mandate_outcome"]) == violated
+      assert get_in(tasks_by_name, ["kept", "mandate_outcome", "status"]) == "kept"
+
+      [scoped_step, _kept_step] = enriched.history["steps"]
+      assert scoped_step["error"]["mandate_outcome"] == violated
+    end
+
+    test "mandate_outcome is absent when the result carries none", %{workdir: workdir} do
+      occ = make_occurrence("run-no-mandate", "ci.run.failed", "failure")
+      graph = %{"test" => %{command: "mix test"}}
+
+      error = %Sykli.Error{
+        code: "task_failed",
+        type: :execution,
+        message: "task 'test' failed",
+        hints: [],
+        notes: [],
+        locations: []
+      }
+
+      results =
+        {:error, [%TaskResult{name: "test", status: :failed, duration_ms: 25, error: error}]}
+
+      enriched = Enrichment.enrich(occ, graph, results, workdir)
+
+      [task] = enriched.data["tasks"]
+      refute Map.has_key?(task, "mandate_outcome")
+
+      step = hd(enriched.history["steps"])
+      refute Map.has_key?(step["error"], "mandate_outcome")
+    end
+
     test "step timestamps are offset from base timestamp", %{workdir: workdir} do
       occ = make_occurrence("run-ts", "ci.run.passed", "success")
       graph = %{}

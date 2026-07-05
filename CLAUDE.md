@@ -11,6 +11,10 @@ Most recent first. Older shipped features (Phase 3B `task_type`, Phase 3C `succe
   when either field is present and refuse `actor.kind == "agent"` unless
   `mandate`, `success_criteria`, and `evidence_required` are all declared.
   `Sykli.ContractSchemaVersion.current_version/0` is now `"5"`.
+  Execution-time mandate enforcement (each terminal task result carries a
+  `mandate_outcome` — kept/violated/unsupported — surfaced via CLI `--json`,
+  MCP, and occurrences) and the read-only `sykli audit <run-id>` command ship
+  with the v5 enforcement PR.
 - **Monster Phases B/C/E hardening** (audit remediation, `docs/audit-2026-05-22.md`):
   determinism — `ContractHash` now recursively sorts object keys before hashing,
   and the NoWallClock Credo guard covers all pure contract/output-shaping
@@ -296,7 +300,7 @@ The project dogfoods itself via `sykli.exs` (root-level pipeline) and `.github/w
 
 ## CLI Commands
 
-`run`, `validate`, `init`, `lock`, `contract`, `explain`, `fix`, `plan`, `context`, `query`, `graph`, `report`, `history`, `verify`, `delta`, `watch`, `daemon`, `mcp`, `cache`, `work`, `gate`, `coordinator`
+`run`, `validate`, `init`, `lock`, `contract`, `audit`, `explain`, `fix`, `plan`, `context`, `query`, `graph`, `report`, `history`, `verify`, `delta`, `watch`, `daemon`, `mcp`, `cache`, `work`, `gate`, `coordinator`
 
 ## Environment Variables
 

@@ -356,25 +356,25 @@ defmodule Sykli.Occurrence.Enrichment do
               step
 
             %Sykli.Error{} = err ->
-              Map.put(step, "error", %{
-                "code" => err.code,
-                "what_failed" => err.message || "task #{r.name} failed",
-                "failure_semantics" => failure_semantics_map(r)
-              })
+              Map.put(
+                step,
+                "error",
+                step_error_map(err.code, err.message || "task #{r.name} failed", r)
+              )
 
             :dependency_failed ->
-              Map.put(step, "error", %{
-                "code" => "dependency_failed",
-                "what_failed" => "blocked by failed dependency",
-                "failure_semantics" => failure_semantics_map(r)
-              })
+              Map.put(
+                step,
+                "error",
+                step_error_map("dependency_failed", "blocked by failed dependency", r)
+              )
 
             other ->
-              Map.put(step, "error", %{
-                "code" => "unknown",
-                "what_failed" => "task #{r.name} failed: #{inspect(other)}",
-                "failure_semantics" => failure_semantics_map(r)
-              })
+              Map.put(
+                step,
+                "error",
+                step_error_map("unknown", "task #{r.name} failed: #{inspect(other)}", r)
+              )
           end
 
         # Remove nil description
@@ -386,6 +386,15 @@ defmodule Sykli.Occurrence.Enrichment do
     duration_ms = results |> Enum.map(& &1.duration_ms) |> Enum.sum()
 
     %{"steps" => steps, "duration_ms" => duration_ms}
+  end
+
+  defp step_error_map(code, what_failed, %TaskResult{} = r) do
+    %{
+      "code" => code,
+      "what_failed" => what_failed,
+      "failure_semantics" => failure_semantics_map(r)
+    }
+    |> maybe_add("mandate_outcome", r.mandate_outcome)
   end
 
   defp step_command_description(%TaskResult{name: name}, graph) do
@@ -596,6 +605,7 @@ defmodule Sykli.Occurrence.Enrichment do
       |> maybe_add("log", task_log_path(result, run_id))
       |> maybe_add("error", error_detail_map(result.error))
       |> maybe_add("failure_semantics", failure_semantics_map(result))
+      |> maybe_add("mandate_outcome", result.mandate_outcome)
       |> maybe_add(
         "agent_hints",
         Sykli.AgentHints.from_failure_semantics(failure_semantics_map(result))
