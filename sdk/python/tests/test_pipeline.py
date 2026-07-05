@@ -10,6 +10,10 @@ from sykli import (
     PythonPreset,
     Task,
     Template,
+    actor,
+    exit_code,
+    file_evidence_non_empty,
+    mandate,
 )
 
 
@@ -129,6 +133,19 @@ class TestVersionDetection:
         c = p.cache("pip")
         p.task("test").run("pytest").mount_cache(c, "/cache")
         assert p.to_dict()["version"] == "2"
+
+    def test_v5_with_actor_mandate(self):
+        p = Pipeline()
+        p.task("implement").run("pytest").actor(actor("agent", "claude")).mandate(
+            mandate(["sdk/python/**"], diff_lines=200, wall_clock_ms=900000, network=False)
+        ).success_criteria([exit_code(0)]).evidence_required([
+            file_evidence_non_empty("coverage", "coverage.out"),
+        ])
+
+        d = p.to_dict()
+        assert d["version"] == "5"
+        assert d["tasks"][0]["actor"] == {"kind": "agent", "id": "claude"}
+        assert d["tasks"][0]["mandate"]["scope"] == ["sdk/python/**"]
 
 
 class TestPythonPreset:

@@ -39,6 +39,14 @@ defmodule Sykli.Emitter do
           Logger.error("review cannot declare evidence_required", review: task.name)
           raise "review #{inspect(task.name)} cannot declare evidence_required"
 
+        task.kind == :review and not is_nil(task.actor) ->
+          Logger.error("review cannot declare actor", review: task.name)
+          raise "review #{inspect(task.name)} cannot declare actor"
+
+        task.kind == :review and not is_nil(task.mandate) ->
+          Logger.error("review cannot declare mandate", review: task.name)
+          raise "review #{inspect(task.name)} cannot declare mandate"
+
         task.kind != :review and not valid_success_criteria?(task.success_criteria) ->
           Logger.error("invalid success_criteria", task: task.name)
           raise "task #{inspect(task.name)} has invalid success_criteria"
@@ -46,6 +54,20 @@ defmodule Sykli.Emitter do
         task.kind != :review and not valid_evidence_required?(task.evidence_required) ->
           Logger.error("invalid evidence_required", task: task.name)
           raise "task #{inspect(task.name)} has invalid evidence_required"
+
+        task.kind != :review and not valid_actor?(task.actor) ->
+          Logger.error("invalid actor", task: task.name)
+          raise "task #{inspect(task.name)} has invalid actor"
+
+        task.kind != :review and not valid_mandate?(task.mandate) ->
+          Logger.error("invalid mandate", task: task.name)
+          raise "task #{inspect(task.name)} has invalid mandate"
+
+        task.kind != :review and agent_missing_field(task) ->
+          missing = agent_missing_field(task)
+          Logger.error("agent actor missing #{missing}", task: task.name)
+
+          raise "task #{inspect(task.name)} declares actor.kind \"agent\" but does not declare #{missing}"
 
         task.kind == :review and (is_nil(task.primitive) or task.primitive == "") ->
           Logger.error("review has no primitive", review: task.name)
@@ -196,8 +218,12 @@ defmodule Sykli.Emitter do
     has_v4_features =
       Enum.any?(pipeline.tasks, &(&1.evidence_required != []))
 
+    has_v5_features =
+      Enum.any?(pipeline.tasks, &(!is_nil(&1.actor) or !is_nil(&1.mandate)))
+
     version =
       cond do
+        has_v5_features -> "5"
         has_v4_features -> "4"
         has_v3_features -> "3"
         has_v2_features -> "2"
@@ -257,6 +283,8 @@ defmodule Sykli.Emitter do
       non_empty_list(task.success_criteria, &success_criterion_to_json/1)
     )
     |> maybe_put(:evidence_required, non_empty_list(task.evidence_required, & &1))
+    |> maybe_put(:actor, actor_to_json(task.actor))
+    |> maybe_put(:mandate, mandate_to_json(task.mandate))
     |> maybe_put(:command, task.command)
     |> maybe_put(:container, task.container)
     |> maybe_put(:workdir, task.workdir)
@@ -292,6 +320,69 @@ defmodule Sykli.Emitter do
     |> maybe_put(:env_var, gate.env_var)
     |> maybe_put(:file_path, gate.file_path)
   end
+
+  defp actor_to_json(nil), do: nil
+
+  defp actor_to_json(actor) do
+    Map.new(actor, fn
+      {:kind, kind} -> {:kind, Atom.to_string(kind)}
+      {key, value} -> {key, value}
+    end)
+  end
+
+  defp mandate_to_json(nil), do: nil
+
+  defp mandate_to_json(mandate) do
+    %{scope: mandate.scope}
+    |> maybe_put(:budget, Map.get(mandate, :budget))
+    |> maybe_put(:capabilities, Map.get(mandate, :capabilities))
+  end
+
+  defp valid_actor?(nil), do: true
+
+  defp valid_actor?(%{kind: kind} = actor) do
+    Sykli.Task.valid_actor_kind?(kind) and
+      (not Map.has_key?(actor, :id) or (is_binary(actor.id) and actor.id != ""))
+  end
+
+  defp valid_actor?(_), do: false
+
+  defp valid_mandate?(nil), do: true
+
+  defp valid_mandate?(%{scope: scope} = mandate) when is_list(scope) and scope != [] do
+    Enum.all?(scope, &(is_binary(&1) and &1 != "")) and
+      valid_mandate_budget?(Map.get(mandate, :budget)) and
+      valid_mandate_capabilities?(Map.get(mandate, :capabilities))
+  end
+
+  defp valid_mandate?(_), do: false
+
+  defp valid_mandate_budget?(nil), do: true
+
+  defp valid_mandate_budget?(budget) when is_map(budget) and map_size(budget) > 0 do
+    Enum.all?(budget, fn
+      {key, value} when key in [:diff_lines, :wall_clock_ms] -> is_integer(value) and value > 0
+      _ -> false
+    end)
+  end
+
+  defp valid_mandate_budget?(_), do: false
+
+  defp valid_mandate_capabilities?(nil), do: true
+
+  defp valid_mandate_capabilities?(%{network: value}) when is_boolean(value), do: true
+  defp valid_mandate_capabilities?(capabilities), do: capabilities == %{}
+
+  defp agent_missing_field(%{actor: %{kind: :agent}} = task) do
+    cond do
+      is_nil(task.mandate) -> "mandate"
+      task.success_criteria == [] -> "success_criteria"
+      task.evidence_required == [] -> "evidence_required"
+      true -> nil
+    end
+  end
+
+  defp agent_missing_field(_task), do: nil
 
   defp valid_success_criteria?(criteria) when is_list(criteria) do
     exit_code_count = Enum.count(criteria, &criterion_type?(&1, "exit_code"))

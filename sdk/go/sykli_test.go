@@ -218,6 +218,71 @@ func TestNonFileEvidenceRequiredSerialization(t *testing.T) {
 	}
 }
 
+func TestActorMandateSerialization(t *testing.T) {
+	p := New()
+	p.Task("implement").
+		Run("go test ./...").
+		Actor(ActorKindAgent, "claude").
+		Mandate(NewMandate([]string{"sdk/go/**"}, DiffLines(200), WallClockMS(900000), Network(false))).
+		SuccessCriteria(ExitCode(0)).
+		EvidenceRequired(FileEvidenceNonEmpty("coverage", "coverage.out"))
+
+	result, err := emitJSON(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result["version"] != "5" {
+		t.Fatalf("expected version '5', got %v", result["version"])
+	}
+	task := result["tasks"].([]interface{})[0].(map[string]interface{})
+	if task["actor"].(map[string]interface{})["kind"] != "agent" {
+		t.Fatalf("unexpected actor: %#v", task["actor"])
+	}
+	if task["mandate"].(map[string]interface{})["scope"].([]interface{})[0] != "sdk/go/**" {
+		t.Fatalf("unexpected mandate: %#v", task["mandate"])
+	}
+}
+
+func TestMandateZeroBudgetPanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for zero mandate budget")
+		}
+	}()
+
+	p := New()
+	p.Task("implement").
+		Run("go test ./...").
+		Mandate(NewMandate([]string{"sdk/go/**"}, DiffLines(0)))
+}
+
+func TestMandateZeroWallClockPanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for zero mandate wall-clock budget")
+		}
+	}()
+
+	p := New()
+	p.Task("implement").
+		Run("go test ./...").
+		Mandate(NewMandate([]string{"sdk/go/**"}, WallClockMS(0)))
+}
+
+func TestAgentActorRequiresMandateAtEmit(t *testing.T) {
+	p := New()
+	p.Task("implement").
+		Run("go test ./...").
+		Actor(ActorKindAgent).
+		SuccessCriteria(ExitCode(0)).
+		EvidenceRequired(FileEvidence("coverage", "coverage.out"))
+
+	_, err := emitJSON(p)
+	if err == nil || !strings.Contains(err.Error(), "does not declare mandate") {
+		t.Fatalf("expected mandate error, got %v", err)
+	}
+}
+
 func TestDuplicateExitCodeCriteriaPanics(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {

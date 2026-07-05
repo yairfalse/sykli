@@ -92,6 +92,32 @@ The publish jobs run after the GitHub release is created, so a registry
 failure never blocks the binary release — fix the registry side and re-run
 the failed job from the Actions UI.
 
+## Release candidates
+
+A version containing a `-` (e.g. `0.9.0-rc.1`) is a prerelease end to end.
+Use the `X.Y.Z-rc.N` form everywhere — `bump-version.sh` and
+`check-version.sh` accept it, and each ecosystem maps it safely:
+
+| Registry | Version as published | Default-install safety |
+|---|---|---|
+| GitHub release | tag `v0.9.0-rc.1` | marked prerelease, never "latest" (workflow derives both from the `-` in the tag) |
+| Go | tag `sdk/go/v0.9.0-rc.1` | Go tooling never selects prerelease tags for `@latest` |
+| PyPI | normalized to `0.9.0rc1` (PEP 440) | `pip install sykli` skips pre-releases by default |
+| crates.io | `0.9.0-rc.1` | `sykli = "0.9"` never resolves to a prerelease |
+| npm | `0.9.0-rc.1` under dist-tag `rc` | `npm install sykli` keeps serving stable; RCs install via `sykli@rc` (`publish-ts.sh` and the workflow job apply the tag automatically) |
+| Hex | `0.9.0-rc.1` | `~>` requirements never match prereleases |
+
+Before tagging an RC:
+
+1. `docs/releases/v<version>.md` must exist — the release job reads it via
+   `body_path` and fails without it.
+2. `scripts/bump-version.sh <version> --dry-run`, then without `--dry-run`.
+3. Registry versions are immutable: an abandoned RC is left in place
+   (superseded by `-rc.2`), never deleted.
+
+Promoting an RC to final is a fresh release of `X.Y.Z` through the same
+pipeline — never a re-tag of the RC artifacts.
+
 ## Publish Credentials (manual script path)
 
 `make publish` / `scripts/publish-all.sh` remain available as the manual

@@ -1,0 +1,33 @@
+{
+  "version": "5",
+  "tasks": [
+    {
+      "name": "implement",
+      "command": "go test ./...",
+      "task_type": "test",
+      "success_criteria": [
+        {
+          "type": "exit_code",
+          "equals": 0
+        }
+      ],
+      "evidence_required": [
+        {
+          "type": "file",
+          "name": "coverage",
+          "required": true,
+          "visibility": "local",
+          "predicate": "non_empty",
+          "ref_pattern": "coverage.out"
+        }
+      ],
+      "actor": {
+        "kind": "agent",
+        "id": "claude"
+      },
+      "mandate": {
+        "scope": ["sdk/**", "tests/conformance/**"]
+      }
+    }
+  ]
+}
