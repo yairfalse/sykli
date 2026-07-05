@@ -1370,13 +1370,15 @@ defmodule Sykli.Executor do
 
     with {:ok, workdir_prefix} <-
            if(needs_git?, do: MandateEnforcement.workdir_prefix(workdir), else: {:ok, ""}),
-         {:ok, before_paths} <- maybe_status_snapshot(workdir, mandate),
+         {:ok, before_paths} <- maybe_dirty_paths_snapshot(workdir, needs_git?),
+         {:ok, before_fingerprints} <- maybe_path_fingerprints(workdir, before_paths, needs_git?),
          {:ok, before_diff_lines} <- maybe_diff_baseline(workdir, mandate) do
       {:ok,
        %{
          mandate: mandate,
          workdir_prefix: workdir_prefix,
          before_paths: before_paths,
+         before_fingerprints: before_fingerprints,
          before_diff_lines: before_diff_lines,
          network: if(mandate_network_disabled?(mandate), do: "none"),
          run_opts: mandate_timeout_opts(mandate)
@@ -1387,11 +1389,27 @@ defmodule Sykli.Executor do
     end
   end
 
-  defp maybe_status_snapshot(workdir, mandate) do
-    if mandate_scope(mandate) do
-      MandateEnforcement.status_paths(workdir)
+  defp maybe_dirty_paths_snapshot(workdir, true) do
+    MandateEnforcement.status_paths(workdir)
+  end
+
+  defp maybe_dirty_paths_snapshot(_workdir, false), do: {:ok, MapSet.new()}
+
+  defp maybe_path_fingerprints(workdir, paths, true) do
+    if MapSet.size(paths) > 0 do
+      MandateEnforcement.path_fingerprints(workdir, MapSet.to_list(paths))
     else
-      {:ok, MapSet.new()}
+      {:ok, %{}}
+    end
+  end
+
+  defp maybe_path_fingerprints(_workdir, _paths, false), do: {:ok, %{}}
+
+  defp after_path_fingerprints(workdir, paths) do
+    if MapSet.size(paths) > 0 do
+      MandateEnforcement.path_fingerprints(workdir, MapSet.to_list(paths))
+    else
+      {:ok, %{}}
     end
   end
 
@@ -1536,39 +1554,37 @@ defmodule Sykli.Executor do
   defp verify_mandate_scope(
          task,
          workdir,
-         %{mandate: mandate, before_paths: before_paths} = state
+         %{mandate: mandate, before_fingerprints: before_fingerprints} = state
        ) do
     case mandate_scope(mandate) do
       nil ->
         :ok
 
       scope ->
-        case MandateEnforcement.status_paths(workdir) do
-          {:ok, after_paths} ->
-            changed_paths =
-              after_paths
-              |> MapSet.difference(before_paths || MapSet.new())
-              |> MapSet.to_list()
+        with {:ok, after_paths} <- MandateEnforcement.status_paths(workdir),
+             {:ok, after_fingerprints} <- after_path_fingerprints(workdir, after_paths) do
+          changed_paths =
+            MandateEnforcement.changed_paths(before_fingerprints, after_fingerprints)
 
-            outside =
-              Enum.reject(
-                changed_paths,
-                &MandateEnforcement.scope_match?(scope, workdir_relative(&1, workdir, state))
+          outside =
+            Enum.reject(
+              changed_paths,
+              &MandateEnforcement.scope_match?(scope, workdir_relative(&1, workdir, state))
+            )
+
+          if outside == [] do
+            :ok
+          else
+            semantics =
+              Sykli.FailureSemantics.policy_block(
+                "mandate_scope_violation",
+                "task changed files outside mandate scope",
+                %{dimension: "scope", changed_paths: outside, task: task.name}
               )
 
-            if outside == [] do
-              :ok
-            else
-              semantics =
-                Sykli.FailureSemantics.policy_block(
-                  "mandate_scope_violation",
-                  "task changed files outside mandate scope",
-                  %{dimension: "scope", changed_paths: outside, task: task.name}
-                )
-
-              {:error, semantics, mandate_outcome("violated", semantics)}
-            end
-
+            {:error, semantics, mandate_outcome("violated", semantics)}
+          end
+        else
           {:error, reason} ->
             semantics = mandate_verification_semantics("scope", reason)
             {:error, semantics, mandate_outcome("unverified", semantics)}
@@ -1593,24 +1609,32 @@ defmodule Sykli.Executor do
         :ok
 
       limit ->
-        case MandateEnforcement.diff_lines(workdir) do
-          {:ok, total} ->
-            baseline = Map.get(state, :before_diff_lines) || 0
-            observed = max(total - baseline, 0)
+        with {:ok, total} <- MandateEnforcement.diff_lines(workdir),
+             {:ok, after_paths} <- MandateEnforcement.status_paths(workdir),
+             {:ok, after_fingerprints} <- after_path_fingerprints(workdir, after_paths) do
+          baseline = Map.get(state, :before_diff_lines) || 0
 
-            if observed <= limit do
-              :ok
-            else
-              semantics =
-                Sykli.FailureSemantics.policy_block(
-                  "mandate_budget_exceeded",
-                  "task exceeded mandate diff_lines budget",
-                  %{dimension: "diff_lines", observed: observed, limit: limit, task: task.name}
-                )
+          changed_dirty_lines =
+            MandateEnforcement.changed_line_count(
+              before_fingerprints(state),
+              Map.take(after_fingerprints, Map.keys(before_fingerprints(state)))
+            )
 
-              {:error, semantics, mandate_outcome("violated", semantics)}
-            end
+          observed = max(total - baseline, 0) + changed_dirty_lines
 
+          if observed <= limit do
+            :ok
+          else
+            semantics =
+              Sykli.FailureSemantics.policy_block(
+                "mandate_budget_exceeded",
+                "task exceeded mandate diff_lines budget",
+                %{dimension: "diff_lines", observed: observed, limit: limit, task: task.name}
+              )
+
+            {:error, semantics, mandate_outcome("violated", semantics)}
+          end
+        else
           {:error, reason} ->
             semantics = mandate_verification_semantics("diff_lines", reason)
             {:error, semantics, mandate_outcome("unverified", semantics)}
@@ -1624,6 +1648,8 @@ defmodule Sykli.Executor do
       _ -> nil
     end
   end
+
+  defp before_fingerprints(state), do: Map.get(state, :before_fingerprints) || %{}
 
   defp task_error_result(%Sykli.Error{code: "task_timeout"} = reason, mandate_outcome),
     do: TaskRunResult.errored(reason, [], [], mandate_outcome: mandate_outcome)

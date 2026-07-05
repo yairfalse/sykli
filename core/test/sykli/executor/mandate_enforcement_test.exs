@@ -88,6 +88,33 @@ defmodule Sykli.Executor.MandateEnforcementTest do
              )
   end
 
+  test "scope violation catches edits to paths that were already dirty", %{workdir: workdir} do
+    init_repo!(workdir, %{"allowed/.keep" => "", "other/file.txt" => "before\n"})
+    File.write!(Path.join(workdir, "other/file.txt"), "dirty before task\n")
+
+    task =
+      task("scoped",
+        command: "printf 'changed by task\\n' > other/file.txt",
+        mandate: %{"scope" => ["allowed/**"]}
+      )
+
+    assert {:error,
+            [
+              %TaskResult{
+                status: :failed,
+                failure_semantics: %Sykli.FailureSemantics{
+                  reason: "mandate_scope_violation"
+                },
+                mandate_outcome: %{"status" => "violated"}
+              }
+            ]} =
+             Executor.run([task], graph(task),
+               target: Local,
+               workdir: workdir,
+               containerless_runtime: Sykli.Runtime.Shell
+             )
+  end
+
   test "kept mandate records outcome", %{workdir: workdir} do
     task =
       task("kept",
@@ -158,6 +185,48 @@ defmodule Sykli.Executor.MandateEnforcementTest do
       task("spender",
         command: "printf 'a\\nb\\nc\\nd\\n' > lib/extra.txt",
         mandate: %{"budget" => %{"diff_lines" => 2}}
+      )
+
+    assert {:error,
+            [
+              %TaskResult{
+                status: :failed,
+                failure_semantics: %Sykli.FailureSemantics{reason: "mandate_budget_exceeded"},
+                mandate_outcome: %{"status" => "violated"}
+              }
+            ]} =
+             Executor.run([task], graph(task),
+               target: Local,
+               workdir: workdir,
+               containerless_runtime: Sykli.Runtime.Shell
+             )
+  end
+
+  test "new files are not double-counted against the diff budget", %{workdir: workdir} do
+    init_repo!(workdir, %{"lib/code.ex" => "line\n"})
+
+    task =
+      task("spender",
+        command: "printf 'a\\nb\\n' > lib/extra.txt",
+        mandate: %{"budget" => %{"diff_lines" => 2}}
+      )
+
+    assert {:ok, [%TaskResult{status: :passed, mandate_outcome: %{"status" => "kept"}}]} =
+             Executor.run([task], graph(task),
+               target: Local,
+               workdir: workdir,
+               containerless_runtime: Sykli.Runtime.Shell
+             )
+  end
+
+  test "diff budget catches edits to files that were already dirty", %{workdir: workdir} do
+    init_repo!(workdir, %{"lib/code.ex" => "one\ntwo\nthree\n"})
+    File.write!(Path.join(workdir, "lib/code.ex"), "dirty\nbefore\ntask\n")
+
+    task =
+      task("spender",
+        command: "printf 'changed\\nby\\ntask\\n' > lib/code.ex",
+        mandate: %{"budget" => %{"diff_lines" => 0}}
       )
 
     assert {:error,
