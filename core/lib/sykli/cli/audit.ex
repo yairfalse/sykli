@@ -29,7 +29,7 @@ defmodule Sykli.CLI.Audit do
   end
 
   defp run_audit(path, run_id, json?) do
-    case load_run(path, run_id) do
+    case RunHistory.get(run_id, path: path) do
       {:ok, run} ->
         result = audit_run(path, run)
         emit_result(json?, result)
@@ -38,18 +38,18 @@ defmodule Sykli.CLI.Audit do
       {:error, :not_found} ->
         emit_error(json?, audit_error("audit.run_not_found", "run not found: #{run_id}"))
         1
-    end
-  end
 
-  defp load_run(path, run_id) do
-    with {:ok, runs} <- RunHistory.list(path: path, limit: :all),
-         %RunHistory.Run{} = run <- Enum.find(runs, &(&1.id == run_id)) do
-      {:ok, run}
-    else
-      _ -> {:error, :not_found}
+      {:error, :corrupt} ->
+        emit_error(
+          json?,
+          audit_error(
+            "audit.history_corrupt",
+            "run manifest for #{run_id} is corrupt and cannot be audited"
+          )
+        )
+
+        1
     end
-  rescue
-    _ -> {:error, :not_found}
   end
 
   defp audit_run(path, %RunHistory.Run{} = run) do
@@ -75,17 +75,8 @@ defmodule Sykli.CLI.Audit do
 
     if File.exists?(lock_path) do
       case Sykli.ContractLock.read(lock_path) do
-        {:ok, %{"contract_hash" => hash}} when hash == run.contract_hash ->
-          [finding("lock_contract_hash", "pass", "lock hash matches run") | findings]
-
         {:ok, %{"contract_hash" => hash}} ->
-          [
-            finding("lock_contract_hash", "fail", "lock hash does not match run",
-              expected: hash,
-              observed: run.contract_hash
-            )
-            | findings
-          ]
+          [lock_hash_finding(hash, run.contract_hash) | findings]
 
         {:error, error} ->
           [finding("lock_contract_hash", "fail", Exception.message(error)) | findings]
@@ -93,6 +84,28 @@ defmodule Sykli.CLI.Audit do
     else
       findings
     end
+  end
+
+  # Runs not started via `sykli run --work <id>` never record a contract
+  # hash, so there is nothing to compare against the lock — that is not a
+  # mismatch, and must not fail the audit.
+  defp lock_hash_finding(_lock_hash, nil) do
+    finding(
+      "lock_contract_hash",
+      "skip",
+      "run has no recorded contract hash; lock comparison skipped"
+    )
+  end
+
+  defp lock_hash_finding(lock_hash, run_hash) when lock_hash == run_hash do
+    finding("lock_contract_hash", "pass", "lock hash matches run")
+  end
+
+  defp lock_hash_finding(lock_hash, run_hash) do
+    finding("lock_contract_hash", "fail", "lock hash does not match run", nil,
+      expected: lock_hash,
+      observed: run_hash
+    )
   end
 
   defp success_criteria_findings(findings, run) do
@@ -155,7 +168,15 @@ defmodule Sykli.CLI.Audit do
 
   defp emit_result(false, result) do
     IO.puts("audit #{result.run_id}: #{result.verdict}")
-    Enum.each(result.findings, &IO.puts("  #{&1["status"]} #{&1["check"]}: #{&1["message"]}"))
+
+    Enum.each(result.findings, fn f ->
+      IO.puts("  #{f["status"]} #{f["check"]}: #{f["message"]}")
+
+      f
+      |> Map.get("details", %{})
+      |> Enum.sort()
+      |> Enum.each(fn {key, value} -> IO.puts("    #{key}: #{value}") end)
+    end)
   end
 
   defp emit_error(true, error), do: IO.puts(JsonResponse.error(error))

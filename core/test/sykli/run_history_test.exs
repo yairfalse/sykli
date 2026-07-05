@@ -459,6 +459,86 @@ defmodule Sykli.RunHistoryTest do
     end
   end
 
+  describe "get/2" do
+    test "returns the run matching the id", %{tmp_dir: tmp_dir} do
+      for i <- 1..3 do
+        run = %RunHistory.Run{
+          id: "run-#{i}",
+          timestamp: DateTime.add(~U[2024-01-15 10:00:00Z], i * 3600),
+          git_ref: "ref#{i}",
+          git_branch: "main",
+          tasks: [],
+          overall: :passed
+        }
+
+        :ok = RunHistory.save(run, path: tmp_dir)
+      end
+
+      assert {:ok, run} = RunHistory.get("run-2", path: tmp_dir)
+      assert run.id == "run-2"
+      assert run.git_ref == "ref2"
+    end
+
+    test "returns {:error, :not_found} for an unknown id", %{tmp_dir: tmp_dir} do
+      run = %RunHistory.Run{
+        id: "run-1",
+        timestamp: ~U[2024-01-15 10:00:00Z],
+        git_ref: "ref1",
+        git_branch: "main",
+        tasks: [],
+        overall: :passed
+      }
+
+      :ok = RunHistory.save(run, path: tmp_dir)
+
+      assert {:error, :not_found} = RunHistory.get("missing", path: tmp_dir)
+    end
+
+    test "returns {:error, :not_found} when runs directory doesn't exist", %{tmp_dir: tmp_dir} do
+      assert {:error, :not_found} = RunHistory.get("run-1", path: tmp_dir)
+    end
+
+    test "skips corrupt manifests while searching for other runs", %{tmp_dir: tmp_dir} do
+      run = %RunHistory.Run{
+        id: "run-valid",
+        timestamp: ~U[2024-01-15 10:00:00Z],
+        git_ref: "ref1",
+        git_branch: "main",
+        tasks: [],
+        overall: :passed
+      }
+
+      :ok = RunHistory.save(run, path: tmp_dir)
+
+      # Newer than the valid manifest, so it is scanned first.
+      runs_dir = Path.join([tmp_dir, ".sykli", "runs"])
+      File.write!(Path.join(runs_dir, "2024-01-16T00-00-00Z.json"), "{garbage")
+
+      assert {:ok, found} = RunHistory.get("run-valid", path: tmp_dir)
+      assert found.id == "run-valid"
+    end
+
+    test "returns {:error, :corrupt} when the matching manifest fails decoding",
+         %{tmp_dir: tmp_dir} do
+      runs_dir = Path.join([tmp_dir, ".sykli", "runs"])
+      File.mkdir_p!(runs_dir)
+
+      corrupt =
+        Jason.encode!(%{
+          "id" => "run-bad",
+          "timestamp" => "2024-01-15T10:00:00Z",
+          "git_ref" => "ref1",
+          "git_branch" => "main",
+          "tasks" => [],
+          "overall" => "no_such_status_atom_run_history_test"
+        })
+
+      File.write!(Path.join(runs_dir, "2024-01-15T10-00-00Z.json"), corrupt)
+
+      assert {:error, :corrupt} = RunHistory.get("run-bad", path: tmp_dir)
+    end
+  end
+
   describe "list/1 error handling" do
     test "returns {:error, reason} for non-enoent filesystem errors", %{tmp_dir: tmp_dir} do
       # Create a file where the runs directory should be — File.ls on a file returns :enotdir
