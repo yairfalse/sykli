@@ -5,8 +5,8 @@ defmodule Sykli.CLI.Gui do
   Local-first only: binds 127.0.0.1 (not configurable), no auth, no
   cloud. Serves the embedded SPA plus the JSON API from
   `Sykli.Gui.Router`; data comes from the configured
-  `Sykli.Gui.Provider` (demo by default until the artifact provider
-  lands).
+  `Sykli.Gui.Provider` — the artifact provider (real `.sykli/` data) by
+  default, the demo provider with `--demo`.
   """
 
   alias Sykli.CLI.JsonResponse
@@ -26,6 +26,13 @@ defmodule Sykli.CLI.Gui do
   defp start(opts) do
     port = Keyword.fetch!(opts, :port)
     json? = Keyword.fetch!(opts, :json)
+
+    provider =
+      if Keyword.fetch!(opts, :demo),
+        do: Sykli.Gui.Provider.Demo,
+        else: Sykli.Gui.Provider.Artifact
+
+    Application.put_env(:sykli, :gui_provider, provider)
 
     case Bandit.start_link(plug: Sykli.Gui.Router, ip: {127, 0, 0, 1}, port: port) do
       {:ok, _pid} ->
@@ -51,7 +58,7 @@ defmodule Sykli.CLI.Gui do
     end
   end
 
-  defp parse(args), do: parse(args, port: @default_port, open: true, json: false)
+  defp parse(args), do: parse(args, port: @default_port, open: true, json: false, demo: false)
 
   defp parse([], opts), do: {:ok, opts}
 
@@ -63,6 +70,7 @@ defmodule Sykli.CLI.Gui do
   end
 
   defp parse(["--no-open" | rest], opts), do: parse(rest, Keyword.put(opts, :open, false))
+  defp parse(["--demo" | rest], opts), do: parse(rest, Keyword.put(opts, :demo, true))
   defp parse(["--json" | rest], opts), do: parse(rest, Keyword.put(opts, :json, true))
   defp parse([flag | _rest], _opts), do: {:error, "unknown gui flag: #{flag}"}
 
@@ -70,7 +78,8 @@ defmodule Sykli.CLI.Gui do
 
   defp provider_label do
     case Sykli.Gui.Provider.current() do
-      Sykli.Gui.Provider.Demo -> "demo (fake data — artifact provider not wired yet)"
+      Sykli.Gui.Provider.Demo -> "demo (fake data)"
+      Sykli.Gui.Provider.Artifact -> "artifact (local .sykli/ data)"
       module -> inspect(module)
     end
   end
