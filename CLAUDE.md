@@ -6,6 +6,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Most recent first. Older shipped features (Phase 3B `task_type`, Phase 3C `success_criteria`, schema-as-canonical-contract, `target` removed, review nodes) are now load-bearing architecture — see §"SDKs", §"Patterns & Conventions" ("Engine vocabulary modules"), and the `ReviewPrimitive` row in §"Key Modules".
 
+- **Sykli Workbench (`sykli gui`)** — local-first web control room for one
+  repo (Bandit + Plug, `127.0.0.1` only, deliberately not Phoenix). All data
+  flows through the `Sykli.Gui.Provider` behaviour (Demo provider now,
+  Artifact provider later); the hand-written SPA in `core/priv/gui/` is
+  embedded at compile time by `Sykli.Gui.Assets` because escript archives
+  cannot serve `priv/` paths. See `docs/workbench.md`.
+
 - **Pipeline schema v5 SDK emission** adds executable-task `actor` and
   `mandate` declarations across all five SDKs. SDKs auto-detect version `"5"`
   when either field is present and refuse `actor.kind == "agent"` unless
@@ -296,7 +303,7 @@ The project dogfoods itself via `sykli.exs` (root-level pipeline) and `.github/w
 
 ## CLI Commands
 
-`run`, `validate`, `init`, `lock`, `contract`, `explain`, `fix`, `plan`, `context`, `query`, `graph`, `report`, `history`, `verify`, `delta`, `watch`, `daemon`, `mcp`, `cache`, `work`, `gate`, `coordinator`
+`run`, `validate`, `init`, `lock`, `contract`, `explain`, `fix`, `plan`, `context`, `query`, `graph`, `report`, `history`, `verify`, `delta`, `watch`, `daemon`, `mcp`, `cache`, `work`, `gate`, `coordinator`, `gui`
 
 ## Environment Variables
 
