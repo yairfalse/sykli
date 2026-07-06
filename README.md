@@ -276,7 +276,15 @@ Violations are typed like everything else: work outside `scope` or beyond
 a mandate the target cannot enforce fails explicitly with
 `unsupported_target` rather than pretending. An agent's own claim of success
 is never the record — the engine classifies the outcome against the declared
-contract.
+contract, and every mandated task records a `mandate_outcome`
+(`kept` / `violated` / `unverified` / `unsupported`) in run history.
+
+After the fact, `sykli audit <run-id>` judges any recorded run: does its
+contract hash match the current `sykli.lock`, were declared success
+criteria and evidence actually recorded, does every agent task have a
+mandate outcome? The verdict is computed at read time — re-pinning a
+different contract flips old runs to fail, because an audit is a judgment
+over evidence, not a frozen fact.
 
 This is deliberately *not* a behavioral policy engine: a mandate is a
 per-run, deterministic contract field. Cross-run behavioral judgment about
@@ -305,6 +313,25 @@ the terminal.
 
 The detailed on-disk schema is documented in
 [`docs/false-protocol-schema.md`](docs/false-protocol-schema.md).
+
+## The Workbench: One Screen For One Repo
+
+```bash
+sykli gui
+```
+
+A local-first control room served on `127.0.0.1` — no auth, no cloud, no
+analytics, embedded in the binary. One screen answers: what was declared
+(the contract), what ran (the graph), who moved the work forward (humans,
+agents, daemons), what failed and why (typed failure classes), what
+evidence exists, and who may unblock the next step (gates).
+
+It is a *view over the evidence*, not a second system: the contract comes
+from `sykli.lock`, runs from `.sykli/runs/`, and approving a gate in the
+browser writes the same artifact `sykli gate approve` does. The Workbench
+never executes repo code, and evidence rows show the same read-time audit
+verdict `sykli audit` prints. Details in
+[`docs/workbench.md`](docs/workbench.md).
 
 ## Product Pillars
 
@@ -509,7 +536,10 @@ curl -fsSL https://raw.githubusercontent.com/false-systems/sykli/main/install.sh
 ```
 
 Or [download a binary](https://github.com/false-systems/sykli/releases/latest) for
-macOS or Linux.
+macOS or Linux. Release candidates (e.g. `v0.9.0-rc.1`) are published as
+GitHub prereleases — they appear on the
+[releases page](https://github.com/false-systems/sykli/releases) but never
+as `latest`, and are not pushed to package registries.
 
 <details>
 <summary>Build from source</summary>
@@ -597,6 +627,8 @@ sykli delta               # run tasks affected by git changes
 sykli watch               # re-run on file changes
 sykli explain             # show last run as an AI-readable report
 sykli fix                 # failure analysis with source context
+sykli audit <run-id>      # judge a recorded run against the current lock
+sykli gui                 # local Workbench (127.0.0.1); --demo for fake data
 sykli context             # write .sykli/context.json
 sykli query               # query pipeline, history, and health data
 sykli graph               # Mermaid or DOT graph
@@ -648,18 +680,20 @@ Selection priority and runtime extension notes are in
 | Core engine, all 5 SDKs, local execution, Docker/Podman/Shell/Fake runtimes, FALSE Protocol output, canonical schema, opt-in GitHub-native receiver | **Stable** |
 | Contract lock (`sykli lock`, drift refusal, nondeterminism rejection), contract surface (`sykli contract`, `--diff` weakening classifier) | **Beta** |
 | Mesh distribution, Kubernetes target, gates, SLSA attestations, remote cache via S3, review-node graph support, `task_type` / `success_criteria` v3 fields, `evidence_required` v4 fields, `actor` / `mandate` v5 fields | **Beta** |
+| Mandate enforcement in the executor (scope, budget, capabilities; recorded `mandate_outcome`), `sykli audit` run verification, Sykli Workbench (`sykli gui`) | **Beta** |
 | Team Mode: self-hosted coordinator, daemon join/heartbeat/leave, work-item sync, metadata-only run summaries, remote gate approvals (round-trip CI-proven) | **Beta** |
-| Mandate enforcement in the executor (scope, budget, capabilities), `sykli audit` run verification, review primitive adapters, multi-agent execution, LLM/provider review runners | **In development** |
+| Review primitive adapters, multi-agent execution, LLM/provider review runners | **In development** |
 
 The status table is part of the contract: beta and in-development features are
 usable surfaces, not production-readiness claims.
 
 ## Roadmap
 
-- **0.9.0-rc.1 — the mandate release.** Executor enforcement for `mandate`
-  scope, budget, and capabilities; `sykli audit <run-id>` to verify a
-  recorded run against its contract, evidence, and mandate outcomes;
-  registry packages for all five SDKs.
+- **0.9.0 stable — the mandate release.** The rc is cut
+  (`v0.9.0-rc.1`, GitHub-only prerelease): executor enforcement for
+  `mandate` scope, budget, and capabilities; `sykli audit <run-id>`;
+  the Sykli Workbench. Stabilization plus registry packages for all five
+  SDKs land with the stable tag.
 - **Agent Contract Release.** Tighten MCP response envelopes, coded tool
   errors, stable agent-readable failure output, `.sykli/` evidence docs, and a
   focused Codex/Claude repair demo.
