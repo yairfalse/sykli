@@ -10,7 +10,7 @@ defmodule Sykli.CLI do
   alias Sykli.Work.Store, as: WorkStore
 
   @version Mix.Project.config()[:version]
-  @subcommands ~w(cache graph delta watch report history daemon coordinator work gates gate init lock contract audit validate verify plan explain context fix query mcp run)
+  @subcommands ~w(cache graph delta watch report history daemon coordinator work gates gate gui init lock contract audit validate verify plan explain context fix query mcp run)
 
   def main(args \\ []) do
     args = normalize_global_json(args)
@@ -49,6 +49,11 @@ defmodule Sykli.CLI do
       ["coordinator" | coordinator_args] ->
         coordinator_args
         |> Sykli.CLI.Coordinator.run()
+        |> halt()
+
+      ["gui" | gui_args] ->
+        gui_args
+        |> Sykli.CLI.Gui.main()
         |> halt()
 
       ["work" | work_args] ->
@@ -187,6 +192,7 @@ defmodule Sykli.CLI do
       sykli gates      List local gate decisions
       sykli gate       Manage local gate decisions (see: sykli gate --help)
       sykli cache      Manage cache (see: sykli cache --help)
+      sykli gui        Open the local Workbench (repo control room)
       sykli mcp        Start MCP server (for AI assistants)
 
     Examples:

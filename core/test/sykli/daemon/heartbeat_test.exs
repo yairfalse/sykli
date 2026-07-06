@@ -114,7 +114,7 @@ defmodule Sykli.Daemon.HeartbeatTest do
 
   test "drains the outbox on the first successful heartbeat and after failures" do
     test_pid = self()
-    {:ok, agent} = Agent.start_link(fn -> [:fail, :ok, :ok, :fail, :ok] end)
+    agent = start_supervised!({Agent, fn -> [:fail, :ok, :ok, :fail, :ok] end})
 
     pid =
       start_loop(
@@ -161,7 +161,7 @@ defmodule Sykli.Daemon.HeartbeatTest do
       "reason" => "test"
     }
 
-    {:ok, agent} = Agent.start_link(fn -> [{:ok_with, [decision]}, :plain_ok] end)
+    agent = start_supervised!({Agent, fn -> [{:ok_with, [decision]}, :plain_ok] end})
 
     pid =
       start_loop(
@@ -186,7 +186,7 @@ defmodule Sykli.Daemon.HeartbeatTest do
   end
 
   test "backs off exponentially with a cap of interval * 4" do
-    {:ok, agent} = Agent.start_link(fn -> 0 end)
+    agent = start_supervised!({Agent, fn -> 0 end})
 
     pid =
       start_loop(
@@ -235,7 +235,7 @@ defmodule Sykli.Daemon.HeartbeatTest do
 
   test "persists liveness fields on success and failure" do
     RecordingStore.record_to(self())
-    {:ok, agent} = Agent.start_link(fn -> [:ok, :fail] end)
+    agent = start_supervised!({Agent, fn -> [:ok, :fail] end})
 
     pid =
       start_loop(
@@ -262,14 +262,17 @@ defmodule Sykli.Daemon.HeartbeatTest do
   test "rejoins automatically when the coordinator forgot the session" do
     test_pid = self()
 
-    {:ok, agent} =
-      Agent.start_link(fn ->
-        [
-          {:error,
-           {:coordinator_error, 404, %{"code" => "coordinator.daemon_session_not_found"}}},
-          :plain_ok
-        ]
-      end)
+    agent =
+      start_supervised!(
+        {Agent,
+         fn ->
+           [
+             {:error,
+              {:coordinator_error, 404, %{"code" => "coordinator.daemon_session_not_found"}}},
+             :plain_ok
+           ]
+         end}
+      )
 
     pid =
       start_loop(
@@ -318,6 +321,33 @@ defmodule Sykli.Daemon.HeartbeatTest do
 
     GenServer.stop(pid)
     assert_receive {:posted, %{"status" => "offline"}}
+  end
+
+  test "shutdown stays clean when the transport is already gone" do
+    # Regression: terminate/2's best-effort offline heartbeat used to crash
+    # with :noproc when the transport died first (test teardown ordering,
+    # or :inets stopping during VM drain), turning a clean stop into an
+    # abnormal exit.
+    {:ok, agent} = Agent.start(fn -> :ok end)
+
+    pid =
+      start_loop(
+        post_fun: fn _session, _payload ->
+          Agent.get_and_update(agent, fn s -> {s, s} end)
+          ok_response()
+        end
+      )
+
+    assert_receive {:scheduled, 0}
+    send(pid, :heartbeat)
+    # the post-success reschedule confirms the loop synced (synced_once: true)
+    assert_receive {:scheduled, 15_000}
+
+    Process.exit(agent, :kill)
+
+    ref = Process.monitor(pid)
+    assert :ok = GenServer.stop(pid)
+    assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
   end
 
   test "does not send an offline heartbeat if it never synced" do
