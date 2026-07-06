@@ -24,9 +24,9 @@ defmodule Sykli.Gui.Provider.Artifact do
   later Team Mode phase.
 
   v5 result fields: task `mandate_outcome` and per-run mandate summaries
-  are read shape-tolerantly from run manifests — they populate once
-  mandate enforcement (PR #276) starts persisting them; `audit_verdict`
-  stays nil until the audit core is a shared service the GUI can call.
+  are read shape-tolerantly from run manifests; `audit_verdict` is
+  computed per evidence row through `Sykli.Services.Audit` — a read-time
+  judgment against the current lock, never persisted.
   """
 
   @behaviour Sykli.Gui.Provider
@@ -60,7 +60,7 @@ defmodule Sykli.Gui.Provider.Artifact do
       members: members(path) ++ actor_members(contract),
       work_items: Enum.map(items, &work_item_row(&1, runs)),
       gates: Enum.map(gates, &gate_row/1),
-      evidence: runs |> Enum.take(@recent_runs) |> Enum.map(&evidence_row/1),
+      evidence: runs |> Enum.take(@recent_runs) |> Enum.map(&evidence_row(&1, path)),
       activity: derive_activity(runs, gates, items),
       agent_calls: []
     }
@@ -414,7 +414,7 @@ defmodule Sykli.Gui.Provider.Artifact do
     }
   end
 
-  defp evidence_row(run) do
+  defp evidence_row(run, path) do
     %Evidence{
       run_id: run.id,
       status: to_string(run.overall),
@@ -422,9 +422,9 @@ defmodule Sykli.Gui.Provider.Artifact do
       failed: Enum.count(run.tasks, &(&1.status == :failed)),
       skipped: Enum.count(run.tasks, &(&1.status == :skipped)),
       complete: run_evidence_status(run) == "complete",
-      # audit_verdict stays nil until the audit core (`sykli audit`,
-      # PR #276) is extractable as a shared service — the GUI must not
-      # re-derive verdict logic.
+      # Read-time judgment against the current lock (see
+      # Sykli.Services.Audit) — the same verdict `sykli audit` prints.
+      audit_verdict: Sykli.Services.Audit.audit_run(path, run).verdict,
       mandates: mandate_summary(run.tasks)
     }
   end

@@ -249,6 +249,38 @@ defmodule Sykli.Gui.Provider.ArtifactTest do
       assert [%State.Evidence{run_id: "run-m1", mandates: "1 kept · 1 violated"}] =
                state.evidence
     end
+
+    test "evidence rows carry the read-time audit verdict", %{tmp: tmp} do
+      contract = %{"version" => "1", "tasks" => [%{"name" => "test", "command" => "make test"}]}
+      lock = Sykli.ContractLock.build(contract, "sykli.exs")
+      {:ok, _bytes} = Sykli.ContractLock.write(lock, Path.join(tmp, "sykli.lock"))
+
+      :ok =
+        RunHistory.save(
+          %RunHistory.Run{
+            id: "run-a1",
+            timestamp: ~U[2026-07-06 13:00:00Z],
+            git_ref: "abc",
+            git_branch: "main",
+            overall: :passed,
+            contract_hash: lock["contract_hash"],
+            tasks: [task("test", :passed)]
+          },
+          path: tmp
+        )
+
+      assert [%State.Evidence{run_id: "run-a1", audit_verdict: "pass"}] =
+               Artifact.state(repo_path: tmp).evidence
+
+      # Re-locking a different contract flips the verdict at read time —
+      # the GUI shows the same judgment `sykli audit` prints today.
+      changed = %{"version" => "1", "tasks" => [%{"name" => "test", "command" => "make cheat"}]}
+      new_lock = Sykli.ContractLock.build(changed, "sykli.exs")
+      {:ok, _bytes} = Sykli.ContractLock.write(new_lock, Path.join(tmp, "sykli.lock"))
+
+      assert [%State.Evidence{run_id: "run-a1", audit_verdict: "fail"}] =
+               Artifact.state(repo_path: tmp).evidence
+    end
   end
 
   describe "state/1 with work items and gates" do
