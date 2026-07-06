@@ -26,7 +26,8 @@ defmodule Sykli.Gui.StateTest do
 
     codex = Enum.find(wire["members"], &(&1["id"] == "codex"))
     assert codex["mandate"]["budget"]["diffLines"] == 200
-    assert codex["mandate"]["network"] == false
+    # canonical v5 contract shape: capabilities.network
+    assert codex["mandate"]["capabilities"]["network"] == false
 
     run42 = Enum.find(wire["evidence"], &(&1["runId"] == "run-42"))
     assert run42["auditVerdict"] == "pass"

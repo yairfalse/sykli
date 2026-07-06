@@ -30,6 +30,7 @@ defmodule Sykli.RunHistory do
       :kind,
       :review_result,
       :failure_semantics,
+      :mandate_outcome,
       :contract_slice,
       :inputs,
       :likely_cause,
@@ -49,6 +50,7 @@ defmodule Sykli.RunHistory do
             kind: String.t() | nil,
             review_result: map() | nil,
             failure_semantics: Sykli.FailureSemantics.t() | nil,
+            mandate_outcome: map() | nil,
             contract_slice: map() | nil,
             success_criteria_results: [Sykli.SuccessCriteria.Result.t() | map()] | nil,
             evidence_results: [Sykli.EvidenceRequirement.Result.t()],
@@ -325,6 +327,7 @@ defmodule Sykli.RunHistory do
     |> maybe_add(:kind, tr.kind)
     |> maybe_add(:review_result, tr.review_result)
     |> maybe_add(:failure_semantics, Sykli.FailureSemantics.to_map(tr.failure_semantics))
+    |> maybe_add(:mandate_outcome, tr.mandate_outcome)
     |> maybe_add(:contract_slice, tr.contract_slice)
     |> maybe_add(
       :success_criteria_results,
@@ -378,6 +381,7 @@ defmodule Sykli.RunHistory do
       kind: data["kind"],
       review_result: data["review_result"],
       failure_semantics: Sykli.FailureSemantics.from_map(data["failure_semantics"]),
+      mandate_outcome: data["mandate_outcome"],
       contract_slice: data["contract_slice"],
       success_criteria_results:
         Sykli.ContractSlice.success_criteria_results_from_maps(data["success_criteria_results"]),

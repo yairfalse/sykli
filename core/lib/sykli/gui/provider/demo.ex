@@ -176,7 +176,7 @@ defmodule Sykli.Gui.Provider.Demo do
         mandate: %{
           scope: ["core/test/**"],
           budget: %{diff_lines: 200, wall_clock_ms: 900_000},
-          network: false
+          capabilities: %{network: false}
         },
         trust: "team platform · executor"
       },

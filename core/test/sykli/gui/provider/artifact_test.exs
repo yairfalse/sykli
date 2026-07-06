@@ -39,7 +39,8 @@ defmodule Sykli.Gui.Provider.ArtifactTest do
       status: status,
       duration_ms: Keyword.get(opts, :duration_ms, 100),
       error: Keyword.get(opts, :error),
-      cached: Keyword.get(opts, :cached, false)
+      cached: Keyword.get(opts, :cached, false),
+      mandate_outcome: Keyword.get(opts, :mandate_outcome)
     }
   end
 
@@ -165,6 +166,88 @@ defmodule Sykli.Gui.Provider.ArtifactTest do
       types = Map.new(state.graph.nodes, &{&1.id, &1.type})
       assert types == %{"test" => "task", "review" => "review", "ship" => "gate"}
       assert state.graph.edges == [%State.Edge{from: "test", to: "ship"}]
+    end
+  end
+
+  describe "state/1 v5 actors and mandates" do
+    test "contract agent actors appear as declared members with their mandate", %{tmp: tmp} do
+      contract = %{
+        "version" => "5",
+        "tasks" => [
+          %{"name" => "test", "command" => "make test"},
+          %{
+            "name" => "fix:flaky",
+            "command" => "claude fix",
+            "actor" => %{"kind" => "agent", "id" => "codex"},
+            "mandate" => %{
+              "scope" => ["core/test/**"],
+              "budget" => %{"diff_lines" => 200, "wall_clock_ms" => 900_000},
+              "capabilities" => %{"network" => false}
+            }
+          },
+          %{
+            "name" => "fix:docs",
+            "command" => "claude docs",
+            "actor" => %{"kind" => "agent", "id" => "codex"},
+            "mandate" => %{"scope" => ["docs/**"]}
+          }
+        ]
+      }
+
+      lock = Sykli.ContractLock.build(contract, "sykli.exs")
+      {:ok, _bytes} = Sykli.ContractLock.write(lock, Path.join(tmp, "sykli.lock"))
+
+      state = Artifact.state(repo_path: tmp)
+
+      assert [%State.Member{identity_type: "human"}, agent] = state.members
+      assert agent.id == "codex"
+      assert agent.identity_type == "agent"
+      assert agent.status == "declared"
+      assert agent.role == "executor"
+      assert agent.current_work == "fix:flaky · fix:docs"
+      assert agent.mandate["scope"] == ["core/test/**"]
+      assert agent.mandate["capabilities"] == %{"network" => false}
+    end
+
+    test "mandate outcome mapping tolerates pre-enforcement manifests" do
+      # Manifests written before mandate enforcement (PR #276) carry no
+      # mandate_outcome.
+      assert Artifact.mandate_outcome_label(%RunHistory.TaskResult{
+               name: "t",
+               status: :passed,
+               duration_ms: 1
+             }) == nil
+
+      # Enforcement persists %{"status" => ...} on the task result.
+      kept = %{name: "t", status: :passed, mandate_outcome: %{"status" => "kept"}}
+      violated = %{name: "u", status: :failed, mandate_outcome: %{"status" => "violated"}}
+      bare = %{name: "v", status: :passed}
+
+      assert Artifact.mandate_outcome_label(kept) == "kept"
+      assert Artifact.mandate_outcome_label(violated) == "violated"
+      assert Artifact.mandate_outcome_label(%{mandate_outcome: %{"reason" => "x"}}) == nil
+
+      assert Artifact.mandate_summary([kept, violated, bare]) == "1 kept · 1 violated"
+      assert Artifact.mandate_summary([bare]) == nil
+      assert Artifact.mandate_summary([]) == nil
+    end
+
+    test "mandate outcomes round-trip from saved manifests into the state", %{tmp: tmp} do
+      save_run(tmp, "run-m1", ~U[2026-07-06 12:00:00Z], :failed, [
+        task("fix:flaky", :passed, mandate_outcome: %{"status" => "kept"}),
+        task("fix:docs", :failed,
+          mandate_outcome: %{"status" => "violated", "reason" => "scope_violation"}
+        ),
+        task("test", :passed)
+      ])
+
+      state = Artifact.state(repo_path: tmp)
+
+      outcomes = Map.new(state.graph.nodes, &{&1.id, &1.mandate_outcome})
+      assert outcomes == %{"fix:flaky" => "kept", "fix:docs" => "violated", "test" => nil}
+
+      assert [%State.Evidence{run_id: "run-m1", mandates: "1 kept · 1 violated"}] =
+               state.evidence
     end
   end
 
