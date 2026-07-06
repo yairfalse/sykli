@@ -122,10 +122,14 @@ jobs:
   # One-time registry-side setup is documented in RELEASE.md §"Automated
   # registry publishing". These jobs run after the GitHub release exists,
   # so a registry failure never blocks the binary release.
+  #
+  # Prerelease tags (v0.9.0-rc.1) are GitHub-only: binaries + prerelease
+  # flag, no registry publishes. Registries get stable tags only.
 
   publish-go:
     name: Publish Go SDK (module tag)
     needs: release
+    if: ${{ !contains(github.ref_name, '-') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -146,6 +150,7 @@ jobs:
   publish-pypi:
     name: Publish Python SDK (PyPI trusted publishing)
     needs: release
+    if: ${{ !contains(github.ref_name, '-') }}
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
@@ -171,6 +176,7 @@ jobs:
   publish-crates:
     name: Publish Rust SDK (crates.io trusted publishing)
     needs: release
+    if: ${{ !contains(github.ref_name, '-') }}
     runs-on: ubuntu-latest
     permissions:
       id-token: write

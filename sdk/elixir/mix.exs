@@ -4,7 +4,7 @@ defmodule SykliSdk.MixProject do
   def project do
     [
       app: :sykli_sdk,
-      version: "0.7.0",
+      version: "0.9.0-rc.1",
       elixir: "~> 1.14",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
