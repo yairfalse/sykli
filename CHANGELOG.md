@@ -7,13 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0-rc.1] - 2026-07-06
+
 ### Added
 
+- **v5 SDK emission across all five SDKs** (#274). Go, Rust, TypeScript,
+  Elixir, and Python emit `actor` and `mandate` on executable tasks and
+  auto-detect `version: "5"`. SDKs refuse `actor.kind == "agent"` unless
+  `mandate`, `success_criteria`, and `evidence_required` are all declared.
+- **Mandate enforcement + `sykli audit`** (#276). The executor verifies
+  mandate scope with git fingerprints, enforces diff-line and wall-clock
+  budgets and network capability, and records a `mandate_outcome`
+  (`kept`/`violated`/`unverified`/`unsupported`) on every mandated task
+  result. `sykli audit <run-id>` judges a recorded run against the current
+  lock; the verdict core is the shared `Sykli.Services.Audit` (#281) —
+  computed at read time, never persisted.
+- **Sykli Workbench (`sykli gui`)** (#278, #280, #282). Local-first web
+  control room for one repo (`127.0.0.1` only, SPA embedded in the binary).
+  Serves real `.sykli/` data by default (`--demo` for the showcase set),
+  never executes repo code, writes gate decisions through `Gate.Store`,
+  and renders the full v5 story: contract-declared agent actors with
+  mandates, node mandate outcomes, and live audit verdicts on evidence.
 - **Pipeline schema v5 parser/validator support.** The engine and canonical
   schema now accept `version: "5"` payloads with executable-task `actor` and
   `mandate` declarations. Agent actors require a mandate, non-empty
   `success_criteria`, and non-empty `evidence_required`; review nodes reject
-  the new executable-task fields. SDK emission remains on the existing v4 path.
+  the new executable-task fields.
 - **`sykli lock`.** Writes `sykli.lock` with the canonical contract and
   enforces matching locked contracts in `sykli validate` and `sykli run`.
 - **`sykli contract`.** Renders the current emitted contract and supports
@@ -55,6 +74,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Heartbeat shutdown crash** (#279). The final offline goodbye in
+  `terminate/2` no longer turns a clean stop into an abnormal exit when the
+  transport is already gone (e.g. `:inets` stopping during VM drain); it is
+  best-effort by contract now, with the race pinned by a regression test.
 - **Coordinator gate-decision lifecycle (closes #202, #205).** Sessions
   silent past the protocol's resume cutoff (default 300s, configurable via
   the store's `session_expiry_seconds`) are pruned together with their
@@ -70,6 +93,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Prerelease tags are GitHub-only.** Tags containing `-` (e.g.
+  `v0.9.0-rc.1`) build binaries and create a GitHub prerelease, but skip
+  all registry publishes (Go module tag, PyPI, crates.io). Registries get
+  stable tags only.
 - **`sykli --help` tagline aligned with the project positioning.** The
   binary now introduces itself as "execution contracts for agent work"
   (previously "CI pipelines in your language"), matching the README.
