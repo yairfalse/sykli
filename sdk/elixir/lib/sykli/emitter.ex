@@ -341,7 +341,8 @@ defmodule Sykli.Emitter do
   defp valid_actor?(nil), do: true
 
   defp valid_actor?(%{kind: kind} = actor) do
-    Sykli.Task.valid_actor_kind?(kind) and
+    map_size(Map.drop(actor, [:kind, :id])) == 0 and
+      Sykli.Task.valid_actor_kind?(kind) and
       (not Map.has_key?(actor, :id) or (is_binary(actor.id) and actor.id != ""))
   end
 
@@ -350,7 +351,8 @@ defmodule Sykli.Emitter do
   defp valid_mandate?(nil), do: true
 
   defp valid_mandate?(%{scope: scope} = mandate) when is_list(scope) and scope != [] do
-    Enum.all?(scope, &(is_binary(&1) and &1 != "")) and
+    map_size(Map.drop(mandate, [:scope, :budget, :capabilities])) == 0 and
+      Enum.all?(scope, &(is_binary(&1) and &1 != "")) and
       valid_mandate_budget?(Map.get(mandate, :budget)) and
       valid_mandate_capabilities?(Map.get(mandate, :capabilities))
   end
@@ -370,7 +372,9 @@ defmodule Sykli.Emitter do
 
   defp valid_mandate_capabilities?(nil), do: true
 
-  defp valid_mandate_capabilities?(%{network: value}) when is_boolean(value), do: true
+  defp valid_mandate_capabilities?(%{network: value} = capabilities) when is_boolean(value),
+    do: map_size(capabilities) == 1
+
   defp valid_mandate_capabilities?(capabilities), do: capabilities == %{}
 
   defp agent_missing_field(%{actor: %{kind: :agent}} = task) do

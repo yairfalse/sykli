@@ -167,6 +167,36 @@ defmodule SykliTest do
       end
     end
 
+    test "emitter rejects unknown actor and mandate keys on hand-built structs" do
+      base = %Sykli.Task{name: "x", command: "true"}
+
+      extra_actor = %Sykli.Pipeline{
+        tasks: [%{base | actor: %{kind: :human, role: "extra"}}]
+      }
+
+      assert_raise RuntimeError, ~r/invalid actor/, fn ->
+        Sykli.Emitter.validate!(extra_actor)
+      end
+
+      extra_mandate_key = %Sykli.Pipeline{
+        tasks: [%{base | mandate: %{scope: ["src/**"], budgets: %{}}}]
+      }
+
+      assert_raise RuntimeError, ~r/invalid mandate/, fn ->
+        Sykli.Emitter.validate!(extra_mandate_key)
+      end
+
+      extra_capability = %Sykli.Pipeline{
+        tasks: [
+          %{base | mandate: %{scope: ["src/**"], capabilities: %{network: false, shell: true}}}
+        ]
+      }
+
+      assert_raise RuntimeError, ~r/invalid mandate/, fn ->
+        Sykli.Emitter.validate!(extra_capability)
+      end
+    end
+
     test "agent actor requires mandate at emit time" do
       use Sykli
 
