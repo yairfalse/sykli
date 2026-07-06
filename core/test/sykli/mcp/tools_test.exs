@@ -116,6 +116,28 @@ defmodule Sykli.MCP.ToolsTest do
                  "status" => "failed"
                }
              ] = task.success_criteria_results
+
+      # No mandate declared -> no mandate_outcome key on the MCP surface.
+      refute Map.has_key?(task, :mandate_outcome)
+    end
+
+    test "run_pipeline exposes mandate_outcome when the result carries one" do
+      path = System.tmp_dir!() |> Path.join("sykli-mcp-test-#{:rand.uniform(999_999)}")
+      File.mkdir_p!(path)
+      write_mandate_pipeline(path)
+
+      on_exit(fn -> File.rm_rf!(path) end)
+
+      assert {:ok, result} = Tools.call("run_pipeline", %{"path" => path})
+      assert is_binary(Jason.encode!(result))
+      assert result.status == "failed"
+
+      [task] = result.tasks
+      assert task.name == "scoped"
+      # Scope enforcement requires a git work tree; a bare tmp dir yields an
+      # explicit "unsupported" outcome — proving the field crosses the MCP surface.
+      assert task.mandate_outcome["status"] == "unsupported"
+      assert task.mandate_outcome["reason"] == "mandate_requires_git"
     end
   end
 
@@ -155,6 +177,22 @@ defmodule Sykli.MCP.ToolsTest do
             "task_type" => "test",
             "semantic" => %{"intent" => "check declared outcome"},
             "success_criteria" => [%{"type" => "exit_code", "equals" => 1}]
+          }
+        ]
+      })
+
+    File.write!(Path.join(path, "sykli.exs"), "IO.puts(#{inspect(json)})")
+  end
+
+  defp write_mandate_pipeline(path) do
+    json =
+      Jason.encode!(%{
+        "version" => "5",
+        "tasks" => [
+          %{
+            "name" => "scoped",
+            "command" => "true",
+            "mandate" => %{"scope" => ["allowed/**"]}
           }
         ]
       })

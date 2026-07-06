@@ -488,6 +488,7 @@ defmodule Sykli.MCP.Tools do
     }
     |> maybe_put(:error, task_error_map(result.error))
     |> maybe_put(:failure_semantics, Sykli.FailureSemantics.to_map(result.failure_semantics))
+    |> maybe_put(:mandate_outcome, result.mandate_outcome)
     |> maybe_put(:agent_hints, Sykli.AgentHints.from_failure_semantics(result.failure_semantics))
     |> maybe_put(:contract_slice, Sykli.ContractSlice.from_task(task))
     |> maybe_put(

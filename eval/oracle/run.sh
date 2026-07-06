@@ -1752,6 +1752,72 @@ if begin_case "078" "Daemon: status JSON includes run outbox count"; then
   rm -rf "$dir"
 fi
 
+# --- case_079: mandate outcome is recorded on kept agent task ---
+if begin_case "079" "Mandate: kept outcome recorded in run JSON"; then
+  dir=$(tmp_workdir)
+  make_pipeline "$dir" mandate_kept.exs
+  (cd "$dir" && git init -q && git add . && git -c user.name='Sykli Test' -c user.email='test@example.invalid' commit -q -m init)
+
+  LAST_OUTPUT=$(run_sykli "$dir" --json) && exit_code=0 || exit_code=$?
+
+  if assert_exit 0 "$exit_code"; then
+    if assert_json_field "$LAST_OUTPUT" '.data.tasks[0].mandate_outcome.status' "kept"; then
+      pass 0
+    fi
+  fi
+  rm -rf "$dir"
+fi
+
+# --- case_080: out-of-scope mandate edits are policy blocks ---
+if begin_case "080" "Mandate: scope violation is policy block"; then
+  dir=$(tmp_workdir)
+  make_pipeline "$dir" mandate_scope_violation.exs
+  mkdir -p "$dir/allowed"
+  touch "$dir/allowed/.keep"
+  (cd "$dir" && git init -q && git add . && git -c user.name='Sykli Test' -c user.email='test@example.invalid' commit -q -m init)
+
+  LAST_OUTPUT=$(run_sykli "$dir" --json) && exit_code=0 || exit_code=$?
+
+  if assert_exit 1 "$exit_code"; then
+    if assert_json_field "$LAST_OUTPUT" '.data.tasks[0].failure_semantics.reason' "mandate_scope_violation"; then
+      pass 0
+    fi
+  fi
+  rm -rf "$dir"
+fi
+
+# --- case_081: audit passes a recorded mandate run ---
+if begin_case "081" "Audit: recorded mandate run passes"; then
+  dir=$(tmp_workdir)
+  make_pipeline "$dir" mandate_kept.exs
+  (cd "$dir" && git init -q && git add . && git -c user.name='Sykli Test' -c user.email='test@example.invalid' commit -q -m init)
+  run_sykli "$dir" --json >/dev/null
+  run_id=$(jq -r .id "$dir/.sykli/runs/latest.json")
+
+  LAST_OUTPUT=$(run_sykli "$dir" audit "$run_id" --json) && exit_code=0 || exit_code=$?
+
+  if assert_exit 0 "$exit_code"; then
+    if assert_json_field "$LAST_OUTPUT" '.data.verdict' "pass"; then
+      pass 0
+    fi
+  fi
+  rm -rf "$dir"
+fi
+
+# --- case_082: audit missing run is a stable JSON error ---
+if begin_case "082" "Audit: missing run returns JSON error"; then
+  dir=$(tmp_workdir)
+
+  LAST_OUTPUT=$(run_sykli "$dir" audit missing --json) && exit_code=0 || exit_code=$?
+
+  if assert_exit 1 "$exit_code"; then
+    if assert_json_field "$LAST_OUTPUT" '.error.code' "audit.run_not_found"; then
+      pass 0
+    fi
+  fi
+  rm -rf "$dir"
+fi
+
 # ============================================================================
 # Summary
 # ============================================================================

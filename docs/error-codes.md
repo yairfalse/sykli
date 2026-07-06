@@ -20,6 +20,16 @@ To rename or deprecate a public code, add the replacement first, keep the old co
 
 No cache-prefixed `Sykli.Error` codes are emitted today. Cache failures currently surface through execution/runtime errors or internal wrapping.
 
+### audit
+
+Audit codes are public-unstable while `sykli audit` is new.
+
+| Code | Description | Tier | Emitted from |
+|------|-------------|------|--------------|
+| `audit.run_not_found` | `sykli audit` was called without a run id, or the requested run id is not present in local run history. | public-unstable | `core/lib/sykli/cli/audit.ex` |
+| `audit.invalid_args` | `sykli audit` received an unsupported argument shape. | public-unstable | `core/lib/sykli/cli/audit.ex` |
+| `audit.history_corrupt` | The run manifest recording the requested run id exists in `.sykli/runs/` but cannot be decoded. | public-unstable | `core/lib/sykli/cli/audit.ex` |
+
 ### contract
 
 Contract codes are public-stable because they are emitted by `sykli lock`,
@@ -117,6 +127,9 @@ daemon-side deferred publish path.
 
 | Code | Description | Tier | Emitted from |
 |------|-------------|------|--------------|
+| `mandate_violation` | A task ran but broke its declared v5 mandate (scope or budget); the recorded `mandate_outcome` is `violated` and `failure_semantics.reason` names the dimension (`mandate_scope_violation`, `mandate_budget_exceeded`). | public-unstable | `core/lib/sykli/error.ex` |
+| `mandate_unsupported` | The target, runtime, or workdir cannot enforce a declared mandate dimension (`mandate_unsupported_target`, `mandate_requires_git`, `mandate_network_unsupported`); the task fails before running with outcome `unsupported`. | public-unstable | `core/lib/sykli/error.ex` |
+| `mandate_verification_failed` | Mandate verification could not inspect the git work tree (git failed or timed out); enforcement fails closed with outcome `unverified` rather than reporting `kept`. | public-unstable | `core/lib/sykli/error.ex` |
 | `missing_secrets` | A task requires secrets that are not present in the execution environment. | public-stable | `core/lib/sykli/error.ex:181` |
 | `missing_evidence` | A task command and criteria passed, but one or more required evidence references were absent or unsatisfied. | public-unstable | `core/lib/sykli/error.ex` |
 | `review_primitive_failed` | A review primitive failed, errored, or was unsupported. | public-unstable | `core/lib/sykli/error.ex` |

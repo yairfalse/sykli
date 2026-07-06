@@ -58,6 +58,9 @@ defmodule Sykli.Runtime.Docker do
   # ─────────────────────────────────────────────────────────────────────────────
 
   @impl true
+  def network_isolation?, do: true
+
+  @impl true
   def run(command, image, mounts, opts) do
     workdir = Keyword.get(opts, :workdir, ".")
     timeout_ms = Keyword.get(opts, :timeout_ms, 300_000)

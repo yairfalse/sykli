@@ -2051,6 +2051,93 @@
       "validated_by": "Injected bug: local-only runs attempt team sync or write .sykli/outbox/runs without a joined session."
     },
     {
+      "id": "POS-mandate-kept-outcome",
+      "name": "run --json records kept mandate outcome",
+      "fixture": "mandate_kept",
+      "command": "git init -q && git add . && git -c user.name='Sykli Test' -c user.email='test@example.invalid' commit -q -m init && sykli --json",
+      "shell": true,
+      "expect_exit": 0,
+      "expect_json_jq": [
+        ".ok == true",
+        ".data.tasks[0].mandate_outcome.status == \"kept\"",
+        ".data.tasks[0].contract_slice.mandate.budget.wall_clock_ms == 1000"
+      ],
+      "source": "docs/codex-brief-mandate-v5.md D10 auditability",
+      "validated_by": "Injected bug: omit mandate_outcome from successful agent task results; jq assertion fails."
+    },
+    {
+      "id": "NEG-mandate-scope-violation",
+      "name": "mandate scope violation is a policy block",
+      "fixture": "mandate_scope_violation",
+      "command": "mkdir -p allowed && touch allowed/.keep && git init -q && git add . && git -c user.name='Sykli Test' -c user.email='test@example.invalid' commit -q -m init && sykli --json",
+      "shell": true,
+      "expect_exit": 1,
+      "expect_json_jq": [
+        ".ok == true",
+        ".data.tasks[0].status == \"failed\"",
+        ".data.tasks[0].failure_semantics.class == \"policy_block\"",
+        ".data.tasks[0].failure_semantics.reason == \"mandate_scope_violation\"",
+        ".data.tasks[0].mandate_outcome.status == \"violated\""
+      ],
+      "source": "docs/codex-brief-mandate-v5.md D5 mandate scope enforcement",
+      "validated_by": "Injected bug: skip post-command git status check; out-of-scope file write passes."
+    },
+    {
+      "id": "POS-audit-mandate-run",
+      "name": "audit passes recorded run with mandate outcome",
+      "fixture": "mandate_audit",
+      "command": "git init -q && git add . && git -c user.name='Sykli Test' -c user.email='test@example.invalid' commit -q -m init && sykli --json >/dev/null && id=$(jq -r .id .sykli/runs/latest.json) && sykli audit \"$id\" --json",
+      "shell": true,
+      "expect_exit": 0,
+      "expect_json_jq": [
+        ".ok == true",
+        ".data.verdict == \"pass\"",
+        ".data.run_id | type == \"string\""
+      ],
+      "source": "docs/codex-brief-mandate-v5.md D10 audit command",
+      "validated_by": "Injected bug: audit ignores recorded mandate_outcome or cannot load run manifests."
+    },
+    {
+      "id": "NEG-audit-no-run-id",
+      "name": "audit without run id returns structured error",
+      "fixture": "empty_dir",
+      "command": "sykli audit --json",
+      "expect_exit": 1,
+      "expect_json_jq": [
+        ".ok == false",
+        ".error.code == \"audit.run_not_found\""
+      ],
+      "source": "docs/codex-brief-mandate-v5.md PR C negative-path rule",
+      "validated_by": "Injected bug: audit missing-arg path falls through to run or crashes."
+    },
+    {
+      "id": "NEG-audit-unknown-no-sykli",
+      "name": "audit unknown run without .sykli returns structured error",
+      "fixture": "empty_dir",
+      "command": "sykli audit missing --json",
+      "expect_exit": 1,
+      "expect_json_jq": [
+        ".ok == false",
+        ".error.code == \"audit.run_not_found\""
+      ],
+      "source": "docs/codex-brief-mandate-v5.md PR C negative-path rule",
+      "validated_by": "Injected bug: audit assumes .sykli/runs exists and crashes."
+    },
+    {
+      "id": "NEG-audit-corrupt-history",
+      "name": "audit corrupt run history returns structured error",
+      "fixture": "empty_dir",
+      "command": "mkdir -p .sykli/runs && printf '{' > .sykli/runs/2026-07-04T00-00-00Z.json && sykli audit missing --json",
+      "shell": true,
+      "expect_exit": 1,
+      "expect_json_jq": [
+        ".ok == false",
+        ".error.code == \"audit.run_not_found\""
+      ],
+      "source": "docs/codex-brief-mandate-v5.md PR C negative-path rule",
+      "validated_by": "Injected bug: audit decodes corrupt local history without trapping decode errors."
+    },
+    {
       "id": "GH-001",
       "name": "Receiver refuses to start without webhook role",
       "fixture": "single_task",

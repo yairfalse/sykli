@@ -120,6 +120,11 @@ defmodule Sykli.Runtime.Behaviour do
               opts :: run_opts()
             ) :: result()
 
+  @doc """
+  Returns true when the runtime can deny outbound network access for one task.
+  """
+  @callback network_isolation?() :: boolean()
+
   # ─────────────────────────────────────────────────────────────────────────────
   # SERVICES (optional - only for container runtimes)
   # ─────────────────────────────────────────────────────────────────────────────
@@ -152,5 +157,9 @@ defmodule Sykli.Runtime.Behaviour do
   """
   @callback remove_network(network_id :: String.t()) :: :ok | {:error, term()}
 
-  @optional_callbacks start_service: 4, stop_service: 1, create_network: 1, remove_network: 1
+  @optional_callbacks start_service: 4,
+                      stop_service: 1,
+                      create_network: 1,
+                      remove_network: 1,
+                      network_isolation?: 0
 end

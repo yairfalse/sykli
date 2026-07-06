@@ -56,6 +56,9 @@ defmodule Sykli.Runtime.Fake do
   def available?, do: {:ok, %{type: "fake"}}
 
   @impl true
+  def network_isolation?, do: true
+
+  @impl true
   def run(command, image, mounts, opts) do
     record(opts, {:run, command, image, mounts, opts})
     scripted(opts, :run, default_run(command, opts))

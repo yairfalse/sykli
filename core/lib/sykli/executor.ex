@@ -22,6 +22,7 @@ defmodule Sykli.Executor do
 
   alias Sykli.Error
   alias Sykli.Executor.Output
+  alias Sykli.MandateEnforcement
   alias Sykli.Occurrence.PubSub, as: OccPubSub
   alias Sykli.Services.ArtifactResolver
   alias Sykli.Services.CacheService
@@ -57,6 +58,7 @@ defmodule Sykli.Executor do
       :output,
       :command,
       :failure_semantics,
+      :mandate_outcome,
       :review_result,
       secret_values: [],
       success_criteria_results: [],
@@ -72,6 +74,7 @@ defmodule Sykli.Executor do
             output: String.t() | nil,
             command: String.t() | nil,
             failure_semantics: Sykli.FailureSemantics.t() | nil,
+            mandate_outcome: map() | nil,
             review_result: Sykli.ReviewPrimitive.Result.t() | nil,
             secret_values: [String.t()],
             success_criteria_results: [Sykli.SuccessCriteria.Result.t()],
@@ -89,6 +92,8 @@ defmodule Sykli.Executor do
       :status,
       :error,
       :output,
+      :failure_semantics,
+      :mandate_outcome,
       success_criteria_results: [],
       evidence_results: []
     ]
@@ -98,34 +103,41 @@ defmodule Sykli.Executor do
             status: status(),
             error: term() | nil,
             output: String.t() | nil,
+            failure_semantics: Sykli.FailureSemantics.t() | nil,
+            mandate_outcome: map() | nil,
             success_criteria_results: [Sykli.SuccessCriteria.Result.t()],
             evidence_results: [Sykli.EvidenceRequirement.Result.t()]
           }
 
-    def ok(output, success_criteria_results, evidence_results \\ []) do
+    def ok(output, success_criteria_results, evidence_results \\ [], opts \\ []) do
       %__MODULE__{
         status: :ok,
         output: output,
+        mandate_outcome: Keyword.get(opts, :mandate_outcome),
         success_criteria_results: success_criteria_results,
         evidence_results: evidence_results
       }
     end
 
-    def error(reason, success_criteria_results \\ [], evidence_results \\ []) do
+    def error(reason, success_criteria_results \\ [], evidence_results \\ [], opts \\ []) do
       %__MODULE__{
         status: :error,
         error: reason,
         output: error_output(reason),
+        failure_semantics: Keyword.get(opts, :failure_semantics),
+        mandate_outcome: Keyword.get(opts, :mandate_outcome),
         success_criteria_results: success_criteria_results,
         evidence_results: evidence_results
       }
     end
 
-    def errored(reason, success_criteria_results \\ [], evidence_results \\ []) do
+    def errored(reason, success_criteria_results \\ [], evidence_results \\ [], opts \\ []) do
       %__MODULE__{
         status: :errored,
         error: reason,
         output: error_output(reason),
+        failure_semantics: Keyword.get(opts, :failure_semantics),
+        mandate_outcome: Keyword.get(opts, :mandate_outcome),
         success_criteria_results: success_criteria_results,
         evidence_results: evidence_results
       }
@@ -333,8 +345,14 @@ defmodule Sykli.Executor do
     # Sort level for adaptive scheduling: critical first, non-flaky, shortest
     sorted_level = sort_level(level)
 
-    # Chunk level tasks for concurrency limiting
-    chunks = chunk_tasks(sorted_level, config.max_parallel)
+    # Tasks whose mandate verification snapshots the shared git work tree
+    # (scope or diff budget) run exclusively — a parallel sibling's writes
+    # would land between their preflight and postflight snapshots and be
+    # charged to them as violations. They go first, one per chunk; the
+    # rest of the level parallelizes as usual.
+    {exclusive, parallel} = Enum.split_with(sorted_level, &mandate_snapshots_worktree?/1)
+
+    chunks = Enum.map(exclusive, &[&1]) ++ chunk_tasks(parallel, config.max_parallel)
 
     results = run_level_chunks(chunks, state, completed, total, graph, config)
 
@@ -514,6 +532,13 @@ defmodule Sykli.Executor do
 
       {critical, flaky, duration}
     end)
+  end
+
+  defp mandate_snapshots_worktree?(task) do
+    case Sykli.Graph.Task.mandate(task) do
+      nil -> false
+      mandate -> mandate_needs_git?(mandate)
+    end
   end
 
   defp chunk_tasks(level, :infinity), do: [level]
@@ -889,7 +914,8 @@ defmodule Sykli.Executor do
     # checks run and verify normally.
     cache_lookup =
       if Sykli.Graph.Task.success_criteria(task) == [] and
-           Sykli.Graph.Task.evidence_required(task) == [] do
+           Sykli.Graph.Task.evidence_required(task) == [] and
+           Sykli.Graph.Task.mandate(task) == nil do
         CacheService.check_and_restore(task, workdir)
       else
         {:miss, nil, :declared_checks_require_execution}
@@ -1000,6 +1026,7 @@ defmodule Sykli.Executor do
           error: nil,
           output: run_result.output,
           command: task.command,
+          mandate_outcome: run_result.mandate_outcome,
           success_criteria_results: run_result.success_criteria_results,
           evidence_results: run_result.evidence_results
         }
@@ -1039,7 +1066,10 @@ defmodule Sykli.Executor do
           error: run_result.error,
           output: run_result.output,
           command: task.command,
-          failure_semantics: Sykli.FailureSemantics.for_result(:failed, run_result.error),
+          failure_semantics:
+            run_result.failure_semantics ||
+              Sykli.FailureSemantics.for_result(:failed, run_result.error),
+          mandate_outcome: run_result.mandate_outcome,
           success_criteria_results: run_result.success_criteria_results,
           evidence_results: run_result.evidence_results
         }
@@ -1054,7 +1084,10 @@ defmodule Sykli.Executor do
           error: run_result.error,
           output: run_result.output,
           command: task.command,
-          failure_semantics: Sykli.FailureSemantics.for_result(:errored, run_result.error),
+          failure_semantics:
+            run_result.failure_semantics ||
+              Sykli.FailureSemantics.for_result(:errored, run_result.error),
+          mandate_outcome: run_result.mandate_outcome,
           success_criteria_results: run_result.success_criteria_results,
           evidence_results: run_result.evidence_results
         }
@@ -1062,7 +1095,7 @@ defmodule Sykli.Executor do
   end
 
   defp run_and_cache(
-         %Sykli.Graph.Task{name: name, outputs: outputs_raw, services: services} = task,
+         %Sykli.Graph.Task{outputs: outputs_raw} = task,
          state,
          cache_key,
          progress,
@@ -1072,6 +1105,32 @@ defmodule Sykli.Executor do
 
     # Convert outputs to list of paths for cache storage (handle both map and list formats)
     outputs = normalize_outputs_to_list(outputs_raw)
+
+    with {:ok, mandate_state} <- mandate_preflight(task, target, state, workdir) do
+      run_task_after_mandate_preflight(
+        task,
+        state,
+        cache_key,
+        progress,
+        target,
+        outputs,
+        mandate_state
+      )
+    else
+      {:error, %TaskRunResult{} = result} -> result
+    end
+  end
+
+  defp run_task_after_mandate_preflight(
+         %Sykli.Graph.Task{name: name, services: services} = task,
+         state,
+         cache_key,
+         progress,
+         target,
+         outputs,
+         mandate_state
+       ) do
+    workdir = state.workdir
 
     # Start services if any (via target)
     case target.start_services(name, services || [], state) do
@@ -1092,7 +1151,14 @@ defmodule Sykli.Executor do
             end
 
           # Run task via target
-          run_opts = [workdir: workdir, network: network, progress: progress]
+          run_opts =
+            [
+              workdir: workdir,
+              network: mandate_network(mandate_state, network),
+              progress: progress
+            ]
+            |> Keyword.merge(mandate_run_opts(mandate_state))
+
           result = target.run_task(task, state, run_opts)
 
           duration_ms = System.monotonic_time(:millisecond) - start_time
@@ -1118,21 +1184,34 @@ defmodule Sykli.Executor do
                          duration_ms
                        ) do
                     {:ok, evidence_results} ->
-                      if cache_key do
-                        Sykli.Cache.store(cache_key, task, outputs, duration_ms, workdir)
-                      end
-
-                      maybe_github_status(name, "success")
-                      TaskRunResult.ok(output, success_criteria_results, evidence_results)
+                      maybe_finish_success(
+                        task,
+                        cache_key,
+                        outputs,
+                        duration_ms,
+                        workdir,
+                        output,
+                        success_criteria_results,
+                        evidence_results,
+                        mandate_state
+                      )
 
                     {:error, reason, evidence_results} ->
                       maybe_github_status(name, "failure")
-                      TaskRunResult.error(reason, success_criteria_results, evidence_results)
+
+                      TaskRunResult.error(reason, success_criteria_results, evidence_results,
+                        mandate_outcome:
+                          failure_mandate_outcome(task, workdir, duration_ms, mandate_state)
+                      )
                   end
 
                 {:error, reason, success_criteria_results} ->
                   maybe_github_status(name, "failure")
-                  TaskRunResult.error(reason, success_criteria_results)
+
+                  TaskRunResult.error(reason, success_criteria_results, [],
+                    mandate_outcome:
+                      failure_mandate_outcome(task, workdir, duration_ms, mandate_state)
+                  )
               end
 
             :ok ->
@@ -1140,26 +1219,43 @@ defmodule Sykli.Executor do
                 {:ok, success_criteria_results} ->
                   case evaluate_evidence_required(task, target, state, run_opts, nil, duration_ms) do
                     {:ok, evidence_results} ->
-                      if cache_key do
-                        Sykli.Cache.store(cache_key, task, outputs, duration_ms, workdir)
-                      end
-
-                      maybe_github_status(name, "success")
-                      TaskRunResult.ok(nil, success_criteria_results, evidence_results)
+                      maybe_finish_success(
+                        task,
+                        cache_key,
+                        outputs,
+                        duration_ms,
+                        workdir,
+                        nil,
+                        success_criteria_results,
+                        evidence_results,
+                        mandate_state
+                      )
 
                     {:error, reason, evidence_results} ->
                       maybe_github_status(name, "failure")
-                      TaskRunResult.error(reason, success_criteria_results, evidence_results)
+
+                      TaskRunResult.error(reason, success_criteria_results, evidence_results,
+                        mandate_outcome:
+                          failure_mandate_outcome(task, workdir, duration_ms, mandate_state)
+                      )
                   end
 
                 {:error, reason, success_criteria_results} ->
                   maybe_github_status(name, "failure")
-                  TaskRunResult.error(reason, success_criteria_results)
+
+                  TaskRunResult.error(reason, success_criteria_results, [],
+                    mandate_outcome:
+                      failure_mandate_outcome(task, workdir, duration_ms, mandate_state)
+                  )
               end
 
             {:error, reason} ->
               maybe_github_status(name, "failure")
-              task_error_result(reason)
+
+              task_error_result(
+                reason,
+                failure_mandate_outcome(task, workdir, duration_ms, mandate_state)
+              )
           end
         after
           # Always stop services, even on failure
@@ -1172,14 +1268,413 @@ defmodule Sykli.Executor do
         # | {:runtime_no_services, runtime}). Pass it through — re-wrapping here
         # double-wrapped the service-start case and mislabeled the others.
         Output.service_start_failed(name, reason)
-        TaskRunResult.error(reason)
+
+        TaskRunResult.error(reason, [], [],
+          mandate_outcome: failure_mandate_outcome(task, workdir, 0, mandate_state)
+        )
     end
   end
 
-  defp task_error_result(%Sykli.Error{code: "task_timeout"} = reason),
-    do: TaskRunResult.errored(reason)
+  defp maybe_finish_success(
+         task,
+         cache_key,
+         outputs,
+         duration_ms,
+         workdir,
+         output,
+         success_criteria_results,
+         evidence_results,
+         mandate_state
+       ) do
+    case mandate_postflight(task, workdir, duration_ms, mandate_state) do
+      {:ok, outcome} ->
+        if cache_key do
+          Sykli.Cache.store(cache_key, task, outputs, duration_ms, workdir)
+        end
 
-  defp task_error_result(reason), do: TaskRunResult.error(reason)
+        maybe_github_status(task.name, "success")
+
+        TaskRunResult.ok(output, success_criteria_results, evidence_results,
+          mandate_outcome: outcome
+        )
+
+      {:error, error, semantics, outcome} ->
+        maybe_github_status(task.name, "failure")
+
+        TaskRunResult.error(error, success_criteria_results, evidence_results,
+          failure_semantics: semantics,
+          mandate_outcome: outcome
+        )
+    end
+  end
+
+  defp mandate_preflight(task, target, state, workdir) do
+    case Sykli.Graph.Task.mandate(task) do
+      nil ->
+        {:ok, %{mandate: nil}}
+
+      mandate ->
+        cond do
+          target_name(target) != "local" ->
+            {:error,
+             mandate_task_result(
+               task,
+               Sykli.FailureSemantics.unsupported_target(
+                 "mandate_unsupported_target",
+                 "target does not support mandate enforcement",
+                 %{target: target_name(target)}
+               ),
+               "unsupported"
+             )}
+
+          mandate_needs_git?(mandate) and not mandate_git_available!(task, workdir) ->
+            {:error,
+             mandate_task_result(
+               task,
+               Sykli.FailureSemantics.unsupported_target(
+                 "mandate_requires_git",
+                 "mandate scope and diff budget enforcement require a git work tree",
+                 %{dimensions: mandate_git_dimensions(mandate)}
+               ),
+               "unsupported"
+             )}
+
+          mandate_network_disabled?(mandate) and
+              not target_network_isolation?(target, task, state) ->
+            {:error,
+             mandate_task_result(
+               task,
+               Sykli.FailureSemantics.unsupported_target(
+                 "mandate_network_unsupported",
+                 "target runtime cannot deny task network access",
+                 %{dimension: "network"}
+               ),
+               "unsupported"
+             )}
+
+          true ->
+            mandate_capture_baseline(task, mandate, workdir)
+        end
+    end
+  catch
+    {:mandate_git_error, reason} ->
+      {:error, mandate_verification_failed_result(task, "preflight", reason)}
+  end
+
+  # Snapshot the pre-task state the postflight checks diff against:
+  # changed paths for scope, total diff lines for the diff budget, and the
+  # repo root so porcelain paths (repo-root-relative) can be matched
+  # against workdir-relative scope patterns.
+  defp mandate_capture_baseline(task, mandate, workdir) do
+    needs_git? = mandate_needs_git?(mandate)
+
+    with {:ok, workdir_prefix} <-
+           if(needs_git?, do: MandateEnforcement.workdir_prefix(workdir), else: {:ok, ""}),
+         {:ok, before_paths} <- maybe_dirty_paths_snapshot(workdir, needs_git?),
+         {:ok, before_fingerprints} <- maybe_path_fingerprints(workdir, before_paths, needs_git?),
+         {:ok, before_diff_lines} <- maybe_diff_baseline(workdir, mandate) do
+      {:ok,
+       %{
+         mandate: mandate,
+         workdir_prefix: workdir_prefix,
+         before_paths: before_paths,
+         before_fingerprints: before_fingerprints,
+         before_diff_lines: before_diff_lines,
+         network: if(mandate_network_disabled?(mandate), do: "none"),
+         run_opts: mandate_timeout_opts(mandate)
+       }}
+    else
+      {:error, reason} ->
+        {:error, mandate_verification_failed_result(task, "preflight", reason)}
+    end
+  end
+
+  defp maybe_dirty_paths_snapshot(workdir, true) do
+    MandateEnforcement.status_paths(workdir)
+  end
+
+  defp maybe_dirty_paths_snapshot(_workdir, false), do: {:ok, MapSet.new()}
+
+  defp maybe_path_fingerprints(workdir, paths, true) do
+    if MapSet.size(paths) > 0 do
+      MandateEnforcement.path_fingerprints(workdir, MapSet.to_list(paths))
+    else
+      {:ok, %{}}
+    end
+  end
+
+  defp maybe_path_fingerprints(_workdir, _paths, false), do: {:ok, %{}}
+
+  defp after_path_fingerprints(workdir, paths) do
+    if MapSet.size(paths) > 0 do
+      MandateEnforcement.path_fingerprints(workdir, MapSet.to_list(paths))
+    else
+      {:ok, %{}}
+    end
+  end
+
+  defp maybe_diff_baseline(workdir, mandate) do
+    if mandate_diff_limit(mandate) do
+      MandateEnforcement.diff_lines(workdir)
+    else
+      {:ok, 0}
+    end
+  end
+
+  defp mandate_needs_git?(mandate) do
+    mandate_scope(mandate) != nil or mandate_diff_limit(mandate) != nil
+  end
+
+  defp mandate_git_dimensions(mandate) do
+    Enum.reject(
+      [
+        if(mandate_scope(mandate), do: "scope"),
+        if(mandate_diff_limit(mandate), do: "diff_lines")
+      ],
+      &is_nil/1
+    )
+  end
+
+  # `true`/`false` for a definite answer; a git transport failure (e.g.
+  # timeout) is thrown so preflight reports verification-failed rather
+  # than mislabeling the workdir as not-a-repo.
+  defp mandate_git_available!(_task, workdir) do
+    case MandateEnforcement.work_tree?(workdir) do
+      {:ok, result} -> result
+      {:error, reason} -> throw({:mandate_git_error, reason})
+    end
+  end
+
+  defp mandate_postflight(_task, _workdir, _duration_ms, %{mandate: nil}), do: {:ok, nil}
+
+  defp mandate_postflight(task, workdir, duration_ms, %{mandate: mandate} = state) do
+    with :ok <- verify_mandate_scope(task, workdir, state),
+         :ok <- verify_mandate_diff_lines(task, workdir, mandate, state) do
+      {:ok,
+       %{
+         "status" => "kept",
+         "wall_clock_ms" => duration_ms
+       }}
+    else
+      {:error, semantics, outcome} ->
+        {:error, mandate_error(task, semantics, outcome), semantics, outcome}
+    end
+  end
+
+  # Mandate verification for a task that already failed for another reason:
+  # the primary error stands, but the outcome is still recorded so audit can
+  # distinguish "failed but kept its mandate" from "failed and also violated
+  # it" — and so violations by failing tasks don't go unchecked.
+  defp failure_mandate_outcome(_task, _workdir, _duration_ms, nil), do: nil
+  defp failure_mandate_outcome(_task, _workdir, _duration_ms, %{mandate: nil}), do: nil
+
+  defp failure_mandate_outcome(task, workdir, duration_ms, mandate_state) do
+    case mandate_postflight(task, workdir, duration_ms, mandate_state) do
+      {:ok, outcome} -> outcome
+      {:error, _error, _semantics, outcome} -> outcome
+    end
+  end
+
+  defp mandate_task_result(task, semantics, status) do
+    outcome = mandate_outcome(status, semantics)
+
+    TaskRunResult.error(mandate_error(task, semantics, outcome), [], [],
+      failure_semantics: semantics,
+      mandate_outcome: outcome
+    )
+  end
+
+  defp mandate_verification_failed_result(task, phase, reason) do
+    semantics = mandate_verification_semantics(phase, reason)
+
+    mandate_task_result(task, semantics, "unverified")
+  end
+
+  defp mandate_verification_semantics(phase, reason) do
+    Sykli.FailureSemantics.internal_error(
+      "mandate_verification_failed",
+      "mandate verification could not inspect the git work tree",
+      %{phase: phase, reason: inspect(reason)}
+    )
+  end
+
+  defp mandate_error(task, semantics, outcome) do
+    Error.mandate(semantics.reason, semantics.message, outcome_status(outcome))
+    |> Error.with_task(task.name)
+  end
+
+  defp outcome_status(%{"status" => status}), do: status
+  defp outcome_status(_), do: nil
+
+  defp mandate_outcome(status, semantics) do
+    %{
+      "status" => status,
+      "reason" => semantics.reason,
+      "details" => semantics.details
+    }
+  end
+
+  defp mandate_scope(mandate), do: Map.get(mandate, "scope")
+
+  defp mandate_budget(mandate) do
+    case Map.get(mandate, "budget") do
+      budget when is_map(budget) -> budget
+      _ -> %{}
+    end
+  end
+
+  defp mandate_timeout_opts(mandate) do
+    case Map.get(mandate_budget(mandate), "wall_clock_ms") do
+      value when is_integer(value) and value > 0 -> [mandate_timeout_ms: value]
+      _ -> []
+    end
+  end
+
+  defp mandate_network_disabled?(mandate) do
+    case Map.get(mandate, "capabilities") do
+      %{"network" => false} -> true
+      _ -> false
+    end
+  end
+
+  defp mandate_run_opts(%{run_opts: opts}), do: opts || []
+  defp mandate_run_opts(_state), do: []
+
+  defp mandate_network(%{network: network}, _fallback) when is_binary(network), do: network
+  defp mandate_network(_state, fallback), do: fallback
+
+  defp target_network_isolation?(target, task, state) do
+    function_exported?(target, :network_isolation?, 2) and target.network_isolation?(task, state)
+  end
+
+  defp verify_mandate_scope(_task, _workdir, %{mandate: mandate})
+       when not is_map(mandate),
+       do: :ok
+
+  defp verify_mandate_scope(
+         task,
+         workdir,
+         %{mandate: mandate, before_fingerprints: before_fingerprints} = state
+       ) do
+    case mandate_scope(mandate) do
+      nil ->
+        :ok
+
+      scope ->
+        with {:ok, after_paths} <- MandateEnforcement.status_paths(workdir),
+             {:ok, after_fingerprints} <- after_path_fingerprints(workdir, after_paths) do
+          changed_paths =
+            MandateEnforcement.changed_paths(before_fingerprints, after_fingerprints)
+
+          outside =
+            Enum.reject(
+              changed_paths,
+              &MandateEnforcement.scope_match?(scope, workdir_relative(&1, workdir, state))
+            )
+
+          if outside == [] do
+            :ok
+          else
+            semantics =
+              Sykli.FailureSemantics.policy_block(
+                "mandate_scope_violation",
+                "task changed files outside mandate scope",
+                %{dimension: "scope", changed_paths: outside, task: task.name}
+              )
+
+            {:error, semantics, mandate_outcome("violated", semantics)}
+          end
+        else
+          {:error, reason} ->
+            semantics = mandate_verification_semantics("scope", reason)
+            {:error, semantics, mandate_outcome("unverified", semantics)}
+        end
+    end
+  end
+
+  # Porcelain paths are repo-root-relative; scope patterns are declared
+  # relative to the task workdir. Rebase by stripping git's own
+  # --show-prefix — pure string work, so deleted and renamed-away files
+  # (and symlinked tmp dirs) resolve the same as living ones.
+  defp workdir_relative(porcelain_path, _workdir, state) do
+    case Map.get(state, :workdir_prefix) do
+      prefix when prefix in [nil, ""] -> porcelain_path
+      prefix -> String.replace_prefix(porcelain_path, prefix, "")
+    end
+  end
+
+  defp verify_mandate_diff_lines(task, workdir, mandate, state) do
+    case mandate_diff_limit(mandate) do
+      nil ->
+        :ok
+
+      limit ->
+        with {:ok, total} <- MandateEnforcement.diff_lines(workdir),
+             {:ok, after_paths} <- MandateEnforcement.status_paths(workdir),
+             {:ok, after_fingerprints} <- after_path_fingerprints(workdir, after_paths) do
+          baseline = Map.get(state, :before_diff_lines) || 0
+
+          changed_dirty_lines =
+            MandateEnforcement.changed_line_count(
+              before_fingerprints(state),
+              Map.take(after_fingerprints, Map.keys(before_fingerprints(state)))
+            )
+
+          observed = max(total - baseline, 0) + changed_dirty_lines
+
+          if observed <= limit do
+            :ok
+          else
+            semantics =
+              Sykli.FailureSemantics.policy_block(
+                "mandate_budget_exceeded",
+                "task exceeded mandate diff_lines budget",
+                %{dimension: "diff_lines", observed: observed, limit: limit, task: task.name}
+              )
+
+            {:error, semantics, mandate_outcome("violated", semantics)}
+          end
+        else
+          {:error, reason} ->
+            semantics = mandate_verification_semantics("diff_lines", reason)
+            {:error, semantics, mandate_outcome("unverified", semantics)}
+        end
+    end
+  end
+
+  defp mandate_diff_limit(mandate) do
+    case Map.get(mandate_budget(mandate), "diff_lines") do
+      limit when is_integer(limit) and limit >= 0 -> limit
+      _ -> nil
+    end
+  end
+
+  defp before_fingerprints(state), do: Map.get(state, :before_fingerprints) || %{}
+
+  defp task_error_result(%Sykli.Error{code: "task_timeout"} = reason, mandate_outcome),
+    do: TaskRunResult.errored(reason, [], [], mandate_outcome: mandate_outcome)
+
+  # The wall-clock budget is enforced by the runtime timeout, not postflight
+  # verification, so this result builds its own "violated" outcome instead
+  # of using the caller's postflight one.
+  defp task_error_result({:mandate_budget_exceeded, dimension, observed, limit}, _outcome) do
+    semantics =
+      Sykli.FailureSemantics.policy_block(
+        "mandate_budget_exceeded",
+        "task exceeded mandate #{dimension} budget",
+        %{dimension: dimension, observed: observed, limit: limit}
+      )
+
+    outcome = mandate_outcome("violated", semantics)
+
+    TaskRunResult.error(Error.mandate(semantics.reason, semantics.message, "violated"), [], [],
+      failure_semantics: semantics,
+      mandate_outcome: outcome
+    )
+  end
+
+  defp task_error_result(reason, mandate_outcome),
+    do: TaskRunResult.error(reason, [], [], mandate_outcome: mandate_outcome)
 
   defp evaluate_success_criteria(task, target, state, run_opts, exit_code, output, duration_ms) do
     criteria = Sykli.Graph.Task.success_criteria(task)

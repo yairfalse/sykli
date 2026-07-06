@@ -220,9 +220,7 @@ defmodule Sykli.RunHistory do
       {:ok, files} ->
         runs =
           files
-          # Only .json files, not symlinks
-          |> Enum.filter(&String.match?(&1, ~r/^\d{4}-\d{2}-\d{2}.*\.json$/))
-          |> Enum.sort(:desc)
+          |> run_manifest_files()
           |> maybe_take(limit)
           |> Enum.flat_map(fn file ->
             case File.read(Path.join(runs_dir, file)) do
@@ -238,6 +236,37 @@ defmodule Sykli.RunHistory do
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  @doc """
+  Fetch a single run by id.
+
+  Scans run manifests newest-first, reading and decoding one file at a time
+  and stopping at the first match. Manifests that fail to decode are skipped
+  while searching for other runs, so one corrupt file cannot hide valid runs.
+  If the manifest whose recorded id matches `run_id` is itself corrupt,
+  returns `{:error, :corrupt}` instead of `{:error, :not_found}`.
+  """
+  @spec get(String.t(), keyword()) :: {:ok, Run.t()} | {:error, :not_found | :corrupt}
+  def get(run_id, opts \\ []) do
+    base_path = Keyword.get(opts, :path, ".")
+    runs_dir = Path.join(base_path, @runs_dir)
+
+    case File.ls(runs_dir) do
+      {:ok, files} ->
+        files
+        |> run_manifest_files()
+        |> Enum.reduce_while({:error, :not_found}, fn file, acc ->
+          case load_run_by_id(Path.join(runs_dir, file), run_id) do
+            {:ok, run} -> {:halt, {:ok, run}}
+            {:error, :corrupt} -> {:halt, {:error, :corrupt}}
+            :no_match -> {:cont, acc}
+          end
+        end)
+
+      {:error, _} ->
+        {:error, :not_found}
     end
   end
 
@@ -268,6 +297,30 @@ defmodule Sykli.RunHistory do
 
   defp maybe_take(items, :all), do: items
   defp maybe_take(items, limit), do: Enum.take(items, limit)
+
+  # Only timestamp-named .json manifests (not symlinks like latest.json),
+  # newest first. Shared by list/1 and get/2.
+  defp run_manifest_files(files) do
+    files
+    |> Enum.filter(&String.match?(&1, ~r/^\d{4}-\d{2}-\d{2}.*\.json$/))
+    |> Enum.sort(:desc)
+  end
+
+  # Manifest filenames are timestamps, not run ids, so each file must be
+  # decoded to learn its id. A file that is not valid JSON (or has no
+  # matching id) is :no_match for this run_id; a file whose raw JSON claims
+  # the requested id but fails struct decoding is that run's manifest and
+  # reports {:error, :corrupt}.
+  defp load_run_by_id(path, run_id) do
+    with {:ok, json} <- File.read(path),
+         {:ok, %{"id" => ^run_id} = data} <- Jason.decode(json) do
+      {:ok, run_from_data(data)}
+    else
+      _ -> :no_match
+    end
+  rescue
+    _ -> {:error, :corrupt}
+  end
 
   defp timestamp_to_filename(%DateTime{} = dt) do
     dt
@@ -353,8 +406,10 @@ defmodule Sykli.RunHistory do
   defp maybe_add(map, key, value), do: Map.put(map, key, value)
 
   defp decode_run(json) do
-    data = Jason.decode!(json)
+    json |> Jason.decode!() |> run_from_data()
+  end
 
+  defp run_from_data(data) do
     %Run{
       id: data["id"],
       timestamp: parse_timestamp(data["timestamp"]),

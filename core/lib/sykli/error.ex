@@ -961,6 +961,42 @@ defmodule Sykli.Error do
   end
 
   # ─────────────────────────────────────────────────────────────────────────────
+  # MANDATE ERRORS
+  # ─────────────────────────────────────────────────────────────────────────────
+
+  @doc """
+  mandate_violation / mandate_unsupported / mandate_verification_failed:
+  a v5 mandate was broken, could not be enforced on this target/workdir,
+  or could not be verified. `reason` is the typed failure-semantics
+  reason (e.g. "mandate_scope_violation"); `outcome_status` is the
+  recorded mandate outcome ("violated", "unsupported", or "unverified").
+  """
+  def mandate(reason, message, outcome_status) do
+    {code, hints} =
+      case outcome_status do
+        "violated" ->
+          {"mandate_violation",
+           ["the task ran but broke its declared mandate — see mandate_outcome for details"]}
+
+        "unsupported" ->
+          {"mandate_unsupported",
+           ["this target or workdir cannot enforce the declared mandate dimensions"]}
+
+        _ ->
+          {"mandate_verification_failed",
+           ["mandate verification could not run; check git availability in the workdir"]}
+      end
+
+    %__MODULE__{
+      code: code,
+      type: :execution,
+      message: message,
+      hints: hints,
+      notes: ["reason: #{reason}"]
+    }
+  end
+
+  # ─────────────────────────────────────────────────────────────────────────────
   # INTERNAL ERRORS
   # ─────────────────────────────────────────────────────────────────────────────
 
