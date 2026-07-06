@@ -39,7 +39,8 @@ defmodule Sykli.Gui.Provider.ArtifactTest do
       status: status,
       duration_ms: Keyword.get(opts, :duration_ms, 100),
       error: Keyword.get(opts, :error),
-      cached: Keyword.get(opts, :cached, false)
+      cached: Keyword.get(opts, :cached, false),
+      mandate_outcome: Keyword.get(opts, :mandate_outcome)
     }
   end
 
@@ -210,14 +211,14 @@ defmodule Sykli.Gui.Provider.ArtifactTest do
 
     test "mandate outcome mapping tolerates pre-enforcement manifests" do
       # Manifests written before mandate enforcement (PR #276) carry no
-      # mandate_outcome — including every TaskResult main can produce today.
+      # mandate_outcome.
       assert Artifact.mandate_outcome_label(%RunHistory.TaskResult{
                name: "t",
                status: :passed,
                duration_ms: 1
              }) == nil
 
-      # Post-enforcement shape: %{"status" => ...} on the task result.
+      # Enforcement persists %{"status" => ...} on the task result.
       kept = %{name: "t", status: :passed, mandate_outcome: %{"status" => "kept"}}
       violated = %{name: "u", status: :failed, mandate_outcome: %{"status" => "violated"}}
       bare = %{name: "v", status: :passed}
@@ -229,6 +230,24 @@ defmodule Sykli.Gui.Provider.ArtifactTest do
       assert Artifact.mandate_summary([kept, violated, bare]) == "1 kept · 1 violated"
       assert Artifact.mandate_summary([bare]) == nil
       assert Artifact.mandate_summary([]) == nil
+    end
+
+    test "mandate outcomes round-trip from saved manifests into the state", %{tmp: tmp} do
+      save_run(tmp, "run-m1", ~U[2026-07-06 12:00:00Z], :failed, [
+        task("fix:flaky", :passed, mandate_outcome: %{"status" => "kept"}),
+        task("fix:docs", :failed,
+          mandate_outcome: %{"status" => "violated", "reason" => "scope_violation"}
+        ),
+        task("test", :passed)
+      ])
+
+      state = Artifact.state(repo_path: tmp)
+
+      outcomes = Map.new(state.graph.nodes, &{&1.id, &1.mandate_outcome})
+      assert outcomes == %{"fix:flaky" => "kept", "fix:docs" => "violated", "test" => nil}
+
+      assert [%State.Evidence{run_id: "run-m1", mandates: "1 kept · 1 violated"}] =
+               state.evidence
     end
   end
 

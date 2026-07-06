@@ -730,9 +730,12 @@ function mandateHTML(m) {
   Object.keys(b).forEach(function (k) {
     if (k !== 'diffLines' && k !== 'wallClockMs') lines.push('budget ' + k + ' ≤ ' + b[k]);
   });
-  var net = m.network === false
+  /* canonical v5 contract shape: capabilities.network */
+  var caps = m.capabilities || {};
+  var netFlag = caps.network;
+  var net = netFlag === false
     ? '<div class="mline" style="color:' + COLORS.red + '">network denied</div>'
-    : m.network === true
+    : netFlag === true
       ? '<div class="mline" style="color:' + COLORS.green + '">network allowed</div>'
       : '';
   return '<div class="mandate-block">' +
