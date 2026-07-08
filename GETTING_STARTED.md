@@ -37,6 +37,13 @@ mix escript.build
 sudo mv sykli /usr/local/bin/
 ```
 
+### GitHub Integration
+
+The GitHub Action is a hosted fallback for teams that still need GitHub-hosted
+runners. For the local-first path, use the GitHub-native webhook receiver in
+[`docs/github-native.md`](docs/github-native.md): GitHub sends events to a node
+you control, and Sykli executes there.
+
 ## Your First Pipeline
 
 ### 1. Install the SDK

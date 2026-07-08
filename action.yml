@@ -1,5 +1,5 @@
 name: 'Sykli'
-description: 'CI in your language. No YAML. No DSL. Just code.'
+description: 'Hosted fallback runner for Sykli. Local-first GitHub integration runs on your own node.'
 author: 'false-systems'
 
 branding:
@@ -28,7 +28,9 @@ runs:
         restore-keys: |
           sykli-${{ runner.os }}-
 
-    # Install and run sykli
+    # Hosted fallback path. The local-first GitHub-native path runs Sykli on
+    # user-controlled hardware; this Action exists for teams that still need a
+    # GitHub-hosted runner.
     - name: Run sykli
       shell: bash
       env:

@@ -547,6 +547,10 @@ GitHub prereleases — they appear on the
 [releases page](https://github.com/false-systems/sykli/releases) but never
 as `latest`, and are not pushed to package registries.
 
+Using Sykli inside GitHub Actions is supported as a hosted fallback. The
+local-first GitHub path is [`docs/github-native.md`](docs/github-native.md):
+GitHub sends webhooks to a node you control, and Sykli runs the graph there.
+
 <details>
 <summary>Build from source</summary>
 
