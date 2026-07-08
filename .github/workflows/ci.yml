@@ -22,7 +22,7 @@ env:
 jobs:
   changes:
     name: Detect changes
-    runs-on: arc-arm64
+    runs-on: ubuntu-latest
     outputs:
       core: ${{ steps.filter.outputs.core }}
       blackbox: ${{ steps.filter.outputs.blackbox }}
@@ -95,7 +95,7 @@ jobs:
 
   core:
     name: Core Tests
-    runs-on: arc-arm64
+    runs-on: ubuntu-latest
     needs: changes
     if: github.event_name == 'push' || needs.changes.outputs.core == 'true'
     steps:
@@ -120,14 +120,47 @@ jobs:
       - name: Guardrail drift check
         run: sh scripts/check-guardrails-gate.sh
 
+  build-sykli:
+    name: Build Sykli Binary
+    runs-on: ubuntu-latest
+    needs: changes
+    if: |
+      github.event_name == 'push' ||
+      needs.changes.outputs.core == 'true' ||
+      needs.changes.outputs.blackbox == 'true' ||
+      needs.changes.outputs.oracle == 'true' ||
+      needs.changes.outputs.integration == 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          version-file: .tool-versions
+          version-type: strict
+
+      - name: Cache deps
+        uses: actions/cache@v4
+        with:
+          path: core/deps
+          key: ${{ runner.os }}-mix-${{ hashFiles('core/mix.lock') }}
+
       - name: Build escript
         working-directory: core
-        run: mix escript.build
+        run: |
+          mix deps.get
+          mix escript.build
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: sykli-bin
+          path: core/sykli
 
   blackbox:
     name: Black-box Tests
-    runs-on: arc-arm64
-    needs: changes
+    runs-on: ubuntu-latest
+    needs: [changes, build-sykli]
     if: github.event_name == 'push' || needs.changes.outputs.blackbox == 'true'
     steps:
       - uses: actions/checkout@v4
@@ -162,11 +195,19 @@ jobs:
           path: core/deps
           key: ${{ runner.os }}-mix-${{ hashFiles('core/mix.lock') }}
 
+      - name: Download sykli binary
+        uses: actions/download-artifact@v4
+        with:
+          name: sykli-bin
+          path: core
+
       - name: Install dependencies
         run: |
           python -m pip install jsonschema
-          cd core && mix deps.get && mix escript.build
-          cd ../sdk/elixir && mix deps.get
+          chmod +x core/sykli
+          cd core && mix deps.get
+          cd ..
+          cd sdk/elixir && mix deps.get
           cd ../typescript && npm ci
 
       - name: Run black-box suite
@@ -174,7 +215,7 @@ jobs:
 
   conformance:
     name: SDK Conformance
-    runs-on: arc-arm64
+    runs-on: ubuntu-latest
     needs: changes
     if: github.event_name == 'push' || needs.changes.outputs.conformance == 'true'
     steps:
@@ -220,8 +261,8 @@ jobs:
 
   oracle:
     name: Oracle Eval
-    runs-on: arc-arm64
-    needs: changes
+    runs-on: ubuntu-latest
+    needs: [changes, build-sykli]
     if: |
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       needs.changes.outputs.oracle == 'true'
@@ -234,18 +275,24 @@ jobs:
           version-file: .tool-versions
           version-type: strict
 
+      - name: Download sykli binary
+        uses: actions/download-artifact@v4
+        with:
+          name: sykli-bin
+          path: core
+
       - name: Install dependencies
         working-directory: core
         run: |
+          chmod +x sykli
           mix deps.get
-          mix escript.build
 
       - name: Run oracle eval
         run: eval/oracle/run.sh
 
   sdk-go:
     name: Go SDK Tests
-    runs-on: arc-arm64
+    runs-on: ubuntu-latest
     needs: changes
     if: github.event_name == 'push' || needs.changes.outputs.sdk_go == 'true'
     steps:
@@ -266,7 +313,7 @@ jobs:
 
   sdk-rust:
     name: Rust SDK Tests
-    runs-on: arc-arm64
+    runs-on: ubuntu-latest
     needs: changes
     if: github.event_name == 'push' || needs.changes.outputs.sdk_rust == 'true'
     steps:
@@ -285,7 +332,7 @@ jobs:
 
   sdk-elixir:
     name: Elixir SDK Tests
-    runs-on: arc-arm64
+    runs-on: ubuntu-latest
     needs: changes
     if: github.event_name == 'push' || needs.changes.outputs.sdk_elixir == 'true'
     steps:
@@ -317,7 +364,7 @@ jobs:
 
   sdk-typescript:
     name: TypeScript SDK Tests
-    runs-on: arc-arm64
+    runs-on: ubuntu-latest
     needs: changes
     if: github.event_name == 'push' || needs.changes.outputs.sdk_typescript == 'true'
     steps:
@@ -342,7 +389,7 @@ jobs:
 
   sdk-python:
     name: Python SDK Tests
-    runs-on: arc-arm64
+    runs-on: ubuntu-latest
     needs: changes
     if: github.event_name == 'push' || needs.changes.outputs.sdk_python == 'true'
     steps:
@@ -363,8 +410,8 @@ jobs:
 
   integration:
     name: Integration Tests
-    runs-on: arc-arm64
-    needs: changes
+    runs-on: ubuntu-latest
+    needs: [changes, build-sykli]
     if: |
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       needs.changes.outputs.integration == 'true'
@@ -382,11 +429,14 @@ jobs:
         with:
           go-version: '1.21'
 
-      - name: Build sykli
-        working-directory: core
-        run: |
-          mix deps.get
-          mix escript.build
+      - name: Download sykli binary
+        uses: actions/download-artifact@v4
+        with:
+          name: sykli-bin
+          path: core
+
+      - name: Prepare sykli binary
+        run: chmod +x core/sykli
 
       - name: Test Go example
         working-directory: core
