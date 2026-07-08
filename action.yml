@@ -11,6 +11,10 @@ inputs:
     description: 'Path to project containing sykli.go, sykli.rs, or sykli.exs'
     required: false
     default: '.'
+  version:
+    description: 'Sykli release tag to install, for example v0.9.0-rc.1. Defaults to the action tag when tagged, otherwise latest stable.'
+    required: false
+    default: ''
 
 runs:
   using: 'composite'
@@ -24,28 +28,25 @@ runs:
         restore-keys: |
           sykli-${{ runner.os }}-
 
-    # Setup Elixir for sykli
-    - name: Setup Elixir
-      uses: erlef/setup-beam@v1
-      with:
-        elixir-version: '1.15'
-        otp-version: '26'
-
-    # Build and run sykli
+    # Install and run sykli
     - name: Run sykli
       shell: bash
+      env:
+        SYKLI_ACTION_REF: ${{ github.action_ref }}
+        SYKLI_INPUT_PATH: ${{ inputs.path }}
+        SYKLI_INPUT_VERSION: ${{ inputs.version }}
       run: |
-        set -e
-        # Clone and build sykli (TODO: use release binary)
-        git clone --depth 1 https://github.com/false-systems/sykli.git /tmp/sykli
-        cd /tmp/sykli/core
-        mix local.hex --force
-        mix local.rebar --force
-        mix deps.get
-        mix escript.build
+        set -euo pipefail
 
-        # Run sykli on the project. The build left cwd in /tmp/sykli/core, so
-        # return to the caller's checkout first — inputs.path is relative to
-        # the workspace, not to sykli's own build directory.
-        cd "${GITHUB_WORKSPACE}"
-        /tmp/sykli/core/sykli ${{ inputs.path }}
+        version="$SYKLI_INPUT_VERSION"
+        if [ -z "$version" ]; then
+          case "$SYKLI_ACTION_REF" in
+            v*) version="$SYKLI_ACTION_REF" ;;
+            *) version="latest" ;;
+          esac
+        fi
+
+        install_dir="${RUNNER_TEMP:-/tmp}/sykli-bin"
+        SYKLI_INSTALL_DIR="$install_dir" bash "$GITHUB_ACTION_PATH/install.sh" "$version"
+
+        "$install_dir/sykli" "$SYKLI_INPUT_PATH"

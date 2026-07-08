@@ -535,6 +535,12 @@ regression, test coverage gaps, and architecture boundary checks.
 curl -fsSL https://raw.githubusercontent.com/false-systems/sykli/main/install.sh | bash
 ```
 
+For the current release candidate, install the matching CLI explicitly:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/false-systems/sykli/main/install.sh | bash -s v0.9.0-rc.1
+```
+
 Or [download a binary](https://github.com/false-systems/sykli/releases/latest) for
 macOS or Linux. Release candidates (e.g. `v0.9.0-rc.1`) are published as
 GitHub prereleases — they appear on the

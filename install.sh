@@ -6,6 +6,9 @@
 #
 # Or with a specific version:
 #   curl -fsSL https://raw.githubusercontent.com/false-systems/sykli/main/install.sh | bash -s v1.0.0
+#
+# Release candidates are GitHub prereleases and are not selected by "latest":
+#   curl -fsSL https://raw.githubusercontent.com/false-systems/sykli/main/install.sh | bash -s v0.9.0-rc.1
 
 set -e
 

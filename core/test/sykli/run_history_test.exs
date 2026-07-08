@@ -239,6 +239,27 @@ defmodule Sykli.RunHistoryTest do
   end
 
   describe "execution history contract slices" do
+    test "Sykli.run executes subdir pipeline tasks at the git root", %{tmp_dir: tmp_dir} do
+      ci_dir = Path.join(tmp_dir, "ci")
+      File.mkdir_p!(ci_dir)
+      assert {_, 0} = System.cmd("git", ["init"], cd: tmp_dir, stderr_to_stdout: true)
+      marker = "cwd-#{System.unique_integer([:positive])}.txt"
+
+      json =
+        Jason.encode!(%{
+          "version" => "1",
+          "tasks" => [%{"name" => "cwd-#{marker}", "command" => "pwd > #{marker}"}]
+        })
+
+      File.write!(Path.join(ci_dir, "sykli.exs"), "IO.puts(#{inspect(json)})")
+
+      assert {:ok, [%Sykli.Executor.TaskResult{status: :passed}]} = Sykli.run(ci_dir)
+      assert File.exists?(Path.join(tmp_dir, marker))
+      refute File.exists?(Path.join(ci_dir, marker))
+      assert {:ok, _run} = RunHistory.load_latest(path: tmp_dir)
+      refute File.exists?(Path.join(ci_dir, ".sykli"))
+    end
+
     test "Sykli.run persists task contract slice and criteria results", %{tmp_dir: tmp_dir} do
       json =
         Jason.encode!(%{

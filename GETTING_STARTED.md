@@ -16,6 +16,13 @@ Get up and running with Sykli in under 5 minutes.
 curl -fsSL https://raw.githubusercontent.com/false-systems/sykli/main/install.sh | bash
 ```
 
+Release candidates are not GitHub `latest`. To use the current RC SDKs, install
+the matching CLI:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/false-systems/sykli/main/install.sh | bash -s v0.9.0-rc.1
+```
+
 ### Option 2: Download Binary
 
 Download from [GitHub Releases](https://github.com/false-systems/sykli/releases/latest) and add to your PATH.

@@ -1164,7 +1164,6 @@ impl<'a> Task<'a> {
     /// Applies a template's configuration to this task.
     ///
     /// Template settings are applied first, then task-specific settings override them.
-    #[must_use]
     pub fn from(self, tmpl: &Template) -> Self {
         let task = &mut self.pipeline.tasks[self.index];
 
@@ -1200,7 +1199,6 @@ impl<'a> Task<'a> {
     ///
     /// # Panics
     /// Panics if `cmd` is empty.
-    #[must_use]
     pub fn run(self, cmd: &str) -> Self {
         assert!(!cmd.is_empty(), "command cannot be empty");
         self.pipeline.tasks[self.index].command = cmd.to_string();
@@ -1208,7 +1206,6 @@ impl<'a> Task<'a> {
     }
 
     /// Sets the semantic class of this executable task.
-    #[must_use]
     pub fn task_type(self, task_type: TaskType) -> Self {
         self.pipeline.tasks[self.index].task_type = Some(task_type);
         self
@@ -1217,7 +1214,6 @@ impl<'a> Task<'a> {
     /// Declares verification metadata for this executable task.
     ///
     /// Phase 3C-1 emits these criteria but does not change execution behavior.
-    #[must_use]
     pub fn success_criteria(self, criteria: &[SuccessCriterion]) -> Self {
         let exit_code_count = criteria
             .iter()
@@ -1250,7 +1246,6 @@ impl<'a> Task<'a> {
     }
 
     /// Declares required evidence references for this executable task.
-    #[must_use]
     pub fn evidence_required(self, requirements: &[EvidenceRequirement]) -> Self {
         self.pipeline.tasks[self.index]
             .evidence_required
@@ -1259,7 +1254,6 @@ impl<'a> Task<'a> {
     }
 
     /// Declares the actor expected to perform this task.
-    #[must_use]
     pub fn actor(self, actor: Actor) -> Self {
         assert!(
             self.pipeline.tasks[self.index].gate.is_none(),
@@ -1270,7 +1264,6 @@ impl<'a> Task<'a> {
     }
 
     /// Declares bounded work scope for this task.
-    #[must_use]
     pub fn mandate(self, mandate: Mandate) -> Self {
         assert!(
             self.pipeline.tasks[self.index].gate.is_none(),
@@ -1284,7 +1277,6 @@ impl<'a> Task<'a> {
     ///
     /// # Panics
     /// Panics if `image` is empty.
-    #[must_use]
     pub fn container(self, image: &str) -> Self {
         assert!(!image.is_empty(), "container image cannot be empty");
         self.pipeline.tasks[self.index].container = Some(image.to_string());
@@ -1295,7 +1287,6 @@ impl<'a> Task<'a> {
     ///
     /// # Panics
     /// Panics if `path` is empty or not absolute (must start with `/`).
-    #[must_use]
     pub fn mount(self, dir: &Directory, path: &str) -> Self {
         assert!(!path.is_empty(), "container mount path cannot be empty");
         assert!(
@@ -1314,7 +1305,6 @@ impl<'a> Task<'a> {
     ///
     /// # Panics
     /// Panics if `path` is empty or not absolute (must start with `/`).
-    #[must_use]
     pub fn mount_cache(self, cache: &CacheVolume, path: &str) -> Self {
         assert!(!path.is_empty(), "container mount path cannot be empty");
         assert!(
@@ -1331,7 +1321,6 @@ impl<'a> Task<'a> {
 
     /// Mounts the current working directory to `/work` and sets workdir.
     /// This is a convenience method that combines mount + workdir for the common case.
-    #[must_use]
     pub fn mount_cwd(self) -> Self {
         self.pipeline.tasks[self.index].mounts.push(Mount {
             resource: "src:.".to_string(),
@@ -1346,7 +1335,6 @@ impl<'a> Task<'a> {
     ///
     /// # Panics
     /// Panics if `path` is empty or not absolute (must start with `/`).
-    #[must_use]
     pub fn mount_cwd_at(self, path: &str) -> Self {
         assert!(!path.is_empty(), "container mount path cannot be empty");
         assert!(
@@ -1366,7 +1354,6 @@ impl<'a> Task<'a> {
     ///
     /// # Panics
     /// Panics if `path` is empty or not absolute (must start with `/`).
-    #[must_use]
     pub fn workdir(self, path: &str) -> Self {
         assert!(
             !path.is_empty(),
@@ -1384,7 +1371,6 @@ impl<'a> Task<'a> {
     ///
     /// # Panics
     /// Panics if `key` is empty.
-    #[must_use]
     pub fn env(self, key: &str, value: &str) -> Self {
         assert!(!key.is_empty(), "environment variable key cannot be empty");
         self.pipeline.tasks[self.index]
@@ -1394,7 +1380,6 @@ impl<'a> Task<'a> {
     }
 
     /// Sets input file patterns for caching.
-    #[must_use]
     pub fn inputs(self, patterns: &[&str]) -> Self {
         self.pipeline.tasks[self.index]
             .inputs
@@ -1406,7 +1391,6 @@ impl<'a> Task<'a> {
     ///
     /// # Panics
     /// Panics if `name` or `path` is empty.
-    #[must_use]
     pub fn output(self, name: &str, path: &str) -> Self {
         assert!(!name.is_empty(), "output name cannot be empty");
         assert!(!path.is_empty(), "output path cannot be empty");
@@ -1427,7 +1411,6 @@ impl<'a> Task<'a> {
     ///
     /// # Panics
     /// Panics if any argument is empty.
-    #[must_use]
     pub fn input_from(self, from_task: &str, output_name: &str, dest_path: &str) -> Self {
         assert!(
             !from_task.is_empty(),
@@ -1463,7 +1446,6 @@ impl<'a> Task<'a> {
     ///
     /// # Panics
     /// Panics if any path is empty.
-    #[must_use]
     pub fn outputs(self, paths: &[&str]) -> Self {
         for (i, path) in paths.iter().enumerate() {
             assert!(!path.is_empty(), "output path cannot be empty");
@@ -1477,7 +1459,6 @@ impl<'a> Task<'a> {
     /// Sets a single dependency - this task runs after the named task.
     ///
     /// This is a convenience method matching the Go SDK's `After(task)` signature.
-    #[must_use]
     pub fn after_one(self, task: &str) -> Self {
         if !task.is_empty() {
             let deps = &mut self.pipeline.tasks[self.index].depends_on;
@@ -1490,7 +1471,6 @@ impl<'a> Task<'a> {
 
     /// Sets dependencies - this task runs after the named tasks.
     /// Duplicate dependencies are ignored.
-    #[must_use]
     pub fn after(self, tasks: &[&str]) -> Self {
         let deps = &mut self.pipeline.tasks[self.index].depends_on;
         for task in tasks {
@@ -1511,7 +1491,6 @@ impl<'a> Task<'a> {
     /// });
     /// p.task("deploy").after_group(&tests).run("deploy");
     /// ```
-    #[must_use]
     pub fn after_group(self, group: &TaskGroup) -> Self {
         let deps = &mut self.pipeline.tasks[self.index].depends_on;
         for name in &group.task_names {
@@ -1543,7 +1522,6 @@ impl<'a> Task<'a> {
     ///
     /// # Panics
     /// Panics if `condition` is empty.
-    #[must_use]
     pub fn when(self, condition: &str) -> Self {
         assert!(!condition.is_empty(), "condition cannot be empty");
         self.pipeline.tasks[self.index].condition = Some(condition.to_string());
@@ -1568,7 +1546,6 @@ impl<'a> Task<'a> {
     ///
     /// # Panics
     /// Panics if `name` is empty.
-    #[must_use]
     pub fn secret(self, name: &str) -> Self {
         assert!(!name.is_empty(), "secret name cannot be empty");
         self.pipeline.tasks[self.index]
@@ -1591,7 +1568,6 @@ impl<'a> Task<'a> {
     ///
     /// # Panics
     /// Panics if any secret name is empty.
-    #[must_use]
     pub fn secrets(self, names: &[&str]) -> Self {
         for name in names {
             assert!(!name.is_empty(), "secret name cannot be empty");
@@ -1622,7 +1598,6 @@ impl<'a> Task<'a> {
     ///
     /// # Panics
     /// Panics if any label is empty.
-    #[must_use]
     pub fn requires(self, labels: &[&str]) -> Self {
         for label in labels {
             assert!(!label.is_empty(), "label cannot be empty");
@@ -1642,7 +1617,6 @@ impl<'a> Task<'a> {
     ///
     /// # Panics
     /// Panics if `mode` is empty.
-    #[must_use]
     pub fn verify(self, mode: &str) -> Self {
         assert!(!mode.is_empty(), "verify mode cannot be empty");
         self.pipeline.tasks[self.index].verify = Some(mode.to_string());
@@ -1654,7 +1628,6 @@ impl<'a> Task<'a> {
     // ─────────────────────────────────────────────────────────────────────────────
 
     /// Sets file patterns this task tests or affects (for smart selection).
-    #[must_use]
     pub fn covers(self, patterns: &[&str]) -> Self {
         self.pipeline.tasks[self.index]
             .semantic
@@ -1664,42 +1637,36 @@ impl<'a> Task<'a> {
     }
 
     /// Sets a description of what this task does (for AI context).
-    #[must_use]
     pub fn intent(self, description: &str) -> Self {
         self.pipeline.tasks[self.index].semantic.intent = Some(description.to_string());
         self
     }
 
     /// Marks this task as high-criticality.
-    #[must_use]
     pub fn critical(self) -> Self {
         self.pipeline.tasks[self.index].semantic.criticality = Some(Criticality::High);
         self
     }
 
     /// Sets the criticality level.
-    #[must_use]
     pub fn set_criticality(self, level: Criticality) -> Self {
         self.pipeline.tasks[self.index].semantic.criticality = Some(level);
         self
     }
 
     /// Sets what AI should do when this task fails.
-    #[must_use]
     pub fn on_fail(self, action: OnFailAction) -> Self {
         self.pipeline.tasks[self.index].ai_hooks.on_fail = Some(action);
         self
     }
 
     /// Sets how AI should select this task for execution.
-    #[must_use]
     pub fn select_mode(self, mode: SelectMode) -> Self {
         self.pipeline.tasks[self.index].ai_hooks.select = Some(mode);
         self
     }
 
     /// Enables smart task selection based on covers patterns.
-    #[must_use]
     pub fn smart(self) -> Self {
         self.pipeline.tasks[self.index].ai_hooks.select = Some(SelectMode::Smart);
         self
@@ -1715,7 +1682,6 @@ impl<'a> Task<'a> {
     ///
     /// # Panics
     /// Panics if `name` is empty.
-    #[must_use]
     pub fn provides(self, name: &str, value: Option<&str>) -> Self {
         assert!(!name.is_empty(), "capability name cannot be empty");
         self.pipeline.tasks[self.index]
@@ -1729,7 +1695,6 @@ impl<'a> Task<'a> {
     ///
     /// # Panics
     /// Panics if any name is empty.
-    #[must_use]
     pub fn needs(self, names: &[&str]) -> Self {
         for name in names {
             assert!(!name.is_empty(), "capability name cannot be empty");
@@ -1748,7 +1713,6 @@ impl<'a> Task<'a> {
     ///
     /// # Panics
     /// Panics if called on a non-gate task.
-    #[must_use]
     pub fn gate_strategy(self, strategy: &str) -> Self {
         let task = &mut self.pipeline.tasks[self.index];
         let gate = task.gate.as_mut()
@@ -1761,7 +1725,6 @@ impl<'a> Task<'a> {
     ///
     /// # Panics
     /// Panics if called on a non-gate task.
-    #[must_use]
     pub fn gate_message(self, message: &str) -> Self {
         let task = &mut self.pipeline.tasks[self.index];
         let gate = task.gate.as_mut()
@@ -1774,7 +1737,6 @@ impl<'a> Task<'a> {
     ///
     /// # Panics
     /// Panics if called on a non-gate task or if seconds is 0.
-    #[must_use]
     pub fn gate_timeout(self, seconds: u32) -> Self {
         assert!(seconds > 0, "gate timeout must be positive");
         let task = &mut self.pipeline.tasks[self.index];
@@ -1788,7 +1750,6 @@ impl<'a> Task<'a> {
     ///
     /// # Panics
     /// Panics if called on a non-gate task.
-    #[must_use]
     pub fn gate_env_var(self, env_var: &str) -> Self {
         let task = &mut self.pipeline.tasks[self.index];
         let gate = task.gate.as_mut()
@@ -1801,7 +1762,6 @@ impl<'a> Task<'a> {
     ///
     /// # Panics
     /// Panics if called on a non-gate task.
-    #[must_use]
     pub fn gate_file_path(self, path: &str) -> Self {
         let task = &mut self.pipeline.tasks[self.index];
         let gate = task.gate.as_mut()
@@ -1827,7 +1787,6 @@ impl<'a> Task<'a> {
     ///
     /// # Panics
     /// Panics if `name` or `ref.key` is empty.
-    #[must_use]
     pub fn secret_from(self, name: &str, secret_ref: SecretRef) -> Self {
         assert!(!name.is_empty(), "secret name cannot be empty");
         assert!(!secret_ref.key.is_empty(), "secret key cannot be empty");
@@ -1850,7 +1809,6 @@ impl<'a> Task<'a> {
     ///     .run("kubectl apply")
     ///     .when_cond(Condition::branch("main").or(Condition::tag("v*")));
     /// ```
-    #[must_use]
     pub fn when_cond(self, c: Condition) -> Self {
         self.pipeline.tasks[self.index].when_cond = Some(c);
         self
@@ -1863,7 +1821,6 @@ impl<'a> Task<'a> {
     #[deprecated(
         note = "target no longer affects emitted pipeline JSON; use concrete execution requirement fields instead"
     )]
-    #[must_use]
     pub fn target(self, _name: &str) -> Self {
         self
     }
@@ -1887,7 +1844,6 @@ impl<'a> Task<'a> {
     ///
     /// # Panics
     /// Panics if `key` or `values` is empty.
-    #[must_use]
     pub fn matrix(self, key: &str, values: &[&str]) -> Self {
         assert!(!key.is_empty(), "matrix key cannot be empty");
         assert!(!values.is_empty(), "matrix values cannot be empty");
@@ -1917,7 +1873,6 @@ impl<'a> Task<'a> {
     ///
     /// # Panics
     /// Panics if `image` or `name` is empty.
-    #[must_use]
     pub fn service(self, image: &str, name: &str) -> Self {
         assert!(!image.is_empty(), "service image cannot be empty");
         assert!(!name.is_empty(), "service name cannot be empty");
@@ -1941,7 +1896,6 @@ impl<'a> Task<'a> {
     ///     .run("cargo test -- --include-ignored")
     ///     .retry(3);  // Retry up to 3 times on failure
     /// ```
-    #[must_use]
     pub fn retry(self, count: u32) -> Self {
         debug!(task = %self.pipeline.tasks[self.index].name, retry = count, "setting retry");
         self.pipeline.tasks[self.index].retry = Some(count);
@@ -1965,7 +1919,6 @@ impl<'a> Task<'a> {
     ///
     /// # Panics
     /// Panics if `seconds` is 0.
-    #[must_use]
     pub fn timeout(self, seconds: u32) -> Self {
         assert!(seconds > 0, "timeout must be greater than 0");
         debug!(task = %self.pipeline.tasks[self.index].name, timeout = seconds, "setting timeout");
@@ -1992,7 +1945,6 @@ impl<'a> Task<'a> {
     ///         ..Default::default()
     ///     });
     /// ```
-    #[must_use]
     pub fn k8s(self, opts: K8sOptions) -> Self {
         debug!(task = %self.pipeline.tasks[self.index].name, "setting k8s options");
         self.pipeline.tasks[self.index].k8s_options = Some(opts);
@@ -3511,7 +3463,7 @@ mod tests {
     #[test]
     fn test_success_criteria_serialization() {
         let mut p = Pipeline::new();
-        let _ = p.task("test").run("go test ./...").success_criteria(&[
+        p.task("test").run("go test ./...").success_criteria(&[
             SuccessCriterion::ExitCode(0),
             SuccessCriterion::FileExists("coverage.out".into()),
         ]);
@@ -3670,7 +3622,8 @@ mod tests {
     fn test_review_node_serialization() {
         let mut p = Pipeline::new();
         p.task("test").run("go test ./...");
-        p.review("review-code")
+        let _ = p
+            .review("review-code")
             .primitive("lint")
             .agent("claude")
             .context(&["src/**/*.go"])
@@ -3696,7 +3649,7 @@ mod tests {
     #[test]
     fn test_review_node_does_not_require_command() {
         let mut p = Pipeline::new();
-        p.review("review-code").primitive("lint");
+        let _ = p.review("review-code").primitive("lint");
 
         let mut buf = Vec::new();
         p.emit_to(&mut buf).unwrap();
@@ -3731,7 +3684,7 @@ mod tests {
     #[should_panic(expected = "review primitive cannot be empty")]
     fn test_review_empty_primitive_panics() {
         let mut p = Pipeline::new();
-        p.review("review-code").primitive("");
+        let _ = p.review("review-code").primitive("");
     }
 
     #[test]
@@ -5146,7 +5099,7 @@ mod tests {
         p.task("lint").run("cargo clippy");
 
         // "unknown" doesn't exist
-        p.parallel("checks", &["lint", "unknown"]);
+        let _ = p.parallel("checks", &["lint", "unknown"]);
     }
 
     #[test]
