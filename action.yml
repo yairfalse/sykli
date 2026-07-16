@@ -44,5 +44,8 @@ runs:
         mix deps.get
         mix escript.build
 
-        # Run sykli on the project
+        # Run sykli on the project. The build left cwd in /tmp/sykli/core, so
+        # return to the caller's checkout first — inputs.path is relative to
+        # the workspace, not to sykli's own build directory.
+        cd "${GITHUB_WORKSPACE}"
         /tmp/sykli/core/sykli ${{ inputs.path }}
