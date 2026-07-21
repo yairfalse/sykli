@@ -19,10 +19,10 @@ jobs:
       matrix:
         include:
           - target: linux-x86_64
-            os: ubuntu-latest
+            os: arc-amd64
             burrito_target: linux_x86_64
           - target: linux-aarch64
-            os: ubuntu-latest
+            os: arc-amd64
             burrito_target: linux_aarch64
           - target: macos-x86_64
             os: macos-15-intel
@@ -83,7 +83,7 @@ jobs:
   release:
     name: Create Release
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: arc-arm64
     steps:
       - uses: actions/checkout@v4
 
@@ -130,7 +130,7 @@ jobs:
     name: Publish Go SDK (module tag)
     needs: release
     if: ${{ !contains(github.ref_name, '-') }}
-    runs-on: ubuntu-latest
+    runs-on: arc-arm64
     permissions:
       contents: write
     steps:
@@ -151,7 +151,7 @@ jobs:
     name: Publish Python SDK (PyPI trusted publishing)
     needs: release
     if: ${{ !contains(github.ref_name, '-') }}
-    runs-on: ubuntu-latest
+    runs-on: arc-arm64
     environment: pypi
     permissions:
       id-token: write
@@ -177,7 +177,7 @@ jobs:
     name: Publish Rust SDK (crates.io trusted publishing)
     needs: release
     if: ${{ !contains(github.ref_name, '-') }}
-    runs-on: ubuntu-latest
+    runs-on: arc-arm64
     permissions:
       id-token: write
     steps:
@@ -205,7 +205,7 @@ jobs:
   # publish-npm:
   #   name: Publish TypeScript SDK (npm trusted publishing)
   #   needs: release
-  #   runs-on: ubuntu-latest
+  #   runs-on: arc-arm64
   #   permissions:
   #     id-token: write
   #   steps:
