@@ -22,7 +22,7 @@ env:
 jobs:
   changes:
     name: Detect changes
-    runs-on: ubuntu-latest
+    runs-on: arc-arm64
     outputs:
       core: ${{ steps.filter.outputs.core }}
       blackbox: ${{ steps.filter.outputs.blackbox }}
@@ -95,7 +95,7 @@ jobs:
 
   core:
     name: Core Tests
-    runs-on: ubuntu-latest
+    runs-on: arc-arm64
     needs: changes
     if: github.event_name == 'push' || needs.changes.outputs.core == 'true'
     steps:
@@ -126,7 +126,7 @@ jobs:
 
   blackbox:
     name: Black-box Tests
-    runs-on: ubuntu-latest
+    runs-on: arc-arm64
     needs: changes
     if: github.event_name == 'push' || needs.changes.outputs.blackbox == 'true'
     steps:
@@ -174,7 +174,7 @@ jobs:
 
   conformance:
     name: SDK Conformance
-    runs-on: ubuntu-latest
+    runs-on: arc-arm64
     needs: changes
     if: github.event_name == 'push' || needs.changes.outputs.conformance == 'true'
     steps:
@@ -220,7 +220,7 @@ jobs:
 
   oracle:
     name: Oracle Eval
-    runs-on: ubuntu-latest
+    runs-on: arc-arm64
     needs: changes
     if: |
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
@@ -245,7 +245,7 @@ jobs:
 
   sdk-go:
     name: Go SDK Tests
-    runs-on: ubuntu-latest
+    runs-on: arc-arm64
     needs: changes
     if: github.event_name == 'push' || needs.changes.outputs.sdk_go == 'true'
     steps:
@@ -266,7 +266,7 @@ jobs:
 
   sdk-rust:
     name: Rust SDK Tests
-    runs-on: ubuntu-latest
+    runs-on: arc-arm64
     needs: changes
     if: github.event_name == 'push' || needs.changes.outputs.sdk_rust == 'true'
     steps:
@@ -285,7 +285,7 @@ jobs:
 
   sdk-elixir:
     name: Elixir SDK Tests
-    runs-on: ubuntu-latest
+    runs-on: arc-arm64
     needs: changes
     if: github.event_name == 'push' || needs.changes.outputs.sdk_elixir == 'true'
     steps:
@@ -317,7 +317,7 @@ jobs:
 
   sdk-typescript:
     name: TypeScript SDK Tests
-    runs-on: ubuntu-latest
+    runs-on: arc-arm64
     needs: changes
     if: github.event_name == 'push' || needs.changes.outputs.sdk_typescript == 'true'
     steps:
@@ -342,7 +342,7 @@ jobs:
 
   sdk-python:
     name: Python SDK Tests
-    runs-on: ubuntu-latest
+    runs-on: arc-arm64
     needs: changes
     if: github.event_name == 'push' || needs.changes.outputs.sdk_python == 'true'
     steps:
@@ -363,7 +363,7 @@ jobs:
 
   integration:
     name: Integration Tests
-    runs-on: ubuntu-latest
+    runs-on: arc-arm64
     needs: changes
     if: |
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
