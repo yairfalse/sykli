@@ -31,7 +31,7 @@ env:
 jobs:
   sykli:
     name: Run with Sykli
-    runs-on: ubuntu-latest
+    runs-on: arc-arm64
     steps:
       - uses: actions/checkout@v4
         with:
