@@ -61,11 +61,22 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install released Sykli
+      - name: Cache Elixir deps and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            core/deps
+            core/_build
+          key: ${{ runner.os }}-dogfood-${{ hashFiles('core/mix.lock', '.tool-versions') }}
+          restore-keys: |
+            ${{ runner.os }}-dogfood-
+
+      - name: Build Sykli from source
         run: |
-          install_dir="${RUNNER_TEMP}/sykli-bin"
-          SYKLI_INSTALL_DIR="$install_dir" bash install.sh v0.9.0-rc.1
-          echo "$install_dir" >> "$GITHUB_PATH"
+          cd core
+          mix deps.get
+          mix escript.build
+          sudo mv sykli /usr/local/bin/
 
       - name: Run Sykli Pipeline
         run: |
@@ -76,3 +87,20 @@ jobs:
           fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  install-smoke:
+    name: Released install smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install released Sykli
+        run: |
+          tag="v$(cat VERSION)"
+          install_dir="${RUNNER_TEMP}/sykli-bin"
+          SYKLI_INSTALL_DIR="$install_dir" bash install.sh "$tag"
+          echo "$install_dir" >> "$GITHUB_PATH"
+
+      - name: Smoke test installed binary
+        run: |
+          sykli --help
