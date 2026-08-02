@@ -39,11 +39,13 @@ defmodule Sykli do
     with {:ok, sdk_file} <- Detector.find(path),
          {:ok, json} <- emit_contract_json(sdk_file, opts),
          {:ok, graph} <- Graph.parse(json) do
+      run_path = project_run_path(sdk_file, path)
+
       # Expand matrix tasks into individual tasks
       expanded_graph = Graph.expand_matrix(graph)
 
       # Inject history hints from previous runs into task structs
-      expanded_graph = inject_history_hints(expanded_graph, path)
+      expanded_graph = inject_history_hints(expanded_graph, run_path)
 
       # Resolve capability-based dependencies (provides/needs)
       case Sykli.Services.CapabilityResolver.resolve(expanded_graph) do
@@ -59,13 +61,13 @@ defmodule Sykli do
           case Graph.topo_sort(filtered_graph) do
             {:ok, order} ->
               # Pass all opts to executor, ensuring workdir is set
-              executor_opts = Keyword.merge(opts, workdir: path)
+              executor_opts = Keyword.merge(opts, workdir: run_path)
 
               result = Executor.run(order, filtered_graph, executor_opts)
 
               # Save run history if enabled
               if save_history do
-                save_run_history(path, result, filtered_graph, opts)
+                save_run_history(run_path, result, filtered_graph, opts)
               end
 
               maybe_return_graph(result, filtered_graph, opts)
@@ -153,6 +155,19 @@ defmodule Sykli do
     case Keyword.get(opts, :emitted_json) do
       json when is_binary(json) -> {:ok, json}
       _ -> Detector.emit(sdk_file)
+    end
+  end
+
+  defp project_run_path({sdk_file, _runner}, fallback_path) do
+    sdk_dir = Path.dirname(sdk_file)
+
+    if Path.basename(sdk_dir) in ["ci", ".ci"] do
+      case Sykli.Git.repo_root(sdk_dir) do
+        {:ok, root} -> root
+        _ -> fallback_path
+      end
+    else
+      fallback_path
     end
   end
 

@@ -164,6 +164,16 @@ defmodule Sykli.Git do
   end
 
   @doc """
+  Get the repository root for a path inside a git work tree.
+  """
+  def repo_root(path) do
+    case run(["rev-parse", "--show-toplevel"], cd: path) do
+      {:ok, root} -> {:ok, String.trim(root)}
+      error -> error
+    end
+  end
+
+  @doc """
   Recent commits touching a file (last 5 by default).
 
   ## Options

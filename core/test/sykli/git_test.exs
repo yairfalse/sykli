@@ -150,6 +150,16 @@ defmodule Sykli.GitTest do
     end
   end
 
+  describe "repo_root/1" do
+    test "returns the top-level repository path from a subdirectory" do
+      subdir = Path.join(@test_workdir, "ci")
+      File.mkdir_p!(subdir)
+
+      assert {:ok, root} = Git.repo_root(subdir)
+      assert same_file?(root, @test_workdir)
+    end
+  end
+
   describe "timeout handling" do
     test "run/2 accepts timeout option" do
       # Just verify it doesn't crash with timeout option
@@ -246,5 +256,13 @@ defmodule Sykli.GitTest do
       assert blame.author == "Alice Bob Carol"
       assert blame.message == "multi-word author"
     end
+  end
+
+  defp same_file?(left, right) do
+    left = File.stat!(left)
+    right = File.stat!(right)
+
+    {left.major_device, left.minor_device, left.inode} ==
+      {right.major_device, right.minor_device, right.inode}
   end
 end
