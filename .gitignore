@@ -78,6 +78,7 @@ docs/*
 !docs/runtimes.md
 !docs/sdk-schema.md
 !docs/self-hosted-coordinator.md
+!docs/successor/
 !docs/team-mode-roadmap.md
 !docs/team-mode-security.md
 !docs/vartio-integration.md
