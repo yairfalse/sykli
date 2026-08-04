@@ -87,7 +87,7 @@ flowchart LR
 ```go
 package main
 
-import sykli "github.com/false-systems/sykli/sdk/go"
+import sykli "github.com/false-systems/sykli-elixir/sdk/go"
 
 func main() {
     s := sykli.New()
@@ -532,19 +532,19 @@ regression, test coverage gaps, and architecture boundary checks.
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/false-systems/sykli/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/false-systems/sykli-elixir/main/install.sh | bash
 ```
 
 For the current release candidate, install the matching CLI explicitly:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/false-systems/sykli/main/install.sh | bash -s v0.9.0-rc.1
+curl -fsSL https://raw.githubusercontent.com/false-systems/sykli-elixir/main/install.sh | bash -s v0.9.0-rc.1
 ```
 
-Or [download a binary](https://github.com/false-systems/sykli/releases/latest) for
+Or [download a binary](https://github.com/false-systems/sykli-elixir/releases/latest) for
 macOS or Linux. Release candidates (e.g. `v0.9.0-rc.1`) are published as
 GitHub prereleases — they appear on the
-[releases page](https://github.com/false-systems/sykli/releases) but never
+[releases page](https://github.com/false-systems/sykli-elixir/releases) but never
 as `latest`, and are not pushed to package registries.
 
 Using Sykli inside GitHub Actions is supported as a hosted fallback. The
@@ -555,7 +555,7 @@ GitHub sends webhooks to a node you control, and Sykli runs the graph there.
 <summary>Build from source</summary>
 
 ```bash
-git clone https://github.com/false-systems/sykli.git
+git clone https://github.com/false-systems/sykli-elixir.git
 cd sykli/core
 mix deps.get
 mix escript.build
@@ -569,7 +569,7 @@ Requires Elixir 1.14+.
 
 | Language | Install | Default file |
 |----------|---------|--------------|
-| Go | `go get github.com/false-systems/sykli/sdk/go@latest` | `sykli.go` |
+| Go | `go get github.com/false-systems/sykli-elixir/sdk/go@latest` | `sykli.go` |
 | Rust | `sykli = "0.7.0"` in `Cargo.toml` | `sykli.rs` |
 | TypeScript | `npm install sykli@0.7.0` | `sykli.ts` |
 | Elixir | `{:sykli_sdk, "~> 0.7.0"}` in `mix.exs` | `sykli.exs` |
@@ -741,6 +741,6 @@ rationale.
 
 **sykli** (Finnish: *cycle*) — built in Berlin, powered by BEAM.
 
-**[Install](#install)** · **[Schema](schemas/sykli-pipeline.schema.json)** · **[Contract](docs/sdk-schema.md)** · **[Issues](https://github.com/false-systems/sykli/issues)**
+**[Install](#install)** · **[Schema](schemas/sykli-pipeline.schema.json)** · **[Contract](docs/sdk-schema.md)** · **[Issues](https://github.com/false-systems/sykli-elixir/issues)**
 
 </div>

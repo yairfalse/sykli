@@ -15,7 +15,7 @@ defmodule Sykli.Gui.RouterTest do
     assert %{"ok" => true, "version" => "1", "data" => data, "error" => nil} =
              Jason.decode!(conn.resp_body)
 
-    assert data["repo"]["name"] == "false-systems/sykli"
+    assert data["repo"]["name"] == "false-systems/sykli-elixir"
     assert length(data["graph"]["nodes"]) == 4
   end
 

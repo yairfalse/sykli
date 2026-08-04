@@ -2,7 +2,7 @@ module go_test
 
 go 1.21
 
-require github.com/false-systems/sykli/sdk/go v0.0.0
+require github.com/false-systems/sykli-elixir/sdk/go v0.0.0
 
 require (
 	github.com/mattn/go-colorable v0.1.13 // indirect
@@ -11,4 +11,4 @@ require (
 	golang.org/x/sys v0.12.0 // indirect
 )
 
-replace github.com/false-systems/sykli/sdk/go => ../../sdk/go
+replace github.com/false-systems/sykli-elixir/sdk/go => ../../sdk/go

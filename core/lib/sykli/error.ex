@@ -956,7 +956,7 @@ defmodule Sykli.Error do
       type: :internal,
       message: "MCP tool crashed: #{message}",
       step: :run,
-      hints: ["report this issue at https://github.com/false-systems/sykli/issues"]
+      hints: ["report this issue at https://github.com/false-systems/sykli-elixir/issues"]
     }
   end
 
@@ -1025,7 +1025,7 @@ defmodule Sykli.Error do
       type: :internal,
       message: message,
       hints: [
-        "report this issue at https://github.com/false-systems/sykli/issues"
+        "report this issue at https://github.com/false-systems/sykli-elixir/issues"
       ],
       notes: notes,
       cause: cause

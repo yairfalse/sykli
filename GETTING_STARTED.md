@@ -13,24 +13,24 @@ Get up and running with Sykli in under 5 minutes.
 ### Option 1: Install Script (Recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/false-systems/sykli/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/false-systems/sykli-elixir/main/install.sh | bash
 ```
 
 Release candidates are not GitHub `latest`. To use the current RC SDKs, install
 the matching CLI:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/false-systems/sykli/main/install.sh | bash -s v0.9.0-rc.1
+curl -fsSL https://raw.githubusercontent.com/false-systems/sykli-elixir/main/install.sh | bash -s v0.9.0-rc.1
 ```
 
 ### Option 2: Download Binary
 
-Download from [GitHub Releases](https://github.com/false-systems/sykli/releases/latest) and add to your PATH.
+Download from [GitHub Releases](https://github.com/false-systems/sykli-elixir/releases/latest) and add to your PATH.
 
 ### Option 3: Build from Source
 
 ```bash
-git clone https://github.com/false-systems/sykli.git
+git clone https://github.com/false-systems/sykli-elixir.git
 cd sykli/core
 mix deps.get
 mix escript.build
@@ -52,7 +52,7 @@ Pick your language:
 
 ```bash
 # Go
-go get github.com/false-systems/sykli/sdk/go@v0.3.0
+go get github.com/false-systems/sykli-elixir/sdk/go@v0.3.0
 
 # Rust
 cargo add sykli
@@ -69,7 +69,7 @@ npm install sykli
 ```go
 package main
 
-import sykli "github.com/false-systems/sykli/sdk/go"
+import sykli "github.com/false-systems/sykli-elixir/sdk/go"
 
 func main() {
     s := sykli.New()

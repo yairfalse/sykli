@@ -32,7 +32,7 @@ defmodule Sykli.Gui.Provider.Demo do
   def state(opts) do
     %State{
       repo: %Repo{
-        name: "false-systems/sykli",
+        name: "false-systems/sykli-elixir",
         path: Keyword.get(opts, :repo_path),
         branch: Keyword.get(opts, :branch, "main"),
         dirty: false

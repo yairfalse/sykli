@@ -32,7 +32,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/false-systems/sykli.git",
+    "url": "git+https://github.com/false-systems/sykli-elixir.git",
     "directory": "sdk/typescript"
   },
   "devDependencies": {

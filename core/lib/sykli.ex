@@ -112,7 +112,7 @@ defmodule Sykli do
         IO.puts(:stderr, "\e[2mOr create one manually:\e[0m")
         IO.puts(:stderr, "  sykli.go    sykli.rs    sykli.ts    sykli.exs    sykli.py")
         IO.puts(:stderr, "")
-        IO.puts(:stderr, "Docs: \e[34mhttps://github.com/false-systems/sykli\e[0m")
+        IO.puts(:stderr, "Docs: \e[34mhttps://github.com/false-systems/sykli-elixir\e[0m")
         {:error, :no_sdk_file}
 
       {:error, {:missing_tool, tool, hint}} ->

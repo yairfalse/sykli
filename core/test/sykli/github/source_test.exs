@@ -7,7 +7,7 @@ defmodule Sykli.GitHub.SourceTest do
 
   test "fake source copies a fixture repo and cleans it up" do
     context = %{
-      repo: "false-systems/sykli",
+      repo: "false-systems/sykli-elixir",
       head_sha: "abc123",
       delivery_id: "source-test",
       run_id: "github:source-test"
@@ -46,7 +46,7 @@ defmodule Sykli.GitHub.SourceTest do
     assert {:ok, path} =
              Sykli.GitHub.Source.Real.acquire(
                %{
-                 repo: "false-systems/sykli",
+                 repo: "false-systems/sykli-elixir",
                  head_sha: "HEAD",
                  delivery_id: "token-safe",
                  run_id: "github:token-safe"
@@ -60,10 +60,10 @@ defmodule Sykli.GitHub.SourceTest do
     refute String.contains?(path, ":")
     refute String.contains?(config, token)
     refute String.contains?(config, "x-access-token")
-    assert String.contains?(config, "https://github.com/false-systems/sykli.git")
+    assert String.contains?(config, "https://github.com/false-systems/sykli-elixir.git")
 
     assert_receive {:git_invocation, ["clone", "--depth", "1", url, _repo_dir], opts}
-    assert url == "https://github.com/false-systems/sykli.git"
+    assert url == "https://github.com/false-systems/sykli-elixir.git"
     refute url =~ token
     refute inspect(opts) =~ token
 

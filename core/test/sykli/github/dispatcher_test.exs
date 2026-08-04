@@ -20,7 +20,7 @@ defmodule Sykli.GitHub.DispatcherTest do
     event = %{
       event: "pull_request",
       delivery_id: "dispatcher-delivery",
-      repo: "false-systems/sykli",
+      repo: "false-systems/sykli-elixir",
       installation_id: 123,
       head_sha: "abc123"
     }
@@ -39,7 +39,7 @@ defmodule Sykli.GitHub.DispatcherTest do
                fake_recorder: self()
              )
 
-    assert_receive {:github_checks_create_suite, %{repo: "false-systems/sykli"},
+    assert_receive {:github_checks_create_suite, %{repo: "false-systems/sykli-elixir"},
                     "fake-installation-token-123"}
 
     assert_receive {:github_checks_create_run, %{head_sha: "abc123"},

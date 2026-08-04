@@ -23,7 +23,7 @@ copy_fixture() {
   printf '[project]\nname = "sykli"\nversion = "0.6.0"\n' > "$TMP_DIR/sdk/python/pyproject.toml"
   printf '{\n  "name": "sykli",\n  "version": "0.6.0"\n}\n' > "$TMP_DIR/sdk/typescript/package.json"
   printf '{\n  "name": "sykli",\n  "version": "0.6.0",\n  "packages": {\n    "": {\n      "name": "sykli",\n      "version": "0.6.0"\n    }\n  }\n}\n' > "$TMP_DIR/sdk/typescript/package-lock.json"
-  printf 'module github.com/false-systems/sykli/sdk/go\n\ngo 1.21\n' > "$TMP_DIR/sdk/go/go.mod"
+  printf 'module github.com/false-systems/sykli-elixir/sdk/go\n\ngo 1.21\n' > "$TMP_DIR/sdk/go/go.mod"
 }
 
 assert_contains() {

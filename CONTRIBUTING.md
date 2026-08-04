@@ -112,5 +112,5 @@ faith; critique contracts, not people.
 
 ## Questions
 
-Open a [GitHub Discussion](https://github.com/false-systems/sykli/discussions)
+Open a [GitHub Discussion](https://github.com/false-systems/sykli-elixir/discussions)
 for design questions and ideas; reserve issues for bugs and scoped work.

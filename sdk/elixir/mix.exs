@@ -30,7 +30,7 @@ defmodule SykliSdk.MixProject do
     [
       name: "sykli",
       licenses: ["MIT"],
-      links: %{"GitHub" => "https://github.com/false-systems/sykli"},
+      links: %{"GitHub" => "https://github.com/false-systems/sykli-elixir"},
       files: ~w(lib mix.exs README.md)
     ]
   end

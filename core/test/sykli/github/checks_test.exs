@@ -10,19 +10,19 @@ defmodule Sykli.GitHub.ChecksTest do
 
   test "create_suite posts queued suite request through the HTTP behaviour" do
     assert {:ok, %{"id" => 101}} =
-             Checks.create_suite(%{repo: "false-systems/sykli", head_sha: "abc123"}, "token",
+             Checks.create_suite(%{repo: "false-systems/sykli-elixir", head_sha: "abc123"}, "token",
                http_client: __MODULE__.HTTP,
                api_url: "https://api.github.test"
              )
 
     [{:post, url, body}] = Application.get_env(:sykli, :github_http_requests)
-    assert url == "https://api.github.test/repos/false-systems/sykli/check-suites"
+    assert url == "https://api.github.test/repos/false-systems/sykli-elixir/check-suites"
     assert Jason.decode!(body) == %{"head_sha" => "abc123"}
   end
 
   test "create_run creates check run with requested status" do
     assert {:ok, %{"id" => 202}} =
-             Checks.create_run(%{repo: "false-systems/sykli", head_sha: "abc123"}, "token",
+             Checks.create_run(%{repo: "false-systems/sykli-elixir", head_sha: "abc123"}, "token",
                http_client: __MODULE__.HTTP,
                api_url: "https://api.github.test",
                name: "sykli",
@@ -30,7 +30,7 @@ defmodule Sykli.GitHub.ChecksTest do
              )
 
     [{:post, url, body}] = Application.get_env(:sykli, :github_http_requests)
-    assert url == "https://api.github.test/repos/false-systems/sykli/check-runs"
+    assert url == "https://api.github.test/repos/false-systems/sykli-elixir/check-runs"
 
     assert Jason.decode!(body) == %{
              "head_sha" => "abc123",
@@ -46,7 +46,7 @@ defmodule Sykli.GitHub.ChecksTest do
 
     try do
       assert {:ok, %{"id" => 303}} =
-               Checks.create_suite(%{repo: "false-systems/sykli", head_sha: "abc123"}, "token",
+               Checks.create_suite(%{repo: "false-systems/sykli-elixir", head_sha: "abc123"}, "token",
                  api_url: "http://127.0.0.1:#{port}"
                )
     after

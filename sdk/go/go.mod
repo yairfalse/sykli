@@ -1,4 +1,4 @@
-module github.com/false-systems/sykli/sdk/go
+module github.com/false-systems/sykli-elixir/sdk/go
 
 go 1.21
 

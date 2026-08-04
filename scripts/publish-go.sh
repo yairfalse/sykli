@@ -17,10 +17,10 @@ done
 TAG="sdk/go/v$VERSION"
 
 echo "[publish-go] Go modules publish through git tags"
-echo "[publish-go] module: github.com/false-systems/sykli/sdk/go"
+echo "[publish-go] module: github.com/false-systems/sykli-elixir/sdk/go"
 echo "[publish-go] tag: $TAG"
 
-if ! grep -q '^module github.com/false-systems/sykli/sdk/go$' "$ROOT/sdk/go/go.mod"; then
+if ! grep -q '^module github.com/false-systems/sykli-elixir/sdk/go$' "$ROOT/sdk/go/go.mod"; then
   echo "[publish-go] error: sdk/go/go.mod has unexpected module path" >&2
   exit 1
 fi

@@ -12,7 +12,7 @@ defmodule Sykli.GitHub.Webhook.ReceiverTest do
   @secret "webhook-secret"
   @body Jason.encode!(%{
           installation: %{id: 123},
-          repository: %{full_name: "false-systems/sykli"},
+          repository: %{full_name: "false-systems/sykli-elixir"},
           pull_request: %{head: %{sha: "abc123"}}
         })
 
@@ -81,10 +81,10 @@ defmodule Sykli.GitHub.Webhook.ReceiverTest do
 
     assert_receive %Sykli.Occurrence{
       type: "ci.github.webhook.received",
-      data: %{repo: "false-systems/sykli"}
+      data: %{repo: "false-systems/sykli-elixir"}
     }
 
-    assert_receive {:receiver_dispatch, %{repo: "false-systems/sykli", head_sha: "abc123"}}
+    assert_receive {:receiver_dispatch, %{repo: "false-systems/sykli-elixir", head_sha: "abc123"}}
   end
 
   test "wrong signature is rejected without logging the raw body" do

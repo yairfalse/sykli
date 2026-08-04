@@ -199,7 +199,7 @@ jobs:
   # exists, and the sykli package has not had its first publish yet. After
   # the first manual `npm publish` from sdk/typescript: configure the
   # trusted publisher on npmjs.com (package Settings → Trusted publisher:
-  # GitHub Actions, repository false-systems/sykli, workflow release.yml),
+  # GitHub Actions, repository false-systems/sykli-elixir, workflow release.yml),
   # then uncomment this job. Requires npm >= 11.5 on the runner (OIDC).
   #
   # publish-npm:

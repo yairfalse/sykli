@@ -8,7 +8,7 @@ defmodule Sykli.Gui.StateTest do
     wire = State.to_wire(state)
 
     assert %{"repo" => repo, "latestRun" => run, "workItems" => [item | _]} = wire
-    assert repo["name"] == "false-systems/sykli"
+    assert repo["name"] == "false-systems/sykli-elixir"
     assert run["primaryFailureNodeId"] == "test:unit"
     assert item["runList"] =~ "#41 failed"
 

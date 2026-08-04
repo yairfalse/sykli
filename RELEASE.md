@@ -85,7 +85,7 @@ environment left empty.
 **npm**: trusted publishing can only be configured on an existing package.
 After the first manual `npm publish` from `sdk/typescript`, configure the
 trusted publisher on npmjs.com (package Settings → Trusted publisher:
-GitHub Actions, repository `false-systems/sykli`, workflow `release.yml`)
+GitHub Actions, repository `false-systems/sykli-elixir`, workflow `release.yml`)
 and uncomment the `publish-npm` job in `release.yml`.
 
 The publish jobs run after the GitHub release is created, so a registry
