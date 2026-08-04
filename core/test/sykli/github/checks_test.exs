@@ -10,7 +10,9 @@ defmodule Sykli.GitHub.ChecksTest do
 
   test "create_suite posts queued suite request through the HTTP behaviour" do
     assert {:ok, %{"id" => 101}} =
-             Checks.create_suite(%{repo: "false-systems/sykli-elixir", head_sha: "abc123"}, "token",
+             Checks.create_suite(
+               %{repo: "false-systems/sykli-elixir", head_sha: "abc123"},
+               "token",
                http_client: __MODULE__.HTTP,
                api_url: "https://api.github.test"
              )
@@ -46,7 +48,9 @@ defmodule Sykli.GitHub.ChecksTest do
 
     try do
       assert {:ok, %{"id" => 303}} =
-               Checks.create_suite(%{repo: "false-systems/sykli-elixir", head_sha: "abc123"}, "token",
+               Checks.create_suite(
+                 %{repo: "false-systems/sykli-elixir", head_sha: "abc123"},
+                 "token",
                  api_url: "http://127.0.0.1:#{port}"
                )
     after
